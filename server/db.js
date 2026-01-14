@@ -11,7 +11,7 @@ let dbInitialized = false;
 function getPool() {
   if (!pool) {
     // Check for POSTGRES_URL first, then fall back to POSTGRES_URL_NON_POOLING
-    const connectionString = process.env.POSTGRES_URL || process.env.POSTGRES_URL_NON_POOLING;
+    let connectionString = process.env.POSTGRES_URL || process.env.POSTGRES_URL_NON_POOLING;
     if (!connectionString) {
       throw new Error('POSTGRES_URL or POSTGRES_URL_NON_POOLING environment variable is not set');
     }
@@ -22,12 +22,20 @@ function getPool() {
     const hasSupabaseEnvVars = !!(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL);
     const isSupabase = hasSupabaseInString || hasSupabaseEnvVars;
     
-    // For Supabase, always use SSL with rejectUnauthorized: false
-    // This handles their self-signed certificates
-    // If we detect Supabase env vars but connection string doesn't match, still use SSL
-    const sslConfig = isSupabase 
-      ? { rejectUnauthorized: false }
-      : undefined;
+    // For Supabase, ensure SSL is properly configured
+    // pg requires explicit SSL config for self-signed certificates
+    let sslConfig = undefined;
+    if (isSupabase) {
+      // Ensure connection string has sslmode if not already present
+      if (!connectionString.includes('sslmode=')) {
+        const separator = connectionString.includes('?') ? '&' : '?';
+        connectionString = `${connectionString}${separator}sslmode=require`;
+      }
+      // Set SSL config to handle self-signed certificates
+      sslConfig = {
+        rejectUnauthorized: false
+      };
+    }
     
     pool = new Pool({
       connectionString,
