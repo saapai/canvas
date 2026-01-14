@@ -226,18 +226,23 @@ function initAuthUI() {
 }
 
 async function bootstrap() {
-  // Check if we're on a user page FIRST, before anything else
+  // Check if we're on a user page FIRST, before anything else runs
   const pageUsername = window.PAGE_USERNAME;
   const isOwner = window.PAGE_IS_OWNER === true;
   const pathParts = window.location.pathname.split('/').filter(Boolean);
   const isUserPage = !!pageUsername || (pathParts.length > 0 && pathParts[0] !== 'index.html' && pathParts[0] !== '');
   
-  // If on a user page, hide auth overlay IMMEDIATELY and keep it hidden
-  if (isUserPage) {
-    hideAuthOverlay();
+  // CRITICAL: Hide auth overlay IMMEDIATELY if on a user page - do this BEFORE initAuthUI
+  if (isUserPage && authOverlay) {
+    authOverlay.classList.add('hidden');
+    authOverlay.style.display = 'none'; // Force hide with inline style
   }
   
-  initAuthUI();
+  // Only initialize auth UI if NOT on a user page
+  if (!isUserPage) {
+    initAuthUI();
+  }
+  
   setAnchorGreeting();
   
   try {
