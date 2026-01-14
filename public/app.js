@@ -706,31 +706,23 @@ function navigateToEntry(entryId) {
   const pageUsername = window.PAGE_USERNAME;
   const username = pageUsername || (currentUser && currentUser.username);
   
-  // If we're on a user page, navigate to URL path
-  if (username && pageUsername) {
-    const slug = generateEntrySlug(entryData.text);
-    const currentPath = window.location.pathname.split('/').filter(Boolean);
-    
-    // Build new path: /username/.../slug
-    let newPath = `/${username}`;
-    
-    // If we're already in a subdirectory, preserve the path
-    if (currentPath.length > 1 && currentPath[0] === username) {
-      newPath = `/${currentPath.slice(0, -1).join('/')}/${slug}`;
-    } else {
-      newPath = `/${username}/${slug}`;
-    }
-    
-    // Navigate to the new URL
-    window.location.href = newPath;
-    return;
-  }
-  
-  // Fallback to local navigation (for editing mode)
+  // Navigate locally with URL path update
   navigationStack.push(entryId);
   currentViewEntryId = entryId;
   updateBreadcrumb();
   updateEntryVisibility();
+  
+  // Update URL if we're on a user page
+  if (username && pageUsername) {
+    const slug = entryData.type === 'link' ? generateUrlSlug(entryData.text) : generateEntrySlug(entryData.text);
+    const currentPath = window.location.pathname.split('/').filter(Boolean);
+    
+    // Build new path: append slug to current path
+    const newPath = `/${currentPath.join('/')}/${slug}`;
+    
+    // Update URL without reloading
+    window.history.pushState({ entryId, navigationStack: [...navigationStack] }, '', newPath);
+  }
 }
 
 function navigateBack(level = 1) {
@@ -761,6 +753,25 @@ function navigateBack(level = 1) {
   }
   updateBreadcrumb();
   updateEntryVisibility();
+  
+  // Update URL to reflect navigation state
+  const pageUsername = window.PAGE_USERNAME;
+  if (pageUsername) {
+    if (navigationStack.length === 0) {
+      window.history.pushState({ navigationStack: [] }, '', `/${pageUsername}`);
+    } else {
+      // Build path from navigation stack
+      const pathParts = [pageUsername];
+      navigationStack.forEach(entryId => {
+        const entryData = entries.get(entryId);
+        if (entryData) {
+          const slug = entryData.type === 'link' ? generateUrlSlug(entryData.text) : generateEntrySlug(entryData.text);
+          pathParts.push(slug);
+        }
+      });
+      window.history.pushState({ navigationStack: [...navigationStack] }, '', `/${pathParts.join('/')}`);
+    }
+  }
   
   // Reset navigation flag after a delay to prevent paste events
   // Also prevent editor from being shown for a bit longer
@@ -797,6 +808,12 @@ function navigateToRoot() {
   currentViewEntryId = null;
   updateBreadcrumb();
   updateEntryVisibility();
+  
+  // Update URL to root user page
+  const pageUsername = window.PAGE_USERNAME;
+  if (pageUsername) {
+    window.history.pushState({ navigationStack: [] }, '', `/${pageUsername}`);
+  }
   
   // Reset navigation flag after a delay to prevent paste events
   // Also prevent editor from being shown for a bit longer
@@ -1835,6 +1852,55 @@ viewport.addEventListener('contextmenu', (e) => {
 
 requestAnimationFrame(() => {
   centerAnchor();
+});
+
+// Handle browser back/forward buttons
+window.addEventListener('popstate', (event) => {
+  if (window.PAGE_USERNAME) {
+    // Extract path from URL
+    const pathParts = window.location.pathname.split('/').filter(Boolean);
+    
+    if (pathParts.length === 1 && pathParts[0] === window.PAGE_USERNAME) {
+      // At root of user page
+      navigateToRoot();
+    } else if (pathParts.length > 1) {
+      // Navigate to the entry based on the URL path
+      const slugPath = pathParts.slice(1); // Remove username
+      
+      // If we have saved state, use it
+      if (event.state && event.state.navigationStack) {
+        navigationStack = [...event.state.navigationStack];
+        currentViewEntryId = navigationStack.length > 0 ? navigationStack[navigationStack.length - 1] : null;
+        updateBreadcrumb();
+        updateEntryVisibility();
+      } else {
+        // Otherwise, reconstruct navigation from path
+        let currentParent = null;
+        navigationStack = [];
+        
+        for (const slug of slugPath) {
+          const children = Array.from(entries.values()).filter(e => e.parentEntryId === currentParent);
+          const targetEntry = children.find(e => {
+            const entrySlug = e.text && (typeof e.text === 'string') 
+              ? (e.text.startsWith('http') ? generateUrlSlug(e.text) : generateEntrySlug(e.text))
+              : '';
+            return entrySlug === slug;
+          });
+          
+          if (targetEntry) {
+            navigationStack.push(targetEntry.element.id);
+            currentParent = targetEntry.element.id;
+          } else {
+            break;
+          }
+        }
+        
+        currentViewEntryId = navigationStack.length > 0 ? navigationStack[navigationStack.length - 1] : null;
+        updateBreadcrumb();
+        updateEntryVisibility();
+      }
+    }
+  }
 });
 
 bootstrap();
