@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
+import twilio from 'twilio';
 import { processTextWithLLM, fetchLinkMetadata, generateLinkCard } from './llm.js';
 import {
   initDatabase,
@@ -23,6 +24,16 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
+
+// Optional Twilio client for SMS / Verify (used for sending verification codes)
+const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || '';
+const TWILIO_AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || '';
+const TWILIO_FROM_NUMBER = process.env.TWILIO_FROM_NUMBER || '';
+const TWILIO_VERIFY_SERVICE_SID = process.env.TWILIO_VERIFY_SERVICE_SID || '';
+
+const twilioClient = TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN
+  ? twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+  : null;
 
 app.use(cors());
 app.use(express.json());
@@ -116,13 +127,44 @@ app.post('/api/auth/send-code', async (req, res) => {
       return res.status(400).json({ error: 'Phone is required' });
     }
 
+    // If Twilio Verify is configured, let it fully manage codes
+    if (twilioClient && TWILIO_VERIFY_SERVICE_SID) {
+      try {
+        await twilioClient.verify.v2
+          .services(TWILIO_VERIFY_SERVICE_SID)
+          .verifications.create({
+            to: normalizedPhone,
+            channel: 'sms'
+          });
+      } catch (verifyError) {
+        console.error('Error starting Twilio Verify verification:', verifyError);
+        return res.status(500).json({ error: 'Failed to send verification code' });
+      }
+      return res.json({ success: true, via: 'twilio-verify' });
+    }
+
+    // Fallback: generate/store own code, then send via SMS (or console log)
     const code = String(Math.floor(100000 + Math.random() * 900000));
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
     await saveVerificationCode(normalizedPhone, code, expiresAt);
 
+    if (twilioClient && TWILIO_FROM_NUMBER) {
+      try {
+        await twilioClient.messages.create({
+          to: normalizedPhone,
+          from: TWILIO_FROM_NUMBER,
+          body: `Your Canvas login code is ${code}. It expires in 10 minutes.`
+        });
+      } catch (smsError) {
+        console.error('Error sending SMS via Twilio:', smsError);
+      }
+    } else {
+      console.log('Twilio not configured; falling back to console log for verification codes.');
+    }
+
     console.log(`Verification code for ${normalizedPhone}: ${code}`);
 
-    return res.json({ success: true });
+    return res.json({ success: true, via: 'local-code' });
   } catch (error) {
     console.error('Error sending verification code:', error);
     return res.status(500).json({ error: error.message });
@@ -138,7 +180,27 @@ app.post('/api/auth/verify-code', async (req, res) => {
     const normalizedPhone = String(phone).trim();
     const normalizedCode = String(code).trim();
 
-    const valid = await verifyPhoneCode(normalizedPhone, normalizedCode);
+    let valid = false;
+
+    // If Twilio Verify is configured, delegate code checking to it
+    if (twilioClient && TWILIO_VERIFY_SERVICE_SID) {
+      try {
+        const check = await twilioClient.verify.v2
+          .services(TWILIO_VERIFY_SERVICE_SID)
+          .verificationChecks.create({
+            to: normalizedPhone,
+            code: normalizedCode
+          });
+
+        valid = check.status === 'approved';
+      } catch (verifyError) {
+        console.error('Error verifying code with Twilio Verify:', verifyError);
+        return res.status(400).json({ error: 'Invalid or expired code' });
+      }
+    } else {
+      // Fallback: use local verification_codes table
+      valid = await verifyPhoneCode(normalizedPhone, normalizedCode);
+    }
     if (!valid) {
       return res.status(400).json({ error: 'Invalid or expired code' });
     }
