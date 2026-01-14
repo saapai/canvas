@@ -383,6 +383,17 @@ async function loadUserEntries(username, editable) {
       editor.style.display = 'none';
       // Keep pan/zoom but disable editing
       viewport.style.cursor = 'grab';
+      
+      // Disable all entry interactions except navigation
+      entriesData.forEach(entryData => {
+        const entry = document.querySelector(`#${entryData.id}`);
+        if (entry) {
+          entry.style.pointerEvents = 'auto'; // Allow clicks for navigation
+          entry.style.cursor = 'pointer'; // Show pointer for clickable entries
+          // Remove any hover effects by preventing CSS hover states
+          entry.classList.add('read-only');
+        }
+      });
     }
   } catch (error) {
     console.error('Error loading user entries:', error);
@@ -1360,11 +1371,28 @@ viewport.addEventListener('mousedown', (e) => {
   // Don't handle clicks on breadcrumb
   if(e.target.closest('#breadcrumb')) return;
   
+  // In read-only mode, only allow panning (no entry dragging)
+  if (isReadOnly) {
+    const entryEl = findEntryElement(e.target);
+    if (!entryEl) {
+      // Start panning viewport (only if not clicking on entry)
+      dragging = true;
+      viewport.classList.add('dragging');
+      last = { x: e.clientX, y: e.clientY };
+      clickStart = { x: e.clientX, y: e.clientY, t: performance.now() };
+    } else {
+      // Track click on entry for navigation (but don't start dragging)
+      clickStart = { x: e.clientX, y: e.clientY, t: performance.now(), entryEl: entryEl, button: e.button };
+    }
+    return;
+  }
+  
+  // Normal mode: allow editing and dragging
   const entryEl = findEntryElement(e.target);
   
   if(entryEl) {
-    // Only prepare for drag if Shift is held (for shift+drag to move) and not read-only
-    if(e.shiftKey && !isReadOnly) {
+    // Only prepare for drag if Shift is held (for shift+drag to move)
+    if(e.shiftKey) {
       e.preventDefault();
       draggingEntry = entryEl;
       isClick = false;
@@ -1392,6 +1420,22 @@ viewport.addEventListener('mousedown', (e) => {
 });
 
 viewport.addEventListener('mousemove', (e) => {
+  // In read-only mode, only allow panning (no entry dragging)
+  if (isReadOnly) {
+    if (dragging) {
+      // Pan viewport
+      const dx = e.clientX - last.x;
+      const dy = e.clientY - last.y;
+      last = { x: e.clientX, y: e.clientY };
+      cam.x += dx;
+      cam.y += dy;
+      applyTransform();
+      isClick = false;
+    }
+    return;
+  }
+  
+  // Normal mode: allow entry dragging
   if(draggingEntry) {
     // Only allow dragging if Shift is still held
     if(!e.shiftKey) {
@@ -1419,19 +1463,17 @@ viewport.addEventListener('mousemove', (e) => {
       draggingEntry.style.left = `${newX}px`;
       draggingEntry.style.top = `${newY}px`;
       
-      // Update stored position (only if not read-only)
-      if (!isReadOnly) {
-        const entryId = draggingEntry.id;
-        if(entryId === 'anchor') {
-          anchorPos.x = newX;
-          anchorPos.y = newY;
-        } else {
-          const entryData = entries.get(entryId);
-          if(entryData) {
-            entryData.position = { x: newX, y: newY };
-            // Save position change to server (debounce this in production)
-            updateEntryOnServer(entryData);
-          }
+      // Update stored position
+      const entryId = draggingEntry.id;
+      if(entryId === 'anchor') {
+        anchorPos.x = newX;
+        anchorPos.y = newY;
+      } else {
+        const entryData = entries.get(entryId);
+        if(entryData) {
+          entryData.position = { x: newX, y: newY };
+          // Save position change to server (debounce this in production)
+          updateEntryOnServer(entryData);
         }
       }
     }
@@ -1450,6 +1492,49 @@ viewport.addEventListener('mousemove', (e) => {
 });
 
 window.addEventListener('mouseup', (e) => {
+  // In read-only mode, only handle navigation clicks
+  if (isReadOnly) {
+    if (dragging) {
+      dragging = false;
+      viewport.classList.remove('dragging');
+      clickStart = null;
+      return;
+    }
+    
+    // Only handle clicks on entries for navigation
+    if (clickStart && clickStart.entryEl) {
+      // Skip navigation if this was a right-click
+      if (e.button !== 2 && clickStart.button !== 2) {
+        const dist = Math.hypot(e.clientX - clickStart.x, e.clientY - clickStart.y);
+        const dt = performance.now() - clickStart.t;
+        const isClick = (dist < dragThreshold && dt < 350);
+        
+        if (isClick) {
+          const entryEl = clickStart.entryEl;
+          
+          // Command/Ctrl + click: open link in browser
+          if ((e.metaKey || e.ctrlKey) && entryEl.id !== 'anchor' && entryEl.id) {
+            const entryData = entries.get(entryEl.id);
+            if (entryData) {
+              const urls = extractUrls(entryData.text);
+              if (urls.length > 0) {
+                window.open(urls[0], '_blank');
+              }
+            }
+          } 
+          // Regular click: navigate to entry (open breadcrumb)
+          else if (entryEl.id !== 'anchor' && entryEl.id) {
+            navigateToEntry(entryEl.id);
+          }
+        }
+      }
+    }
+    
+    clickStart = null;
+    return;
+  }
+  
+  // Normal mode: allow all interactions
   if(draggingEntry) {
     // Only reset if we didn't actually drag
     if(!hasMoved){
@@ -1474,8 +1559,8 @@ window.addEventListener('mouseup', (e) => {
     viewport.classList.remove('dragging');
     
     // Check if it was a click (no movement) - place editor
-    // Don't place editor if we're navigating or navigation just completed, or if read-only
-    if(clickStart && !isNavigating && !navigationJustCompleted && !isReadOnly) {
+    // Don't place editor if we're navigating or navigation just completed
+    if(clickStart && !isNavigating && !navigationJustCompleted) {
       const dist = Math.hypot(e.clientX - clickStart.x, e.clientY - clickStart.y);
       const dt = performance.now() - clickStart.t;
       if(dist < 6 && dt < 350 && !isClick){

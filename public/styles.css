@@ -98,6 +98,19 @@ body::before{
   pointer-events: none;
 }
 
+/* Read-only mode: disable all hover effects and visual feedback */
+.entry.read-only {
+  cursor: pointer !important;
+  transition: none !important;
+}
+
+.entry.read-only:hover {
+  background-color: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  transform: none !important;
+}
+
 .entry.editing .link-card,
 .entry.editing .link-card-placeholder{
   display: none;
