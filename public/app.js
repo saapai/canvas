@@ -343,10 +343,9 @@ async function loadUserEntries(username, editable) {
       }
       entry.style.minHeight = '60px';
       
-      // Disable editing if read-only
+      // In read-only mode, allow clicks for navigation
       if (!editable) {
-        entry.style.pointerEvents = 'none';
-        entry.style.cursor = 'default';
+        entry.style.cursor = 'pointer';
       }
       
       world.appendChild(entry);
@@ -683,6 +682,31 @@ function navigateToEntry(entryId) {
   const entryData = entries.get(entryId);
   if (!entryData) return;
   
+  // Get current username from page context or current user
+  const pageUsername = window.PAGE_USERNAME;
+  const username = pageUsername || (currentUser && currentUser.username);
+  
+  // If we're on a user page, navigate to URL path
+  if (username && pageUsername) {
+    const slug = generateEntrySlug(entryData.text);
+    const currentPath = window.location.pathname.split('/').filter(Boolean);
+    
+    // Build new path: /username/.../slug
+    let newPath = `/${username}`;
+    
+    // If we're already in a subdirectory, preserve the path
+    if (currentPath.length > 1 && currentPath[0] === username) {
+      newPath = `/${currentPath.slice(0, -1).join('/')}/${slug}`;
+    } else {
+      newPath = `/${username}/${slug}`;
+    }
+    
+    // Navigate to the new URL
+    window.location.href = newPath;
+    return;
+  }
+  
+  // Fallback to local navigation (for editing mode)
   navigationStack.push(entryId);
   currentViewEntryId = entryId;
   updateBreadcrumb();
@@ -1140,6 +1164,68 @@ const urlRegex = /(https?:\/\/[^\s]+)/gi;
 function extractUrls(text) {
   const matches = text.match(urlRegex);
   return matches ? [...new Set(matches)] : [];
+}
+
+// Generate slug from entry text (limit to 17 characters)
+function generateEntrySlug(text) {
+  if (!text) return '';
+  
+  // Remove URLs first
+  let cleanText = text;
+  const urls = extractUrls(text);
+  urls.forEach(url => {
+    cleanText = cleanText.replace(url, '').trim();
+  });
+  
+  // If only URLs, extract meaningful text from first URL
+  if (!cleanText.trim() && urls.length > 0) {
+    cleanText = extractUrlSlug(urls[0]);
+  }
+  
+  // Limit to 17 characters
+  const slug = cleanText
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '') // Remove special chars
+    .replace(/\s+/g, '-') // Replace spaces with hyphens
+    .replace(/-+/g, '-') // Replace multiple hyphens with one
+    .trim()
+    .substring(0, 17)
+    .replace(/-+$/, ''); // Remove trailing hyphens
+  
+  return slug || 'entry';
+}
+
+// Extract meaningful text from URL (first 10 chars, skip protocol/domain)
+function extractUrlSlug(url) {
+  try {
+    const urlObj = new URL(url);
+    // Get pathname + search, or hostname if no path
+    let meaningful = urlObj.pathname + urlObj.search;
+    
+    // Remove leading slash
+    meaningful = meaningful.replace(/^\//, '');
+    
+    // If no path, use hostname but remove common TLDs
+    if (!meaningful || meaningful === '/') {
+      meaningful = urlObj.hostname
+        .replace(/^www\./, '')
+        .replace(/\.(com|org|net|edu|gov|io|co|ai)$/, '');
+    }
+    
+    // Extract first 10 characters that are alphanumeric
+    const clean = meaningful
+      .replace(/[^a-z0-9]/gi, '')
+      .substring(0, 10);
+    
+    return clean || 'link';
+  } catch {
+    // Fallback: extract first 10 alphanumeric chars from URL
+    return url
+      .replace(/^https?:\/\//, '')
+      .replace(/^www\./, '')
+      .replace(/[^a-z0-9]/gi, '')
+      .substring(0, 10) || 'link';
+  }
 }
 
 async function generateLinkCard(url) {

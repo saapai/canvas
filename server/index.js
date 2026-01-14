@@ -52,7 +52,7 @@ if (process.env.VERCEL !== '1') {
 }
 
 // Helper function to generate user page HTML (canvas view, editable if owner)
-function generateUserPageHTML(user, isOwner = false) {
+function generateUserPageHTML(user, isOwner = false, pathParts = []) {
   // Read the index.html template
   try {
     const indexPath = join(__dirname, '../public/index.html');
@@ -66,6 +66,7 @@ function generateUserPageHTML(user, isOwner = false) {
   <script>
     window.PAGE_USERNAME = '${user.username}';
     window.PAGE_IS_OWNER = ${isOwner};
+    window.PAGE_PATH = ${JSON.stringify(pathParts)};
   </script>`;
     html = html.replace('<script src="app.js"></script>', `${contextScript}\n  <script src="app.js"></script>`);
     
@@ -593,6 +594,7 @@ app.get('/:username', async (req, res) => {
 app.get('/:username/*', async (req, res) => {
   try {
     const { username } = req.params;
+    const pathParts = req.params[0] ? req.params[0].split('/').filter(Boolean).map(p => decodeURIComponent(p)) : [];
     const user = await getUserByUsername(username);
     if (!user) {
       return res.status(404).send('User not found');
@@ -618,7 +620,7 @@ app.get('/:username/*', async (req, res) => {
     }
     
     // Always serve canvas view (editable if owner, read-only if public)
-    res.send(generateUserPageHTML(user, isOwner));
+    res.send(generateUserPageHTML(user, isOwner, pathParts));
   } catch (error) {
     console.error('Error serving user page:', error);
     res.status(500).send('Error loading page');
