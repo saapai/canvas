@@ -225,6 +225,10 @@ function initAuthUI() {
 }
 
 async function bootstrap() {
+  // Check if we're on a user page (not root)
+  const pathParts = window.location.pathname.split('/').filter(Boolean);
+  const isUserPage = pathParts.length > 0 && pathParts[0] !== 'index.html';
+  
   initAuthUI();
   setAnchorGreeting();
   try {
@@ -233,13 +237,33 @@ async function bootstrap() {
       const user = await res.json();
       currentUser = user;
       setAnchorGreeting();
-      await loadEntriesFromServer();
+      
+      // If on root and logged in, redirect to user's page
+      if (!isUserPage && user.username) {
+        window.location.href = `/${user.username}`;
+        return;
+      }
+      
+      // If on own user page, load editable entries
+      if (isUserPage && pathParts[0] === user.username) {
+        await loadEntriesFromServer();
+      } else if (!isUserPage) {
+        // On root but no username yet - show auth
+        showAuthOverlay();
+      }
+      // If on someone else's page, don't load entries (public view handles it)
     } else {
-      showAuthOverlay();
+      // Not logged in
+      if (!isUserPage) {
+        showAuthOverlay();
+      }
+      // If on a user page, let the public view handle it
     }
   } catch (error) {
     console.error('Error checking auth:', error);
-    showAuthOverlay();
+    if (!isUserPage) {
+      showAuthOverlay();
+    }
   }
 }
 

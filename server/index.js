@@ -2,6 +2,12 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import twilio from 'twilio';
+import { readFileSync } from 'fs';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
 import { processTextWithLLM, fetchLinkMetadata, generateLinkCard } from './llm.js';
 import {
   initDatabase,
@@ -641,7 +647,44 @@ app.get('/api/public/:username/path/*', async (req, res) => {
   }
 });
 
-// Serve public user pages
+// Root route - redirect logged-in users to their page
+app.get('/', async (req, res) => {
+  try {
+    // Check if user is logged in
+    const cookies = parseCookies(req);
+    const token = cookies.auth_token;
+    
+    if (token) {
+      try {
+        const payload = jwt.verify(token, JWT_SECRET);
+        if (payload && payload.id) {
+          const user = await getUserById(payload.id);
+          if (user && user.username) {
+            // Redirect to user's page
+            return res.redirect(`/${user.username}`);
+          }
+        }
+      } catch {
+        // Invalid token, serve main app
+      }
+    }
+    
+    // Not logged in or no username - serve main app (will show auth)
+    try {
+      const indexPath = join(__dirname, '../public/index.html');
+      const html = readFileSync(indexPath, 'utf8');
+      res.send(html);
+    } catch (error) {
+      console.error('Error reading index.html:', error);
+      res.status(500).send('Error loading page');
+    }
+  } catch (error) {
+    console.error('Error handling root route:', error);
+    res.status(500).send('Error loading page');
+  }
+});
+
+// Serve user pages (editable if owner, read-only if public)
 app.get('/:username', async (req, res) => {
   try {
     const { username } = req.params;
@@ -649,7 +692,40 @@ app.get('/:username', async (req, res) => {
     if (!user) {
       return res.status(404).send('User not found');
     }
-    res.send(generatePublicPageHTML(user, []));
+    
+    // Check if logged-in user is the page owner
+    const cookies = parseCookies(req);
+    const token = cookies.auth_token;
+    let isOwner = false;
+    
+    if (token) {
+      try {
+        const payload = jwt.verify(token, JWT_SECRET);
+        if (payload && payload.id) {
+          const loggedInUser = await getUserById(payload.id);
+          if (loggedInUser && loggedInUser.id === user.id) {
+            isOwner = true;
+          }
+        }
+      } catch {
+        // Invalid token, treat as public
+      }
+    }
+    
+    // If owner, serve the editable app; otherwise serve read-only public page
+    if (isOwner) {
+      // Serve the main app HTML (editable canvas)
+      try {
+        const indexPath = join(__dirname, '../public/index.html');
+        const html = readFileSync(indexPath, 'utf8');
+        res.send(html);
+      } catch (error) {
+        console.error('Error reading index.html:', error);
+        res.status(500).send('Error loading page');
+      }
+    } else {
+      res.send(generatePublicPageHTML(user, []));
+    }
   } catch (error) {
     console.error('Error serving user page:', error);
     res.status(500).send('Error loading page');
@@ -667,7 +743,39 @@ app.get('/:username/*', async (req, res) => {
       return res.status(404).send('User not found');
     }
     
-    res.send(generatePublicPageHTML(user, pathParts));
+    // Check if logged-in user is the page owner
+    const cookies = parseCookies(req);
+    const token = cookies.auth_token;
+    let isOwner = false;
+    
+    if (token) {
+      try {
+        const payload = jwt.verify(token, JWT_SECRET);
+        if (payload && payload.id) {
+          const loggedInUser = await getUserById(payload.id);
+          if (loggedInUser && loggedInUser.id === user.id) {
+            isOwner = true;
+          }
+        }
+      } catch {
+        // Invalid token, treat as public
+      }
+    }
+    
+    // If owner, serve the editable app; otherwise serve read-only public page
+    if (isOwner) {
+      // Serve the main app HTML (editable canvas)
+      try {
+        const indexPath = join(__dirname, '../public/index.html');
+        const html = readFileSync(indexPath, 'utf8');
+        res.send(html);
+      } catch (error) {
+        console.error('Error reading index.html:', error);
+        res.status(500).send('Error loading page');
+      }
+    } else {
+      res.send(generatePublicPageHTML(user, pathParts));
+    }
   } catch (error) {
     console.error('Error serving user page:', error);
     res.status(500).send('Error loading page');
