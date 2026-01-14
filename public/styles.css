@@ -93,6 +93,12 @@ body::before{
   margin: -2px;
 }
 
+/* Hide entry text content when editing (editor overlay shows the text instead) */
+.entry.editing > *:not(.link-card):not(.link-card-placeholder) {
+  visibility: hidden;
+  pointer-events: none;
+}
+
 .entry.editing .link-card,
 .entry.editing .link-card-placeholder{
   display: none;
