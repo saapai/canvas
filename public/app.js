@@ -354,6 +354,12 @@ async function loadEntriesFromServer() {
         entry.innerHTML = '';
       }
       
+      // Set proper width for entries (especially important for link cards)
+      // Use editor width as default, or measure the entry content
+      const defaultWidth = editor.offsetWidth || 400;
+      entry.style.width = `${defaultWidth}px`;
+      entry.style.minHeight = '60px';
+      
       world.appendChild(entry);
       
       // Store entry data
