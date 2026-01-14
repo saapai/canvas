@@ -392,11 +392,48 @@ async function loadUserEntries(username, editable) {
       }
     });
     
-    // Update visibility after loading
-    updateEntryVisibility();
-    
     // Set read-only mode
     isReadOnly = !editable;
+    
+    // Check if we need to navigate to a specific path based on URL
+    const pathParts = window.location.pathname.split('/').filter(Boolean);
+    if (pathParts.length > 1 && pathParts[0] === username) {
+      // We have a path to navigate to
+      const slugPath = pathParts.slice(1); // Remove username
+      let currentParent = null;
+      navigationStack = [];
+      
+      // Walk through the path to find the target entry
+      for (const slug of slugPath) {
+        const children = Array.from(entries.values()).filter(e => e.parentEntryId === currentParent);
+        const targetEntry = children.find(e => {
+          const entrySlug = e.text && (typeof e.text === 'string') 
+            ? (e.text.startsWith('http') ? generateUrlSlug(e.text) : generateEntrySlug(e.text))
+            : '';
+          return entrySlug === slug;
+        });
+        
+        if (targetEntry) {
+          navigationStack.push(targetEntry.id);
+          currentParent = targetEntry.id;
+        } else {
+          break;
+        }
+      }
+      
+      if (navigationStack.length > 0) {
+        currentViewEntryId = navigationStack[navigationStack.length - 1];
+      } else {
+        currentViewEntryId = null;
+      }
+    } else {
+      // Start at root
+      currentViewEntryId = null;
+      navigationStack = [];
+    }
+    
+    updateBreadcrumb();
+    updateEntryVisibility();
     
     if (isReadOnly) {
       editor.style.display = 'none';
