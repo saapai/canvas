@@ -15,6 +15,10 @@ const authVerifyCodeBtn = document.getElementById('auth-verify-code');
 const authEditPhoneBtn = document.getElementById('auth-edit-phone');
 const authSaveUsernameBtn = document.getElementById('auth-save-username');
 const authError = document.getElementById('auth-error');
+const authTitle = document.getElementById('auth-title');
+const authSubtitle = document.getElementById('auth-subtitle');
+const authCodeHint = document.getElementById('auth-code-hint');
+const authCodeBoxes = document.getElementById('auth-code-boxes');
 
 let currentUser = null;
 
@@ -41,6 +45,12 @@ function showAuthOverlay() {
   authOverlay.classList.remove('hidden');
   authError.classList.add('hidden');
   authError.textContent = '';
+  if (authTitle) {
+    authTitle.textContent = 'What\u2019s your phone number?';
+  }
+  if (authSubtitle) {
+    authSubtitle.textContent = 'We\u2019ll text you a code to sign in.';
+  }
   authStepPhone.classList.remove('hidden');
   authStepCode.classList.add('hidden');
   authStepUsername.classList.add('hidden');
@@ -83,9 +93,19 @@ async function handleSendCode() {
       const data = await res.json().catch(() => ({}));
       throw new Error(data.error || 'Failed to send code');
     }
+    if (authTitle) {
+      authTitle.textContent = 'Enter your verification code';
+    }
+    if (authSubtitle) {
+      authSubtitle.textContent = '';
+    }
+    if (authCodeHint) {
+      authCodeHint.textContent = `Sent SMS to ${phone}`;
+    }
     authStepPhone.classList.add('hidden');
     authStepCode.classList.remove('hidden');
     authCodeInput.focus();
+    updateCodeBoxes();
   } catch (error) {
     console.error(error);
     setAuthError(error.message);
@@ -129,6 +149,16 @@ async function handleVerifyCode() {
   } finally {
     authVerifyCodeBtn.disabled = false;
   }
+}
+
+function updateCodeBoxes() {
+  if (!authCodeBoxes) return;
+  const value = authCodeInput.value.slice(0, 6);
+  const chars = value.split('');
+  const boxes = authCodeBoxes.querySelectorAll('.auth-code-box');
+  boxes.forEach((box, index) => {
+    box.textContent = chars[index] || '';
+  });
 }
 
 async function handleSaveUsername() {
@@ -181,7 +211,15 @@ function initAuthUI() {
     authStepCode.classList.add('hidden');
     authStepPhone.classList.remove('hidden');
     authCodeInput.value = '';
+    updateCodeBoxes();
     authPhoneInput.focus();
+  });
+  authCodeBoxes.addEventListener('click', () => {
+    authCodeInput.focus();
+  });
+  authCodeInput.addEventListener('input', () => {
+    authCodeInput.value = authCodeInput.value.replace(/\D/g, '').slice(0, 6);
+    updateCodeBoxes();
   });
 }
 

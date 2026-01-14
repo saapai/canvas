@@ -375,9 +375,7 @@ body::before{
   display: flex;
   align-items: center;
   justify-content: center;
-  background: radial-gradient(circle at top, rgba(0, 0, 0, 0.16), transparent 60%),
-              rgba(247, 242, 232, 0.92);
-  backdrop-filter: blur(10px);
+  background: #050509;
   z-index: 1500;
 }
 
@@ -386,81 +384,126 @@ body::before{
 }
 
 .auth-modal {
-  background: rgba(255, 255, 255, 0.9);
-  border-radius: 16px;
-  padding: 24px 24px 20px;
-  box-shadow: 0 18px 55px rgba(0, 0, 0, 0.18);
-  max-width: 360px;
+  max-width: 520px;
   width: 100%;
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  padding: 60px 64px 56px;
+  color: #e5e7eb;
 }
 
 .auth-title {
-  font-size: 20px;
-  font-weight: 600;
-  margin-bottom: 4px;
+  font-family: "Lyon Text", "Times New Roman", serif;
+  font-size: 32px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  margin-bottom: 16px;
 }
 
 .auth-subtitle {
-  font-size: 13px;
-  color: rgba(0, 0, 0, 0.6);
-  margin-bottom: 16px;
+  font-size: 15px;
+  color: rgba(229, 231, 235, 0.78);
+  margin-bottom: 28px;
 }
 
 .auth-label {
   display: block;
-  font-size: 12px;
+  font-size: 13px;
   margin-bottom: 6px;
-  color: rgba(0, 0, 0, 0.7);
+  color: rgba(229, 231, 235, 0.82);
 }
 
 .auth-input {
   width: 100%;
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid rgba(0, 0, 0, 0.2);
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(31, 41, 55, 0.9);
   font-size: 14px;
   outline: none;
-  background: rgba(255, 255, 255, 0.95);
+  background: rgba(15, 23, 42, 0.85);
+  color: #e5e7eb;
+}
+
+.auth-input::placeholder {
+  color: rgba(148, 163, 184, 0.9);
 }
 
 .auth-input:focus {
-  border-color: rgba(59, 130, 246, 0.7);
+  border-color: rgba(148, 163, 184, 0.9);
+}
+
+.auth-phone-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.85);
+  border: 1px solid rgba(31, 41, 55, 0.9);
+  margin-bottom: 24px;
+}
+
+.auth-phone-flag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(55, 65, 81, 0.9);
+  background: rgba(17, 24, 39, 0.9);
+  color: #e5e7eb;
+  cursor: default;
+}
+
+.auth-phone-flag-emoji {
+  font-size: 16px;
+}
+
+.auth-phone-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #e5e7eb;
+  font-size: 16px;
+}
+
+.auth-phone-input::placeholder {
+  color: rgba(148, 163, 184, 0.9);
 }
 
 .auth-button {
   margin-top: 12px;
   width: 100%;
-  padding: 9px 10px;
+  padding: 18px 10px;
   border-radius: 999px;
   border: none;
-  background: #111827;
-  color: #f9fafb;
-  font-size: 14px;
+  background: #e5e7eb;
+  color: #111827;
+  font-size: 16px;
   font-weight: 500;
   cursor: pointer;
 }
 
 .auth-button:disabled {
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: default;
 }
 
 .auth-link-button {
-  margin-top: 8px;
+  margin-top: 16px;
   background: none;
   border: none;
   padding: 0;
-  font-size: 12px;
-  color: rgba(0, 0, 0, 0.6);
+  font-size: 13px;
+  color: rgba(209, 213, 219, 0.8);
   text-decoration: underline;
   cursor: pointer;
 }
 
 .auth-error {
-  margin-top: 10px;
-  font-size: 12px;
-  color: #b91c1c;
+  margin-top: 16px;
+  font-size: 13px;
+  color: #fecaca;
 }
 
 .auth-error.hidden {
@@ -469,5 +512,47 @@ body::before{
 
 .auth-step.hidden {
   display: none;
+}
+
+.auth-code-hint {
+  margin: 0 0 20px 0;
+  font-size: 14px;
+  color: rgba(209, 213, 219, 0.9);
+}
+
+.auth-code-wrapper {
+  position: relative;
+  margin-bottom: 24px;
+}
+
+.auth-code-input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.auth-code-boxes {
+  display: flex;
+  gap: 12px;
+}
+
+.auth-code-box {
+  flex: 1;
+  max-width: 56px;
+  height: 64px;
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(31, 41, 55, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  color: #e5e7eb;
+}
+
+.auth-code-boxes:focus-within .auth-code-box,
+.auth-code-box:focus {
+  border-color: rgba(148, 163, 184, 0.9);
 }
 
