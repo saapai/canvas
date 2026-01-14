@@ -226,19 +226,27 @@ function initAuthUI() {
 }
 
 async function bootstrap() {
-  // Check if we're on a user page
+  // Check if we're on a user page FIRST, before anything else
   const pageUsername = window.PAGE_USERNAME;
   const isOwner = window.PAGE_IS_OWNER === true;
   const pathParts = window.location.pathname.split('/').filter(Boolean);
   const isUserPage = !!pageUsername || (pathParts.length > 0 && pathParts[0] !== 'index.html' && pathParts[0] !== '');
   
-  initAuthUI();
-  setAnchorGreeting();
-  
-  // If on a user page, hide auth overlay immediately (for both logged-in and logged-out users)
+  // If on a user page, hide auth overlay IMMEDIATELY and keep it hidden
   if (isUserPage) {
     hideAuthOverlay();
+    // Prevent any code from showing it
+    const originalShowAuth = showAuthOverlay;
+    showAuthOverlay = function() {
+      // Do nothing on user pages
+      if (!isUserPage) {
+        originalShowAuth();
+      }
+    };
   }
+  
+  initAuthUI();
+  setAnchorGreeting();
   
   try {
     const res = await fetch('/api/auth/me');
@@ -263,14 +271,19 @@ async function bootstrap() {
       // Only editable if logged in AND is the owner
       const editable = isLoggedIn && isOwner;
       await loadUserEntries(targetUsername, editable);
+      // Ensure auth overlay stays hidden
+      hideAuthOverlay();
     } else {
-      // On root page
-      if (isLoggedIn) {
+      // On root page only - show auth if needed
+      if (!isLoggedIn) {
+        // Not logged in - show auth to log in
+        showAuthOverlay();
+      } else if (isLoggedIn && !currentUser?.username) {
         // Logged in but no username yet - show auth to set username
         showAuthOverlay();
       } else {
-        // Not logged in - show auth to log in
-        showAuthOverlay();
+        // Logged in with username - should have redirected, but hide auth just in case
+        hideAuthOverlay();
       }
     }
   } catch (error) {
@@ -279,6 +292,8 @@ async function bootstrap() {
       // On user page - load public entries (read-only) even if auth check fails
       const targetUsername = pageUsername || pathParts[0];
       await loadUserEntries(targetUsername, false);
+      // Ensure auth overlay stays hidden
+      hideAuthOverlay();
     } else {
       // On root - show auth
       showAuthOverlay();
