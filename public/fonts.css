@@ -1,0 +1,23 @@
+/* Global font setup for Canvas */
+@font-face {
+  font-family: "Lyon Text";
+  src: local("Lyon Text"), local("LyonText-Regular");
+  font-style: normal;
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Lyon Text";
+  src: local("Lyon Text Italic"), local("LyonText-Italic");
+  font-style: italic;
+  font-weight: 400;
+}
+
+@font-face {
+  font-family: "Lyon Text";
+  src: local("Lyon Text Semibold"), local("LyonText-Semibold");
+  font-style: normal;
+  font-weight: 600;
+}
+
+

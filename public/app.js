@@ -3,6 +3,20 @@ const world = document.getElementById('world');
 const editor = document.getElementById('editor');
 const anchor = document.getElementById('anchor');
 const breadcrumb = document.getElementById('breadcrumb');
+const authOverlay = document.getElementById('auth-overlay');
+const authStepPhone = document.getElementById('auth-step-phone');
+const authStepCode = document.getElementById('auth-step-code');
+const authStepUsername = document.getElementById('auth-step-username');
+const authPhoneInput = document.getElementById('auth-phone-input');
+const authCodeInput = document.getElementById('auth-code-input');
+const authUsernameInput = document.getElementById('auth-username-input');
+const authSendCodeBtn = document.getElementById('auth-send-code');
+const authVerifyCodeBtn = document.getElementById('auth-verify-code');
+const authEditPhoneBtn = document.getElementById('auth-edit-phone');
+const authSaveUsernameBtn = document.getElementById('auth-save-username');
+const authError = document.getElementById('auth-error');
+
+let currentUser = null;
 
 // Camera state
 let cam = { x: 0, y: 0, z: 1 };
@@ -13,6 +27,327 @@ const anchorPos = { x: 0, y: 0 };
 // Entry storage
 const entries = new Map();
 let entryIdCounter = 0;
+
+function setAnchorGreeting() {
+  if (currentUser && currentUser.username) {
+    anchor.textContent = `Hello, ${currentUser.username}`;
+  } else {
+    anchor.textContent = 'Hello';
+  }
+}
+
+function showAuthOverlay() {
+  if (!authOverlay) return;
+  authOverlay.classList.remove('hidden');
+  authError.classList.add('hidden');
+  authError.textContent = '';
+  authStepPhone.classList.remove('hidden');
+  authStepCode.classList.add('hidden');
+  authStepUsername.classList.add('hidden');
+  authPhoneInput.value = '';
+  authCodeInput.value = '';
+  authUsernameInput.value = '';
+}
+
+function hideAuthOverlay() {
+  if (!authOverlay) return;
+  authOverlay.classList.add('hidden');
+}
+
+function setAuthError(message) {
+  if (!authError) return;
+  if (!message) {
+    authError.classList.add('hidden');
+    authError.textContent = '';
+    return;
+  }
+  authError.textContent = message;
+  authError.classList.remove('hidden');
+}
+
+async function handleSendCode() {
+  const phone = authPhoneInput.value.trim();
+  if (!phone) {
+    setAuthError('Enter a phone number.');
+    return;
+  }
+  setAuthError('');
+  authSendCodeBtn.disabled = true;
+  try {
+    const res = await fetch('/api/auth/send-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone })
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Failed to send code');
+    }
+    authStepPhone.classList.add('hidden');
+    authStepCode.classList.remove('hidden');
+    authCodeInput.focus();
+  } catch (error) {
+    console.error(error);
+    setAuthError(error.message);
+  } finally {
+    authSendCodeBtn.disabled = false;
+  }
+}
+
+async function handleVerifyCode() {
+  const phone = authPhoneInput.value.trim();
+  const code = authCodeInput.value.trim();
+  if (!phone || !code) {
+    setAuthError('Enter your phone and the code.');
+    return;
+  }
+  setAuthError('');
+  authVerifyCodeBtn.disabled = true;
+  try {
+    const res = await fetch('/api/auth/verify-code', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone, code })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to verify code');
+    }
+    currentUser = data.user;
+    setAnchorGreeting();
+    if (data.needsUsername) {
+      authStepCode.classList.add('hidden');
+      authStepUsername.classList.remove('hidden');
+      authUsernameInput.focus();
+    } else {
+      hideAuthOverlay();
+      await loadEntriesFromServer();
+    }
+  } catch (error) {
+    console.error(error);
+    setAuthError(error.message);
+  } finally {
+    authVerifyCodeBtn.disabled = false;
+  }
+}
+
+async function handleSaveUsername() {
+  const username = authUsernameInput.value.trim();
+  if (!username) {
+    setAuthError('Enter a name.');
+    return;
+  }
+  setAuthError('');
+  authSaveUsernameBtn.disabled = true;
+  try {
+    const res = await fetch('/api/auth/set-username', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username })
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || 'Failed to save username');
+    }
+    currentUser = data.user;
+    setAnchorGreeting();
+    hideAuthOverlay();
+    await loadEntriesFromServer();
+  } catch (error) {
+    console.error(error);
+    setAuthError(error.message);
+  } finally {
+    authSaveUsernameBtn.disabled = false;
+  }
+}
+
+function initAuthUI() {
+  if (!authOverlay) return;
+  authSendCodeBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    handleSendCode();
+  });
+  authVerifyCodeBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    handleVerifyCode();
+  });
+  authSaveUsernameBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    handleSaveUsername();
+  });
+  authEditPhoneBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    setAuthError('');
+    authStepCode.classList.add('hidden');
+    authStepPhone.classList.remove('hidden');
+    authCodeInput.value = '';
+    authPhoneInput.focus();
+  });
+}
+
+async function bootstrap() {
+  initAuthUI();
+  setAnchorGreeting();
+  try {
+    const res = await fetch('/api/auth/me');
+    if (res.ok) {
+      const user = await res.json();
+      currentUser = user;
+      setAnchorGreeting();
+      await loadEntriesFromServer();
+    } else {
+      showAuthOverlay();
+    }
+  } catch (error) {
+    console.error('Error checking auth:', error);
+    showAuthOverlay();
+  }
+}
+
+// Persistence functions
+async function saveEntryToServer(entryData) {
+  try {
+    const response = await fetch('/api/entries', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        id: entryData.id,
+        text: entryData.text,
+        position: entryData.position,
+        parentEntryId: entryData.parentEntryId
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to save entry');
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Error saving entry to server:', error);
+    // Don't throw - allow app to continue working offline
+    return null;
+  }
+}
+
+async function updateEntryOnServer(entryData) {
+  try {
+    const response = await fetch(`/api/entries/${entryData.id}`, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        text: entryData.text,
+        position: entryData.position,
+        parentEntryId: entryData.parentEntryId
+      })
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to update entry');
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Error updating entry on server:', error);
+    return null;
+  }
+}
+
+async function deleteEntryFromServer(entryId) {
+  try {
+    const response = await fetch(`/api/entries/${entryId}`, {
+      method: 'DELETE'
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to delete entry');
+    }
+    
+    return true;
+  } catch (error) {
+    console.error('Error deleting entry from server:', error);
+    return false;
+  }
+}
+
+async function loadEntriesFromServer() {
+  try {
+    const response = await fetch('/api/entries');
+    
+    if (!response.ok) {
+      throw new Error('Failed to load entries');
+    }
+    
+    const entriesData = await response.json();
+    
+    // Find the highest entry ID counter
+    let maxCounter = 0;
+    entriesData.forEach(entry => {
+      const match = entry.id.match(/^entry-(\d+)$/);
+      if (match) {
+        const counter = parseInt(match[1], 10);
+        if (counter > maxCounter) {
+          maxCounter = counter;
+        }
+      }
+    });
+    entryIdCounter = maxCounter + 1;
+    
+    // Create entry elements and add to map
+    entriesData.forEach(entryData => {
+      const entry = document.createElement('div');
+      entry.className = 'entry';
+      entry.id = entryData.id;
+      
+      entry.style.left = `${entryData.position.x}px`;
+      entry.style.top = `${entryData.position.y}px`;
+      
+      // Process text with links
+      const { processedText, urls } = processTextWithLinks(entryData.text);
+      
+      if (processedText) {
+        entry.innerHTML = meltify(processedText);
+      } else {
+        entry.innerHTML = '';
+      }
+      
+      world.appendChild(entry);
+      
+      // Store entry data
+      const storedEntryData = {
+        id: entryData.id,
+        element: entry,
+        text: entryData.text,
+        position: entryData.position,
+        parentEntryId: entryData.parentEntryId
+      };
+      entries.set(entryData.id, storedEntryData);
+      
+      // Generate link cards if URLs exist
+      if (urls.length > 0) {
+        urls.forEach(async (url) => {
+          const cardData = await generateLinkCard(url);
+          if (cardData) {
+            const card = createLinkCard(cardData);
+            entry.appendChild(card);
+          }
+        });
+      }
+    });
+    
+    // Update visibility after loading
+    updateEntryVisibility();
+    
+    return entriesData;
+  } catch (error) {
+    console.error('Error loading entries from server:', error);
+    return [];
+  }
+}
 
 // Navigation state
 let currentViewEntryId = null;
@@ -31,7 +366,8 @@ let editorWorldPos = { x: 80, y: 80 };
 let editingEntryId = null;
 
 function applyTransform(){
-  world.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.z})`;
+  world.style.transform = `translate3d(${cam.x}px, ${cam.y}px, 0) scale(${cam.z})`;
+  world.style.transformOrigin = '0 0';
 }
 applyTransform();
 
@@ -332,6 +668,7 @@ async function commitEditor(){
         entryData.element.classList.remove('editing');
         entryData.element.remove();
         entries.delete(editingEntryId);
+        deleteEntryFromServer(editingEntryId);
         editor.textContent = '';
         editor.style.display = 'none';
         editingEntryId = null;
@@ -378,6 +715,9 @@ async function commitEditor(){
 
       // Remove editing class
       entryData.element.classList.remove('editing');
+      
+      // Save to server
+      updateEntryOnServer(entryData);
       
       editor.textContent = '';
       editor.style.display = 'none';
@@ -443,6 +783,9 @@ async function commitEditor(){
   
   // Update visibility - new entry should be visible in current view
   updateEntryVisibility();
+  
+  // Save to server
+  saveEntryToServer(entryData);
 
   // Generate and add cards for URLs (async, after text is rendered)
   if(urls.length > 0){
@@ -688,6 +1031,9 @@ function createLinkCard(cardData) {
     };
     entries.set(entryId, entryData);
     
+    // Save to server
+    saveEntryToServer(entryData);
+    
     // Navigate to the new entry
     navigateToEntry(entryId);
     
@@ -833,6 +1179,8 @@ viewport.addEventListener('mousemove', (e) => {
         const entryData = entries.get(entryId);
         if(entryData) {
           entryData.position = { x: newX, y: newY };
+          // Save position change to server (debounce this in production)
+          updateEntryOnServer(entryData);
         }
       }
     }
@@ -1007,3 +1355,5 @@ viewport.addEventListener('contextmenu', (e) => {
 requestAnimationFrame(() => {
   centerAnchor();
 });
+
+bootstrap();
