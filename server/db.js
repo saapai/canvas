@@ -16,58 +16,20 @@ function getPool() {
       throw new Error('POSTGRES_URL or POSTGRES_URL_NON_POOLING environment variable is not set');
     }
     
-    // Determine if this is a Supabase connection (check multiple patterns)
+    // Determine if this is a Supabase connection
     const connectionLower = connectionString.toLowerCase();
     const hasSupabaseInString = connectionLower.includes('supabase');
     const hasSupabaseEnvVars = !!(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL);
     const isSupabase = hasSupabaseInString || hasSupabaseEnvVars;
     
-    // For Supabase, ensure SSL is properly configured
-    // Option 1 (recommended): provide Supabase CA cert via POSTGRES_CA_CERT env var
-    // Option 2: fall back to rejectUnauthorized: false for self-signed certs
-    let sslConfig = undefined;
-    if (isSupabase) {
-      const rawCa = process.env.POSTGRES_CA_CERT;
-      // Vercel env vars sometimes store multiline PEMs with literal "\n"
-      // Normalize those to real newlines so Node TLS can parse the certificate.
-      const ca = (rawCa && rawCa.includes('\\n') && !rawCa.includes('\n'))
-        ? rawCa.replace(/\\n/g, '\n')
-        : rawCa;
-
-      // Ensure connection string has sslmode if not already present
-      if (!connectionString.includes('sslmode=')) {
-        const separator = connectionString.includes('?') ? '&' : '?';
-        connectionString = `${connectionString}${separator}sslmode=require`;
-      }
-
-      if (ca && ca.trim()) {
-        sslConfig = {
-          ca,
-          rejectUnauthorized: true
-        };
-      } else {
-        sslConfig = {
-          rejectUnauthorized: false
-        };
-      }
-    }
+    // For Supabase, always use SSL with rejectUnauthorized: false
+    // This handles their self-signed certificates
+    const sslConfig = isSupabase ? { rejectUnauthorized: false } : undefined;
     
     pool = new Pool({
       connectionString,
       ssl: sslConfig
     });
-    
-    // Log connection info for debugging (without exposing sensitive data)
-    if (isSupabase) {
-      const detectedVia = hasSupabaseInString ? 'connection string' : 'environment variables';
-      console.log(`Using Supabase Postgres connection with SSL (detected via ${detectedVia})`);
-      const caPresent = !!(process.env.POSTGRES_CA_CERT && process.env.POSTGRES_CA_CERT.trim());
-      const caLen = process.env.POSTGRES_CA_CERT ? process.env.POSTGRES_CA_CERT.length : 0;
-      const caLooksPem = !!(process.env.POSTGRES_CA_CERT && process.env.POSTGRES_CA_CERT.includes('BEGIN CERTIFICATE'));
-      const caHasRealNewlines = !!(process.env.POSTGRES_CA_CERT && process.env.POSTGRES_CA_CERT.includes('\n'));
-      const caHasEscapedNewlines = !!(process.env.POSTGRES_CA_CERT && process.env.POSTGRES_CA_CERT.includes('\\n'));
-      console.log(`POSTGRES_CA_CERT present=${caPresent} len=${caLen} pem=${caLooksPem} newline=${caHasRealNewlines} escapedNewline=${caHasEscapedNewlines}`);
-    }
   }
   return pool;
 }
