@@ -1,16 +1,36 @@
-import { sql } from '@vercel/postgres';
+import pkg from 'pg';
 import dotenv from 'dotenv';
 import crypto from 'crypto';
 
+const { Pool } = pkg;
 dotenv.config();
 
+let pool = null;
 let dbInitialized = false;
+
+function getPool() {
+  if (!pool) {
+    const connectionString = process.env.POSTGRES_URL;
+    if (!connectionString) {
+      throw new Error('POSTGRES_URL environment variable is not set');
+    }
+    pool = new Pool({
+      connectionString,
+      ssl: connectionString.includes('supabase.co') || connectionString.includes('pooler.supabase.com')
+        ? { rejectUnauthorized: false }
+        : undefined
+    });
+  }
+  return pool;
+}
 
 export async function initDatabase() {
   if (dbInitialized) return;
 
   try {
-    await sql`
+    const db = getPool();
+    
+    await db.query(`
       CREATE TABLE IF NOT EXISTS entries (
         id TEXT PRIMARY KEY,
         text TEXT NOT NULL,
@@ -21,34 +41,34 @@ export async function initDatabase() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
-    `;
+    `);
 
-    await sql`
+    await db.query(`
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
         phone TEXT UNIQUE NOT NULL,
         username TEXT UNIQUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
-    `;
+    `);
 
-    await sql`
+    await db.query(`
       CREATE TABLE IF NOT EXISTS phone_verification_codes (
         phone TEXT NOT NULL,
         code TEXT NOT NULL,
         expires_at TIMESTAMP NOT NULL
       );
-    `;
+    `);
 
-    await sql`
+    await db.query(`
       CREATE INDEX IF NOT EXISTS idx_parent_entry_id ON entries(parent_entry_id);
-    `;
-    await sql`
+    `);
+    await db.query(`
       CREATE INDEX IF NOT EXISTS idx_entries_user_id ON entries(user_id);
-    `;
-    await sql`
+    `);
+    await db.query(`
       CREATE INDEX IF NOT EXISTS idx_phone_verification_phone ON phone_verification_codes(phone);
-    `;
+    `);
 
     dbInitialized = true;
     console.log('Database initialized successfully');
@@ -61,12 +81,14 @@ export async function initDatabase() {
 
 export async function getAllEntries(userId) {
   try {
-    const result = await sql`
-      SELECT id, text, position_x, position_y, parent_entry_id
-      FROM entries
-      WHERE user_id = ${userId}
-      ORDER BY created_at ASC
-    `;
+    const db = getPool();
+    const result = await db.query(
+      `SELECT id, text, position_x, position_y, parent_entry_id
+       FROM entries
+       WHERE user_id = $1
+       ORDER BY created_at ASC`,
+      [userId]
+    );
     return result.rows.map(row => ({
       id: row.id,
       text: row.text,
@@ -81,11 +103,13 @@ export async function getAllEntries(userId) {
 
 export async function getEntryById(id, userId) {
   try {
-    const result = await sql`
-      SELECT id, text, position_x, position_y, parent_entry_id
-      FROM entries
-      WHERE id = ${id} AND user_id = ${userId}
-    `;
+    const db = getPool();
+    const result = await db.query(
+      `SELECT id, text, position_x, position_y, parent_entry_id
+       FROM entries
+       WHERE id = $1 AND user_id = $2`,
+      [id, userId]
+    );
     if (result.rows.length === 0) {
       return null;
     }
@@ -104,18 +128,20 @@ export async function getEntryById(id, userId) {
 
 export async function saveEntry(entry) {
   try {
-    await sql`
-      INSERT INTO entries (id, text, position_x, position_y, parent_entry_id, user_id, updated_at)
-      VALUES (${entry.id}, ${entry.text}, ${entry.position.x}, ${entry.position.y}, ${entry.parentEntryId || null}, ${entry.userId}, CURRENT_TIMESTAMP)
-      ON CONFLICT (id) 
-      DO UPDATE SET 
-        text = EXCLUDED.text,
-        position_x = EXCLUDED.position_x,
-        position_y = EXCLUDED.position_y,
-        parent_entry_id = EXCLUDED.parent_entry_id,
-        user_id = EXCLUDED.user_id,
-        updated_at = CURRENT_TIMESTAMP
-    `;
+    const db = getPool();
+    await db.query(
+      `INSERT INTO entries (id, text, position_x, position_y, parent_entry_id, user_id, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+       ON CONFLICT (id) 
+       DO UPDATE SET 
+         text = EXCLUDED.text,
+         position_x = EXCLUDED.position_x,
+         position_y = EXCLUDED.position_y,
+         parent_entry_id = EXCLUDED.parent_entry_id,
+         user_id = EXCLUDED.user_id,
+         updated_at = CURRENT_TIMESTAMP`,
+      [entry.id, entry.text, entry.position.x, entry.position.y, entry.parentEntryId || null, entry.userId]
+    );
     return entry;
   } catch (error) {
     console.error('Error saving entry:', error);
@@ -125,9 +151,11 @@ export async function saveEntry(entry) {
 
 export async function deleteEntry(id, userId) {
   try {
-    await sql`
-      DELETE FROM entries WHERE id = ${id} AND user_id = ${userId}
-    `;
+    const db = getPool();
+    await db.query(
+      `DELETE FROM entries WHERE id = $1 AND user_id = $2`,
+      [id, userId]
+    );
     return true;
   } catch (error) {
     console.error('Error deleting entry:', error);
@@ -139,22 +167,35 @@ export async function saveAllEntries(entries, userId) {
   try {
     if (entries.length === 0) return;
 
-    const values = entries.map(entry => 
-      sql`(${entry.id}, ${entry.text}, ${entry.position.x}, ${entry.position.y}, ${entry.parentEntryId || null}, ${userId})`
-    );
-
-    await sql`
-      INSERT INTO entries (id, text, position_x, position_y, parent_entry_id, user_id, updated_at)
-      VALUES ${sql.join(values, sql`, `)}
-      ON CONFLICT (id) 
-      DO UPDATE SET 
-        text = EXCLUDED.text,
-        position_x = EXCLUDED.position_x,
-        position_y = EXCLUDED.position_y,
-        parent_entry_id = EXCLUDED.parent_entry_id,
-        user_id = EXCLUDED.user_id,
-        updated_at = CURRENT_TIMESTAMP
-    `;
+    const db = getPool();
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      
+      for (const entry of entries) {
+        await client.query(
+          `INSERT INTO entries (id, text, position_x, position_y, parent_entry_id, user_id, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+           ON CONFLICT (id) 
+           DO UPDATE SET 
+             text = EXCLUDED.text,
+             position_x = EXCLUDED.position_x,
+             position_y = EXCLUDED.position_y,
+             parent_entry_id = EXCLUDED.parent_entry_id,
+             user_id = EXCLUDED.user_id,
+             updated_at = CURRENT_TIMESTAMP`,
+          [entry.id, entry.text, entry.position.x, entry.position.y, entry.parentEntryId || null, userId]
+        );
+      }
+      
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+    
     return entries;
   } catch (error) {
     console.error('Error saving all entries:', error);
@@ -164,11 +205,13 @@ export async function saveAllEntries(entries, userId) {
 
 export async function getUserById(id) {
   try {
-    const result = await sql`
-      SELECT id, phone, username
-      FROM users
-      WHERE id = ${id}
-    `;
+    const db = getPool();
+    const result = await db.query(
+      `SELECT id, phone, username
+       FROM users
+       WHERE id = $1`,
+      [id]
+    );
     if (result.rows.length === 0) return null;
     return result.rows[0];
   } catch (error) {
@@ -179,11 +222,13 @@ export async function getUserById(id) {
 
 export async function getUserByPhone(phone) {
   try {
-    const result = await sql`
-      SELECT id, phone, username
-      FROM users
-      WHERE phone = ${phone}
-    `;
+    const db = getPool();
+    const result = await db.query(
+      `SELECT id, phone, username
+       FROM users
+       WHERE phone = $1`,
+      [phone]
+    );
     if (result.rows.length === 0) return null;
     return result.rows[0];
   } catch (error) {
@@ -194,12 +239,14 @@ export async function getUserByPhone(phone) {
 
 export async function isUsernameTaken(username) {
   try {
-    const result = await sql`
-      SELECT 1
-      FROM users
-      WHERE username = ${username}
-      LIMIT 1
-    `;
+    const db = getPool();
+    const result = await db.query(
+      `SELECT 1
+       FROM users
+       WHERE username = $1
+       LIMIT 1`,
+      [username]
+    );
     return result.rows.length > 0;
   } catch (error) {
     console.error('Error checking username:', error);
@@ -209,11 +256,13 @@ export async function isUsernameTaken(username) {
 
 export async function createUser(phone) {
   try {
+    const db = getPool();
     const id = crypto.randomUUID();
-    await sql`
-      INSERT INTO users (id, phone)
-      VALUES (${id}, ${phone})
-    `;
+    await db.query(
+      `INSERT INTO users (id, phone)
+       VALUES ($1, $2)`,
+      [id, phone]
+    );
     return { id, phone, username: null };
   } catch (error) {
     console.error('Error creating user:', error);
@@ -223,11 +272,13 @@ export async function createUser(phone) {
 
 export async function setUsername(userId, username) {
   try {
-    await sql`
-      UPDATE users
-      SET username = ${username}
-      WHERE id = ${userId}
-    `;
+    const db = getPool();
+    await db.query(
+      `UPDATE users
+       SET username = $1
+       WHERE id = $2`,
+      [username, userId]
+    );
     return getUserById(userId);
   } catch (error) {
     console.error('Error setting username:', error);
@@ -237,14 +288,17 @@ export async function setUsername(userId, username) {
 
 export async function saveVerificationCode(phone, code, expiresAt) {
   try {
-    await sql`
-      DELETE FROM phone_verification_codes
-      WHERE phone = ${phone}
-    `;
-    await sql`
-      INSERT INTO phone_verification_codes (phone, code, expires_at)
-      VALUES (${phone}, ${code}, ${expiresAt})
-    `;
+    const db = getPool();
+    await db.query(
+      `DELETE FROM phone_verification_codes
+       WHERE phone = $1`,
+      [phone]
+    );
+    await db.query(
+      `INSERT INTO phone_verification_codes (phone, code, expires_at)
+       VALUES ($1, $2, $3)`,
+      [phone, code, expiresAt]
+    );
   } catch (error) {
     console.error('Error saving verification code:', error);
     throw error;
@@ -253,17 +307,18 @@ export async function saveVerificationCode(phone, code, expiresAt) {
 
 export async function verifyPhoneCode(phone, code) {
   try {
-    const result = await sql`
-      DELETE FROM phone_verification_codes
-      WHERE phone = ${phone}
-      AND code = ${code}
-      AND expires_at > NOW()
-      RETURNING phone
-    `;
+    const db = getPool();
+    const result = await db.query(
+      `DELETE FROM phone_verification_codes
+       WHERE phone = $1
+       AND code = $2
+       AND expires_at > NOW()
+       RETURNING phone`,
+      [phone, code]
+    );
     return result.rows.length > 0;
   } catch (error) {
     console.error('Error verifying phone code:', error);
     throw error;
   }
 }
-
