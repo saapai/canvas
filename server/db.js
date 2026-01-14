@@ -23,18 +23,28 @@ function getPool() {
     const isSupabase = hasSupabaseInString || hasSupabaseEnvVars;
     
     // For Supabase, ensure SSL is properly configured
-    // pg requires explicit SSL config for self-signed certificates
+    // Option 1 (recommended): provide Supabase CA cert via POSTGRES_CA_CERT env var
+    // Option 2: fall back to rejectUnauthorized: false for self-signed certs
     let sslConfig = undefined;
     if (isSupabase) {
+      const ca = process.env.POSTGRES_CA_CERT;
+
       // Ensure connection string has sslmode if not already present
       if (!connectionString.includes('sslmode=')) {
         const separator = connectionString.includes('?') ? '&' : '?';
         connectionString = `${connectionString}${separator}sslmode=require`;
       }
-      // Set SSL config to handle self-signed certificates
-      sslConfig = {
-        rejectUnauthorized: false
-      };
+
+      if (ca && ca.trim()) {
+        sslConfig = {
+          ca,
+          rejectUnauthorized: true
+        };
+      } else {
+        sslConfig = {
+          rejectUnauthorized: false
+        };
+      }
     }
     
     pool = new Pool({
