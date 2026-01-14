@@ -51,160 +51,29 @@ if (process.env.VERCEL !== '1') {
   app.use(express.static('public'));
 }
 
-// Helper function to generate public user page HTML
-function generatePublicPageHTML(user, initialPath = []) {
-  return `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>${user.username} - Duttapad</title>
-  <link rel="stylesheet" href="/styles.css">
-  <style>
-    .public-container {
-      max-width: 800px;
-      margin: 0 auto;
-      padding: 40px 20px;
-    }
-    .public-header {
-      margin-bottom: 40px;
-    }
-    .public-title {
-      font-size: 32px;
-      font-weight: 600;
-      margin-bottom: 8px;
-    }
-    .public-breadcrumb {
-      font-size: 14px;
-      color: rgba(0,0,0,0.5);
-      margin-bottom: 20px;
-    }
-    .public-breadcrumb a {
-      color: rgba(0,0,0,0.7);
-      text-decoration: none;
-    }
-    .public-breadcrumb a:hover {
-      text-decoration: underline;
-    }
-    .entry-list {
-      list-style: none;
-      padding: 0;
-      margin: 0;
-    }
-    .entry-item {
-      padding: 16px;
-      margin-bottom: 12px;
-      border: 1px solid rgba(0,0,0,0.1);
-      border-radius: 8px;
-      background: rgba(255,255,255,0.6);
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .entry-item:hover {
-      border-color: rgba(0,0,0,0.2);
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    }
-    .entry-text {
-      white-space: pre-wrap;
-      line-height: 1.6;
-    }
-  </style>
-</head>
-<body>
-  <div class="public-container">
-    <div class="public-header">
-      <h1 class="public-title">${user.username}</h1>
-      <div class="public-breadcrumb" id="breadcrumb"></div>
-    </div>
-    <ul class="entry-list" id="entryList"></ul>
-  </div>
+// Helper function to generate user page HTML (canvas view, editable if owner)
+function generateUserPageHTML(user, isOwner = false) {
+  // Read the index.html template
+  try {
+    const indexPath = join(__dirname, '../public/index.html');
+    let html = readFileSync(indexPath, 'utf8');
+    
+    // Update title
+    html = html.replace('<title>Infinite Diary Page</title>', `<title>${user.username} - Duttapad</title>`);
+    
+    // Add script to set page context before app.js loads
+    const contextScript = `
   <script>
-    const username = '${user.username}';
-    const path = ${JSON.stringify(initialPath)};
+    window.PAGE_USERNAME = '${user.username}';
+    window.PAGE_IS_OWNER = ${isOwner};
+  </script>`;
+    html = html.replace('<script src="app.js"></script>', `${contextScript}\n  <script src="app.js"></script>`);
     
-    async function loadEntries() {
-      const url = path.length === 0 
-        ? \`/api/public/\${username}/entries\`
-        : \`/api/public/\${username}/path/\${path.map(encodeURIComponent).join('/')}\`;
-      
-      const res = await fetch(url);
-      const data = await res.json();
-      
-      if (!res.ok) {
-        document.getElementById('entryList').innerHTML = '<li>Error loading entries</li>';
-        return;
-      }
-      
-      // Update breadcrumb
-      const breadcrumb = document.getElementById('breadcrumb');
-      const parts = [
-        { text: 'Home', href: '/' },
-        { text: data.user.username, href: \`/\${data.user.username}\` }
-      ];
-      
-      if (data.path && data.path.length > 0) {
-        let currentPath = '';
-        data.path.forEach((part, i) => {
-          const slug = part.text.toLowerCase().replace(/\\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-          currentPath += '/' + encodeURIComponent(slug);
-          parts.push({
-            text: part.text,
-            href: \`/\${data.user.username}\${currentPath}\`
-          });
-        });
-      }
-      
-      breadcrumb.innerHTML = parts.map((p, i) => 
-        i === 0 ? \`<a href="\${p.href}">\${p.text}</a>\` :
-        i === parts.length - 1 ? \` › \${p.text}\` :
-        \` › <a href="\${p.href}">\${p.text}</a>\`
-      ).join('');
-      
-      // Render entries
-      const entries = data.children || data.entries || [];
-      const list = document.getElementById('entryList');
-      
-      if (entries.length === 0) {
-        list.innerHTML = '<li>No entries here yet</li>';
-        return;
-      }
-      
-      list.innerHTML = entries.map(entry => {
-        const slug = entry.text.toLowerCase().replace(/\\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-        return \`<li class="entry-item" onclick="navigateTo('\${entry.id}', '\${slug}')">
-          <div class="entry-text">\${escapeHtml(entry.text)}</div>
-        </li>\`;
-      }).join('');
-    }
-    
-    function navigateTo(entryId, slug) {
-      path.push(slug);
-      window.history.pushState({}, '', \`/\${username}/\${path.map(encodeURIComponent).join('/')}\`);
-      loadEntries();
-    }
-    
-    function escapeHtml(text) {
-      const div = document.createElement('div');
-      div.textContent = text;
-      return div.innerHTML;
-    }
-    
-    // Handle browser back/forward
-    window.addEventListener('popstate', () => {
-      const pathParts = window.location.pathname.split('/').filter(Boolean);
-      if (pathParts[0] === username) {
-        path.length = 0;
-        pathParts.slice(1).forEach(p => path.push(decodeURIComponent(p)));
-        loadEntries();
-      }
-    });
-    
-    loadEntries();
-  </script>
-</body>
-</html>
-  `;
+    return html;
+  } catch (error) {
+    console.error('Error reading index.html:', error);
+    return '<html><body>Error loading page</body></html>';
+  }
 }
 
 // Initialize database on startup (for local development)
@@ -684,7 +553,7 @@ app.get('/', async (req, res) => {
   }
 });
 
-// Serve user pages (editable if owner, read-only if public)
+// Serve user pages (always canvas view, editable if owner)
 app.get('/:username', async (req, res) => {
   try {
     const { username } = req.params;
@@ -712,32 +581,18 @@ app.get('/:username', async (req, res) => {
       }
     }
     
-    // If owner, serve the editable app; otherwise serve read-only public page
-    if (isOwner) {
-      // Serve the main app HTML (editable canvas)
-      try {
-        const indexPath = join(__dirname, '../public/index.html');
-        const html = readFileSync(indexPath, 'utf8');
-        res.send(html);
-      } catch (error) {
-        console.error('Error reading index.html:', error);
-        res.status(500).send('Error loading page');
-      }
-    } else {
-      res.send(generatePublicPageHTML(user, []));
-    }
+    // Always serve canvas view (editable if owner, read-only if public)
+    res.send(generateUserPageHTML(user, isOwner));
   } catch (error) {
     console.error('Error serving user page:', error);
     res.status(500).send('Error loading page');
   }
 });
 
-// Handle nested paths for user pages
+// Handle nested paths for user pages (same as root - just show canvas)
 app.get('/:username/*', async (req, res) => {
   try {
     const { username } = req.params;
-    const pathParts = req.params[0] ? req.params[0].split('/').filter(Boolean).map(p => decodeURIComponent(p)) : [];
-    
     const user = await getUserByUsername(username);
     if (!user) {
       return res.status(404).send('User not found');
@@ -762,20 +617,8 @@ app.get('/:username/*', async (req, res) => {
       }
     }
     
-    // If owner, serve the editable app; otherwise serve read-only public page
-    if (isOwner) {
-      // Serve the main app HTML (editable canvas)
-      try {
-        const indexPath = join(__dirname, '../public/index.html');
-        const html = readFileSync(indexPath, 'utf8');
-        res.send(html);
-      } catch (error) {
-        console.error('Error reading index.html:', error);
-        res.status(500).send('Error loading page');
-      }
-    } else {
-      res.send(generatePublicPageHTML(user, pathParts));
-    }
+    // Always serve canvas view (editable if owner, read-only if public)
+    res.send(generateUserPageHTML(user, isOwner));
   } catch (error) {
     console.error('Error serving user page:', error);
     res.status(500).send('Error loading page');

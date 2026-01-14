@@ -21,6 +21,7 @@ const authCodeHint = document.getElementById('auth-code-hint');
 const authCodeBoxes = document.getElementById('auth-code-boxes');
 
 let currentUser = null;
+let isReadOnly = false; // Set to true when viewing someone else's page
 
 // Camera state
 let cam = { x: 0, y: 0, z: 1 };
@@ -225,12 +226,15 @@ function initAuthUI() {
 }
 
 async function bootstrap() {
-  // Check if we're on a user page (not root)
+  // Check if we're on a user page
+  const pageUsername = window.PAGE_USERNAME;
+  const isOwner = window.PAGE_IS_OWNER === true;
   const pathParts = window.location.pathname.split('/').filter(Boolean);
-  const isUserPage = pathParts.length > 0 && pathParts[0] !== 'index.html';
+  const isUserPage = !!pageUsername || (pathParts.length > 0 && pathParts[0] !== 'index.html');
   
   initAuthUI();
   setAnchorGreeting();
+  
   try {
     const res = await fetch('/api/auth/me');
     if (res.ok) {
@@ -244,31 +248,154 @@ async function bootstrap() {
         return;
       }
       
-      // If on own user page, load editable entries
-      if (isUserPage && pathParts[0] === user.username) {
-        await loadEntriesFromServer();
-      } else if (!isUserPage) {
+      // If on a user page, load that user's entries
+      if (isUserPage) {
+        const targetUsername = pageUsername || pathParts[0];
+        await loadUserEntries(targetUsername, isOwner);
+      } else {
         // On root but no username yet - show auth
         showAuthOverlay();
       }
-      // If on someone else's page, don't load entries (public view handles it)
     } else {
       // Not logged in
-      if (!isUserPage) {
+      if (isUserPage) {
+        // Load public entries (read-only)
+        const targetUsername = pageUsername || pathParts[0];
+        await loadUserEntries(targetUsername, false);
+      } else {
         showAuthOverlay();
       }
-      // If on a user page, let the public view handle it
     }
   } catch (error) {
     console.error('Error checking auth:', error);
-    if (!isUserPage) {
+    if (isUserPage) {
+      // Try to load public entries anyway
+      const targetUsername = pageUsername || pathParts[0];
+      await loadUserEntries(targetUsername, false);
+    } else {
       showAuthOverlay();
     }
   }
 }
 
+async function loadUserEntries(username, editable) {
+  try {
+    const response = await fetch(`/api/public/${username}/entries`);
+    if (!response.ok) {
+      throw new Error('Failed to load entries');
+    }
+    
+    const data = await response.json();
+    const entriesData = data.entries || [];
+    
+    // Find the highest entry ID counter
+    let maxCounter = 0;
+    entriesData.forEach(entry => {
+      const match = entry.id.match(/^entry-(\d+)$/);
+      if (match) {
+        const counter = parseInt(match[1], 10);
+        if (counter > maxCounter) {
+          maxCounter = counter;
+        }
+      }
+    });
+    entryIdCounter = maxCounter + 1;
+    
+    // Clear existing entries
+    entries.clear();
+    const existingEntries = world.querySelectorAll('.entry');
+    existingEntries.forEach(entry => entry.remove());
+    
+    // Create entry elements and add to map
+    entriesData.forEach(entryData => {
+      const entry = document.createElement('div');
+      entry.className = 'entry';
+      entry.id = entryData.id;
+      
+      entry.style.left = `${entryData.position.x}px`;
+      entry.style.top = `${entryData.position.y}px`;
+      
+      // Process text with links
+      const { processedText, urls } = processTextWithLinks(entryData.text);
+      
+      if (processedText) {
+        entry.innerHTML = meltify(processedText);
+      } else {
+        entry.innerHTML = '';
+      }
+      
+      // Set proper width for entries based on content
+      if (entryData.text) {
+        const temp = document.createElement('div');
+        temp.style.position = 'absolute';
+        temp.style.visibility = 'hidden';
+        temp.style.whiteSpace = 'pre';
+        temp.style.font = window.getComputedStyle(entry).font;
+        temp.style.fontSize = window.getComputedStyle(entry).fontSize;
+        temp.style.fontFamily = window.getComputedStyle(entry).fontFamily;
+        temp.textContent = entryData.text;
+        document.body.appendChild(temp);
+        const contentWidth = getWidestLineWidth(temp);
+        document.body.removeChild(temp);
+        entry.style.width = `${contentWidth}px`;
+      } else {
+        entry.style.width = '400px';
+      }
+      entry.style.minHeight = '60px';
+      
+      // Disable editing if read-only
+      if (!editable) {
+        entry.style.pointerEvents = 'none';
+        entry.style.cursor = 'default';
+      }
+      
+      world.appendChild(entry);
+      
+      // Store entry data
+      const storedEntryData = {
+        id: entryData.id,
+        element: entry,
+        text: entryData.text,
+        position: entryData.position,
+        parentEntryId: entryData.parentEntryId
+      };
+      entries.set(entryData.id, storedEntryData);
+      
+      // Generate link cards if URLs exist
+      if (urls.length > 0) {
+        urls.forEach(async (url) => {
+          const cardData = await generateLinkCard(url);
+          if (cardData) {
+            const card = createLinkCard(cardData);
+            entry.appendChild(card);
+          }
+        });
+      }
+    });
+    
+    // Update visibility after loading
+    updateEntryVisibility();
+    
+    // Set read-only mode
+    isReadOnly = !editable;
+    
+    if (isReadOnly) {
+      editor.style.display = 'none';
+      // Keep pan/zoom but disable editing
+      viewport.style.cursor = 'grab';
+    }
+  } catch (error) {
+    console.error('Error loading user entries:', error);
+  }
+}
+
 // Persistence functions
 async function saveEntryToServer(entryData) {
+  if (isReadOnly) {
+    console.warn('Cannot save entry: read-only mode');
+    return null;
+  }
+  
   try {
     const response = await fetch('/api/entries', {
       method: 'POST',
@@ -296,6 +423,11 @@ async function saveEntryToServer(entryData) {
 }
 
 async function updateEntryOnServer(entryData) {
+  if (isReadOnly) {
+    console.warn('Cannot update entry: read-only mode');
+    return null;
+  }
+  
   try {
     const response = await fetch(`/api/entries/${entryData.id}`, {
       method: 'PUT',
@@ -321,6 +453,11 @@ async function updateEntryOnServer(entryData) {
 }
 
 async function deleteEntryFromServer(entryId) {
+  if (isReadOnly) {
+    console.warn('Cannot delete entry: read-only mode');
+    return false;
+  }
+  
   try {
     const response = await fetch(`/api/entries/${entryId}`, {
       method: 'DELETE'
@@ -1226,8 +1363,8 @@ viewport.addEventListener('mousedown', (e) => {
   const entryEl = findEntryElement(e.target);
   
   if(entryEl) {
-    // Only prepare for drag if Shift is held (for shift+drag to move)
-    if(e.shiftKey) {
+    // Only prepare for drag if Shift is held (for shift+drag to move) and not read-only
+    if(e.shiftKey && !isReadOnly) {
       e.preventDefault();
       draggingEntry = entryEl;
       isClick = false;
@@ -1282,17 +1419,19 @@ viewport.addEventListener('mousemove', (e) => {
       draggingEntry.style.left = `${newX}px`;
       draggingEntry.style.top = `${newY}px`;
       
-      // Update stored position
-      const entryId = draggingEntry.id;
-      if(entryId === 'anchor') {
-        anchorPos.x = newX;
-        anchorPos.y = newY;
-      } else {
-        const entryData = entries.get(entryId);
-        if(entryData) {
-          entryData.position = { x: newX, y: newY };
-          // Save position change to server (debounce this in production)
-          updateEntryOnServer(entryData);
+      // Update stored position (only if not read-only)
+      if (!isReadOnly) {
+        const entryId = draggingEntry.id;
+        if(entryId === 'anchor') {
+          anchorPos.x = newX;
+          anchorPos.y = newY;
+        } else {
+          const entryData = entries.get(entryId);
+          if(entryData) {
+            entryData.position = { x: newX, y: newY };
+            // Save position change to server (debounce this in production)
+            updateEntryOnServer(entryData);
+          }
         }
       }
     }
@@ -1335,8 +1474,8 @@ window.addEventListener('mouseup', (e) => {
     viewport.classList.remove('dragging');
     
     // Check if it was a click (no movement) - place editor
-    // Don't place editor if we're navigating or navigation just completed
-    if(clickStart && !isNavigating && !navigationJustCompleted) {
+    // Don't place editor if we're navigating or navigation just completed, or if read-only
+    if(clickStart && !isNavigating && !navigationJustCompleted && !isReadOnly) {
       const dist = Math.hypot(e.clientX - clickStart.x, e.clientY - clickStart.y);
       const dt = performance.now() - clickStart.t;
       if(dist < 6 && dt < 350 && !isClick){
@@ -1480,9 +1619,10 @@ editor.addEventListener('paste', (e) => {
   // Allow paste to work normally when editor is visible and focused
 });
 
-// Right-click to edit entry
+// Right-click to edit entry (only if not read-only)
 viewport.addEventListener('contextmenu', (e) => {
   if(e.target === editor || editor.contains(e.target)) return;
+  if(isReadOnly) return; // Disable editing in read-only mode
   
   const entryEl = findEntryElement(e.target);
   
