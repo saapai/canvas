@@ -27,7 +27,12 @@ function getPool() {
     // Option 2: fall back to rejectUnauthorized: false for self-signed certs
     let sslConfig = undefined;
     if (isSupabase) {
-      const ca = process.env.POSTGRES_CA_CERT;
+      const rawCa = process.env.POSTGRES_CA_CERT;
+      // Vercel env vars sometimes store multiline PEMs with literal "\n"
+      // Normalize those to real newlines so Node TLS can parse the certificate.
+      const ca = (rawCa && rawCa.includes('\\n') && !rawCa.includes('\n'))
+        ? rawCa.replace(/\\n/g, '\n')
+        : rawCa;
 
       // Ensure connection string has sslmode if not already present
       if (!connectionString.includes('sslmode=')) {
@@ -56,6 +61,12 @@ function getPool() {
     if (isSupabase) {
       const detectedVia = hasSupabaseInString ? 'connection string' : 'environment variables';
       console.log(`Using Supabase Postgres connection with SSL (detected via ${detectedVia})`);
+      const caPresent = !!(process.env.POSTGRES_CA_CERT && process.env.POSTGRES_CA_CERT.trim());
+      const caLen = process.env.POSTGRES_CA_CERT ? process.env.POSTGRES_CA_CERT.length : 0;
+      const caLooksPem = !!(process.env.POSTGRES_CA_CERT && process.env.POSTGRES_CA_CERT.includes('BEGIN CERTIFICATE'));
+      const caHasRealNewlines = !!(process.env.POSTGRES_CA_CERT && process.env.POSTGRES_CA_CERT.includes('\n'));
+      const caHasEscapedNewlines = !!(process.env.POSTGRES_CA_CERT && process.env.POSTGRES_CA_CERT.includes('\\n'));
+      console.log(`POSTGRES_CA_CERT present=${caPresent} len=${caLen} pem=${caLooksPem} newline=${caHasRealNewlines} escapedNewline=${caHasEscapedNewlines}`);
     }
   }
   return pool;
