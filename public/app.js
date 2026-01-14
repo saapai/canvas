@@ -354,10 +354,25 @@ async function loadEntriesFromServer() {
         entry.innerHTML = '';
       }
       
-      // Set proper width for entries (especially important for link cards)
-      // Use editor width as default, or measure the entry content
-      const defaultWidth = editor.offsetWidth || 400;
-      entry.style.width = `${defaultWidth}px`;
+      // Set proper width for entries based on content
+      // Calculate width of widest line for multi-line entries
+      if (entryData.text) {
+        // Create temporary element to measure text width
+        const temp = document.createElement('div');
+        temp.style.position = 'absolute';
+        temp.style.visibility = 'hidden';
+        temp.style.whiteSpace = 'pre';
+        temp.style.font = window.getComputedStyle(entry).font;
+        temp.style.fontSize = window.getComputedStyle(entry).fontSize;
+        temp.style.fontFamily = window.getComputedStyle(entry).fontFamily;
+        temp.textContent = entryData.text;
+        document.body.appendChild(temp);
+        const contentWidth = getWidestLineWidth(temp);
+        document.body.removeChild(temp);
+        entry.style.width = `${contentWidth}px`;
+      } else {
+        entry.style.width = '400px';
+      }
       entry.style.minHeight = '60px';
       
       world.appendChild(entry);
@@ -694,7 +709,7 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null){
   
   // Update width based on content after rendering
   requestAnimationFrame(() => {
-    const contentWidth = Math.max(editor.scrollWidth, editor.offsetWidth, 220);
+    const contentWidth = getWidestLineWidth(editor);
     editor.style.width = `${contentWidth}px`;
   });
 
@@ -752,8 +767,8 @@ async function commitEditor(){
       } else {
         entryData.element.innerHTML = '';
       }
-      // Use scrollWidth to get actual content width (works better with white-space: pre)
-      const contentWidth = Math.max(editor.scrollWidth, editor.offsetWidth, 220);
+      // Calculate width based on widest line (preserves line structure)
+      const contentWidth = getWidestLineWidth(editor);
       entryData.element.style.width = `${contentWidth}px`;
       entryData.element.style.minHeight = `${editor.offsetHeight}px`;
       entryData.text = trimmedRight;
@@ -821,8 +836,8 @@ async function commitEditor(){
 
   entry.style.left = `${editorWorldPos.x}px`;
   entry.style.top  = `${editorWorldPos.y}px`;
-  // Use scrollWidth to get actual content width (works better with white-space: pre)
-  const contentWidth = Math.max(editor.scrollWidth, editor.offsetWidth, 220);
+  // Calculate width based on widest line (preserves line structure)
+  const contentWidth = getWidestLineWidth(editor);
   entry.style.width = `${contentWidth}px`;
   entry.style.minHeight = `${editor.offsetHeight}px`;
 
@@ -1378,11 +1393,41 @@ editor.addEventListener('keydown', (e) => {
   }
 });
 
+// Helper function to calculate width of widest line (accounting for line breaks)
+function getWidestLineWidth(element) {
+  const text = element.innerText || element.textContent || '';
+  if (!text) return 220;
+  
+  const lines = text.split('\n');
+  if (lines.length === 0) return 220;
+  
+  // Create a temporary element to measure each line's width
+  const temp = document.createElement('span');
+  temp.style.position = 'absolute';
+  temp.style.visibility = 'hidden';
+  temp.style.whiteSpace = 'pre';
+  temp.style.font = window.getComputedStyle(element).font;
+  temp.style.fontSize = window.getComputedStyle(element).fontSize;
+  temp.style.fontFamily = window.getComputedStyle(element).fontFamily;
+  document.body.appendChild(temp);
+  
+  let maxWidth = 0;
+  for (const line of lines) {
+    temp.textContent = line || ' '; // Use space for empty lines
+    const width = temp.offsetWidth;
+    if (width > maxWidth) {
+      maxWidth = width;
+    }
+  }
+  
+  document.body.removeChild(temp);
+  return Math.max(maxWidth, 220); // min 220px
+}
+
 // Update editor width as content changes (for sticky-note-like behavior)
 editor.addEventListener('input', () => {
-  // With white-space: pre, the editor expands naturally
-  // Use scrollWidth to get the actual content width and update editor width
-  const contentWidth = Math.max(editor.scrollWidth, 220); // min 220px
+  // Calculate width based on widest line (preserves line structure)
+  const contentWidth = getWidestLineWidth(editor);
   editor.style.width = `${contentWidth}px`;
 });
 
