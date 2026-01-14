@@ -1165,8 +1165,13 @@ function processTextWithLinks(text) {
     processedText = processedText.replace(url, '').trim();
   });
   
-  // Clean up multiple spaces/newlines
-  processedText = processedText.replace(/\s+/g, ' ').trim();
+  // Clean up multiple spaces but preserve newlines
+  // Replace multiple spaces (but not newlines) with single space
+  processedText = processedText.replace(/[ \t]+/g, ' ');
+  // Clean up multiple consecutive newlines (keep single newlines)
+  processedText = processedText.replace(/\n{3,}/g, '\n\n');
+  // Trim trailing whitespace from each line, but preserve line structure
+  processedText = processedText.split('\n').map(line => line.trimEnd()).join('\n').trim();
   
   return { processedText, urls };
 }
