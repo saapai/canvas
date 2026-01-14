@@ -16,6 +16,11 @@
       "dest": "api/index.js"
     },
     {
+      "src": "^/([^/]+)(/.*)?$",
+      "dest": "api/index.js",
+      "check": true
+    },
+    {
       "src": "/(.*)",
       "dest": "public/$1"
     }

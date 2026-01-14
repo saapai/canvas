@@ -11,24 +11,17 @@ let dbInitialized = false;
 function getPool() {
   if (!pool) {
     // Check for POSTGRES_URL first, then fall back to POSTGRES_URL_NON_POOLING
-    let connectionString = process.env.POSTGRES_URL || process.env.POSTGRES_URL_NON_POOLING;
+    const connectionString = process.env.POSTGRES_URL || process.env.POSTGRES_URL_NON_POOLING;
     if (!connectionString) {
       throw new Error('POSTGRES_URL or POSTGRES_URL_NON_POOLING environment variable is not set');
     }
-    
-    // Determine if this is a Supabase connection
-    const connectionLower = connectionString.toLowerCase();
-    const hasSupabaseInString = connectionLower.includes('supabase');
-    const hasSupabaseEnvVars = !!(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL);
-    const isSupabase = hasSupabaseInString || hasSupabaseEnvVars;
-    
-    // For Supabase, always use SSL with rejectUnauthorized: false
-    // This handles their self-signed certificates
-    const sslConfig = isSupabase ? { rejectUnauthorized: false } : undefined;
-    
+
+    // Always enable SSL but do not reject self-signed certificates.
+    // This matches the working pattern:
+    // new Pool({ connectionString, ssl: { rejectUnauthorized: false } })
     pool = new Pool({
       connectionString,
-      ssl: sslConfig
+      ssl: { rejectUnauthorized: false }
     });
   }
   return pool;
@@ -243,6 +236,75 @@ export async function getUserByPhone(phone) {
     return result.rows[0];
   } catch (error) {
     console.error('Error fetching user by phone:', error);
+    throw error;
+  }
+}
+
+export async function getUserByUsername(username) {
+  try {
+    const db = getPool();
+    const result = await db.query(
+      `SELECT id, phone, username
+       FROM users
+       WHERE username = $1`,
+      [username]
+    );
+    if (result.rows.length === 0) return null;
+    return result.rows[0];
+  } catch (error) {
+    console.error('Error fetching user by username:', error);
+    throw error;
+  }
+}
+
+export async function getEntriesByUsername(username) {
+  try {
+    const db = getPool();
+    const result = await db.query(
+      `SELECT e.id, e.text, e.position_x, e.position_y, e.parent_entry_id, e.created_at
+       FROM entries e
+       JOIN users u ON e.user_id = u.id
+       WHERE u.username = $1
+       ORDER BY e.created_at ASC`,
+      [username]
+    );
+    return result.rows.map(row => ({
+      id: row.id,
+      text: row.text,
+      position: { x: row.position_x, y: row.position_y },
+      parentEntryId: row.parent_entry_id || null,
+      createdAt: row.created_at
+    }));
+  } catch (error) {
+    console.error('Error fetching entries by username:', error);
+    throw error;
+  }
+}
+
+export async function getEntryPath(entryId, userId) {
+  try {
+    const db = getPool();
+    const path = [];
+    let currentId = entryId;
+    
+    while (currentId) {
+      const result = await db.query(
+        `SELECT id, text, parent_entry_id
+         FROM entries
+         WHERE id = $1 AND user_id = $2`,
+        [currentId, userId]
+      );
+      
+      if (result.rows.length === 0) break;
+      
+      const entry = result.rows[0];
+      path.unshift({ id: entry.id, text: entry.text });
+      currentId = entry.parent_entry_id;
+    }
+    
+    return path;
+  } catch (error) {
+    console.error('Error getting entry path:', error);
     throw error;
   }
 }
