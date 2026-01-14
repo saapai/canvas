@@ -1,0 +1,1009 @@
+const viewport = document.getElementById('viewport');
+const world = document.getElementById('world');
+const editor = document.getElementById('editor');
+const anchor = document.getElementById('anchor');
+const breadcrumb = document.getElementById('breadcrumb');
+
+// Camera state
+let cam = { x: 0, y: 0, z: 1 };
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+const anchorPos = { x: 0, y: 0 };
+
+// Entry storage
+const entries = new Map();
+let entryIdCounter = 0;
+
+// Navigation state
+let currentViewEntryId = null;
+let navigationStack = [];
+let isNavigating = false;
+let navigationJustCompleted = false;
+
+// Drag-to-pan
+let dragging = false;
+let draggingEntry = null;
+let dragOffset = { x: 0, y: 0 };
+let last = { x: 0, y: 0 };
+
+// Where the editor is placed in WORLD coordinates
+let editorWorldPos = { x: 80, y: 80 };
+let editingEntryId = null;
+
+function applyTransform(){
+  world.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.z})`;
+}
+applyTransform();
+
+function screenToWorld(sx, sy){
+  return {
+    x: (sx - cam.x) / cam.z,
+    y: (sy - cam.y) / cam.z
+  };
+}
+
+function worldToScreen(wx, wy){
+  return {
+    x: wx * cam.z + cam.x,
+    y: wy * cam.z + cam.y
+  };
+}
+
+function centerAnchor(){
+  const viewportRect = viewport.getBoundingClientRect();
+  const centerX = viewportRect.width / 2;
+  const centerY = viewportRect.height / 2;
+  
+  const worldCenter = screenToWorld(centerX, centerY);
+  
+  const textRect = anchor.getBoundingClientRect();
+  const worldTextRect = {
+    width: textRect.width / cam.z,
+    height: textRect.height / cam.z
+  };
+  
+  anchorPos.x = worldCenter.x - worldTextRect.width / 2;
+  anchorPos.y = worldCenter.y - worldTextRect.height / 2;
+  
+  anchor.style.left = `${anchorPos.x}px`;
+  anchor.style.top = `${anchorPos.y}px`;
+}
+
+// Check if a duplicate entry exists at the current directory level
+function findDuplicateEntry(text, parentEntryId) {
+  const normalizedText = text.trim().toLowerCase();
+  for (const [entryId, entryData] of entries.entries()) {
+    if (entryId === 'anchor') continue;
+    if (!entryData || !entryData.text) continue;
+    
+    // Check if same parent directory level
+    const entryParent = entryData.parentEntryId ?? null;
+    if (entryParent !== parentEntryId) continue;
+    
+    // Check if text matches (case-insensitive)
+    if (entryData.text.trim().toLowerCase() === normalizedText) {
+      return entryId;
+    }
+  }
+  return null;
+}
+
+function updateEntryVisibility() {
+  entries.forEach((entryData, entryId) => {
+    if (entryId === 'anchor') return; // Always show anchor
+    
+    // Ensure entryData and element exist
+    if (!entryData || !entryData.element) return;
+    
+    // Ensure entry is in the DOM (restore if missing)
+    if (!entryData.element.parentElement) {
+      world.appendChild(entryData.element);
+    }
+    
+    // Show entry if its parent matches current view
+    // parentEntryId === null or undefined means root level
+    const entryParent = entryData.parentEntryId ?? null;
+    const shouldShow = entryParent === currentViewEntryId;
+    entryData.element.style.display = shouldShow ? '' : 'none';
+    
+    // Don't regenerate cards - they should already be in the entry
+    // Cards are created when entries are first created or edited
+  });
+}
+
+function navigateToEntry(entryId) {
+  const entryData = entries.get(entryId);
+  if (!entryData) return;
+  
+  navigationStack.push(entryId);
+  currentViewEntryId = entryId;
+  updateBreadcrumb();
+  updateEntryVisibility();
+}
+
+function navigateBack(level = 1) {
+  isNavigating = true;
+  
+  // Hide and blur editor to prevent paste behavior
+  if (editor.style.display !== 'none') {
+    editor.style.display = 'none';
+    editor.blur();
+    editor.textContent = '';
+  }
+  if (editingEntryId && editingEntryId !== 'anchor') {
+    const entryData = entries.get(editingEntryId);
+    if (entryData && entryData.element) {
+      entryData.element.classList.remove('editing');
+    }
+    editingEntryId = null;
+  }
+  
+  for (let i = 0; i < level && navigationStack.length > 0; i++) {
+    navigationStack.pop();
+  }
+  
+  if (navigationStack.length > 0) {
+    currentViewEntryId = navigationStack[navigationStack.length - 1];
+  } else {
+    currentViewEntryId = null;
+  }
+  updateBreadcrumb();
+  updateEntryVisibility();
+  
+  // Reset navigation flag after a delay to prevent paste events
+  // Also prevent editor from being shown for a bit longer
+  setTimeout(() => {
+    isNavigating = false;
+    // Ensure editor is still hidden after navigation completes
+    if (editor.style.display !== 'none') {
+      editor.style.display = 'none';
+      editor.blur();
+      editor.textContent = '';
+      editingEntryId = null;
+    }
+  }, 1000);
+}
+
+function navigateToRoot() {
+  isNavigating = true;
+  
+  // Hide and blur editor to prevent paste behavior
+  if (editor.style.display !== 'none') {
+    editor.style.display = 'none';
+    editor.blur();
+    editor.textContent = '';
+  }
+  if (editingEntryId && editingEntryId !== 'anchor') {
+    const entryData = entries.get(editingEntryId);
+    if (entryData && entryData.element) {
+      entryData.element.classList.remove('editing');
+    }
+    editingEntryId = null;
+  }
+  
+  navigationStack = [];
+  currentViewEntryId = null;
+  updateBreadcrumb();
+  updateEntryVisibility();
+  
+  // Reset navigation flag after a delay to prevent paste events
+  // Also prevent editor from being shown for a bit longer
+  navigationJustCompleted = true;
+  setTimeout(() => {
+    isNavigating = false;
+    // Ensure editor is still hidden after navigation completes
+    if (editor.style.display !== 'none') {
+      editor.style.display = 'none';
+      editor.blur();
+      editor.textContent = '';
+      editingEntryId = null;
+    }
+    // Keep the flag for a bit longer to prevent accidental editor placement
+    setTimeout(() => {
+      navigationJustCompleted = false;
+    }, 500);
+  }, 1000);
+}
+
+function updateBreadcrumb() {
+  breadcrumb.innerHTML = '';
+  
+  if (navigationStack.length === 0) {
+    breadcrumb.style.display = 'none';
+    return;
+  }
+  
+  breadcrumb.style.display = 'flex';
+  
+  const homeItem = document.createElement('span');
+  homeItem.className = 'breadcrumb-item';
+  homeItem.textContent = 'all';
+  homeItem.addEventListener('click', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    // Prevent text selection
+    window.getSelection().removeAllRanges();
+    // Blur editor to prevent paste behavior
+    if (document.activeElement === editor) {
+      editor.blur();
+    }
+    // Clear editor content and hide it
+    editor.textContent = '';
+    editor.style.display = 'none';
+    navigateToRoot();
+  });
+  breadcrumb.appendChild(homeItem);
+  
+  navigationStack.forEach((entryId, index) => {
+    const entryData = entries.get(entryId);
+    if (!entryData) return;
+    
+    const separator = document.createElement('span');
+    separator.className = 'breadcrumb-separator';
+    separator.textContent = ' › ';
+    breadcrumb.appendChild(separator);
+    
+    const item = document.createElement('span');
+    item.className = 'breadcrumb-item';
+    const displayText = entryData.text.split('\n')[0].trim().substring(0, 50) || 'Untitled';
+    item.textContent = displayText;
+    item.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      // Prevent text selection
+      window.getSelection().removeAllRanges();
+      // Blur editor to prevent paste behavior
+      if (document.activeElement === editor) {
+        editor.blur();
+      }
+      // Clear editor content and hide it
+      editor.textContent = '';
+      editor.style.display = 'none';
+      const level = navigationStack.length - index - 1;
+      if (level > 0) {
+        navigateBack(level);
+      }
+    });
+    breadcrumb.appendChild(item);
+  });
+}
+
+
+function placeEditorAtWorld(wx, wy, text = '', entryId = null){
+  // Don't show editor during or right after navigation
+  if (isNavigating || navigationJustCompleted) {
+    return;
+  }
+  
+  editorWorldPos = { x: wx, y: wy };
+  editingEntryId = entryId;
+  
+  // Remove editing class from any previously editing entry
+  const previousEditing = document.querySelector('.entry.editing');
+  if(previousEditing){
+    previousEditing.classList.remove('editing');
+  }
+  
+  // Add editing class to current entry if editing
+  if(entryId && entryId !== 'anchor'){
+    const entryData = entries.get(entryId);
+    if(entryData && entryData.element){
+      entryData.element.classList.add('editing');
+    }
+  }
+  
+  editor.style.left = `${wx}px`;
+  editor.style.top  = `${wy}px`;
+  editor.style.display = 'block';
+  editor.textContent = text;
+  editor.focus();
+
+  const range = document.createRange();
+  const sel = window.getSelection();
+  if(text){
+    range.selectNodeContents(editor);
+    range.collapse(false);
+  } else {
+    range.setStart(editor, 0);
+    range.collapse(true);
+  }
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+async function commitEditor(){
+  // Prevent commits during or right after navigation
+  if (isNavigating || navigationJustCompleted) {
+    editor.textContent = '';
+    editor.style.display = 'none';
+    editingEntryId = null;
+    return;
+  }
+  
+  const raw = editor.innerText;
+  const trimmedRight = raw.replace(/\s+$/g,'');
+
+  // If editing an existing entry
+  if(editingEntryId && editingEntryId !== 'anchor'){
+    const entryData = entries.get(editingEntryId);
+    if(entryData){
+      // If text is empty, delete the entry
+      if(!trimmedRight){
+        entryData.element.classList.remove('editing');
+        entryData.element.remove();
+        entries.delete(editingEntryId);
+        editor.textContent = '';
+        editor.style.display = 'none';
+        editingEntryId = null;
+        return;
+      }
+
+      // Extract URLs and process text
+      const { processedText, urls } = processTextWithLinks(trimmedRight);
+
+      // Remove existing cards and placeholders
+      const existingCards = entryData.element.querySelectorAll('.link-card, .link-card-placeholder');
+      existingCards.forEach(card => card.remove());
+
+      // Update entry content
+      if(processedText){
+        entryData.element.innerHTML = meltify(processedText);
+      } else {
+        entryData.element.innerHTML = '';
+      }
+      entryData.element.style.width = `${editor.offsetWidth}px`;
+      entryData.element.style.minHeight = `${editor.offsetHeight}px`;
+      entryData.text = trimmedRight;
+
+      // Generate and add cards for URLs
+      if(urls.length > 0){
+        const placeholders = [];
+        for(const url of urls){
+          const placeholder = createLinkCardPlaceholder(url);
+          entryData.element.appendChild(placeholder);
+          placeholders.push({ placeholder, url });
+        }
+        
+        // Replace placeholders with actual cards as they're generated
+        for(const { placeholder, url } of placeholders){
+          const cardData = await generateLinkCard(url);
+          if(cardData){
+            const card = createLinkCard(cardData);
+            placeholder.replaceWith(card);
+          } else {
+            placeholder.remove();
+          }
+        }
+      }
+
+      // Remove editing class
+      entryData.element.classList.remove('editing');
+      
+      editor.textContent = '';
+      editor.style.display = 'none';
+      editingEntryId = null;
+      return;
+    }
+  }
+
+  // Create new entry
+  // Extract URLs and process text
+  const { processedText, urls } = processTextWithLinks(trimmedRight);
+
+  // Allow entry if there's text OR URLs
+  if(!processedText && urls.length === 0){
+    editor.textContent = '';
+    editor.style.display = 'none';
+    editingEntryId = null;
+    return;
+  }
+
+  // Check for duplicate entry at the same directory level
+  const duplicateId = findDuplicateEntry(trimmedRight, currentViewEntryId);
+  if (duplicateId) {
+    // Don't create duplicate - just clear editor
+    editor.textContent = '';
+    editor.style.display = 'none';
+    editingEntryId = null;
+    return;
+  }
+
+  const entryId = `entry-${entryIdCounter++}`;
+  const entry = document.createElement('div');
+  entry.className = 'entry melt';
+  entry.id = entryId;
+
+  entry.style.left = `${editorWorldPos.x}px`;
+  entry.style.top  = `${editorWorldPos.y}px`;
+  entry.style.width = `${editor.offsetWidth}px`;
+  entry.style.minHeight = `${editor.offsetHeight}px`;
+
+  // Only render text if there is any
+  if(processedText){
+    entry.innerHTML = meltify(processedText);
+  } else {
+    entry.innerHTML = '';
+  }
+  world.appendChild(entry);
+
+  // Store entry data
+  const entryData = {
+    id: entryId,
+    element: entry,
+    text: trimmedRight,
+    position: { x: editorWorldPos.x, y: editorWorldPos.y },
+    parentEntryId: currentViewEntryId
+  };
+  entries.set(entryId, entryData);
+  
+  // Ensure entry is in the DOM (defensive check)
+  if (!entry.parentElement) {
+    world.appendChild(entry);
+  }
+  
+  // Update visibility - new entry should be visible in current view
+  updateEntryVisibility();
+
+  // Generate and add cards for URLs (async, after text is rendered)
+  if(urls.length > 0){
+    const placeholders = [];
+    for(const url of urls){
+      const placeholder = createLinkCardPlaceholder(url);
+      entry.appendChild(placeholder);
+      placeholders.push({ placeholder, url });
+    }
+    
+    // Replace placeholders with actual cards as they're generated
+    for(const { placeholder, url } of placeholders){
+      const cardData = await generateLinkCard(url);
+      if(cardData){
+        const card = createLinkCard(cardData);
+        placeholder.replaceWith(card);
+      } else {
+        placeholder.remove();
+      }
+    }
+  }
+
+  // Remove melt class after animation completes
+  const maxDuration = 1500; // Maximum animation duration
+  setTimeout(() => {
+    entry.classList.remove('melt');
+    // Reset any inline styles from animation
+    const spans = entry.querySelectorAll('span');
+    spans.forEach(span => {
+      span.style.animation = 'none';
+      span.style.transform = '';
+      span.style.filter = '';
+      span.style.opacity = '';
+    });
+  }, maxDuration);
+
+  // Remove editing class if any
+  if(editingEntryId && editingEntryId !== 'anchor'){
+    const entryData = entries.get(editingEntryId);
+    if(entryData && entryData.element){
+      entryData.element.classList.remove('editing');
+    }
+  }
+  
+  editor.textContent = '';
+  editor.style.display = 'none';
+  editingEntryId = null;
+}
+
+function meltify(text){
+  const chars = [...text];
+  let out = '';
+  let idx = 0;
+
+  for(const ch of chars){
+    if(ch === '\n'){
+      out += '<br>';
+      idx++;
+      continue;
+    }
+    if(ch === ' '){
+      out += '&nbsp;';
+      idx++;
+      continue;
+    }
+
+    const animateThis = Math.random() > 0.18;
+    const baseDelay = idx * 8;
+    const jitter = (Math.random() * 140) | 0;
+    const delay = animateThis ? (baseDelay + jitter) : (baseDelay + 20);
+    const dur = 720 + ((Math.random() * 520) | 0);
+    const safe = escapeHtml(ch);
+
+    const dripThis = animateThis && Math.random() < 0.10;
+    if(animateThis){
+      out += `<span ${dripThis ? 'class="drip"' : ''} data-ch="${safe}" style="animation-delay:${delay}ms;animation-duration:${dur}ms">${safe}</span>`;
+    }else{
+      out += `<span data-ch="${safe}" style="animation:none;opacity:1">${safe}</span>`;
+    }
+    idx++;
+  }
+  return out;
+}
+
+function escapeHtml(s){
+  return s
+    .replaceAll('&','&amp;')
+    .replaceAll('<','&lt;')
+    .replaceAll('>','&gt;')
+    .replaceAll('"','&quot;')
+    .replaceAll("'","&#039;");
+}
+
+// URL detection regex
+const urlRegex = /(https?:\/\/[^\s]+)/gi;
+
+function extractUrls(text) {
+  const matches = text.match(urlRegex);
+  return matches ? [...new Set(matches)] : [];
+}
+
+async function generateLinkCard(url) {
+  try {
+    const response = await fetch('/api/generate-link-card', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ url })
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to generate card');
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('Error generating link card:', error);
+    return null;
+  }
+}
+
+function createLinkCardPlaceholder(url) {
+  const placeholder = document.createElement('div');
+  placeholder.className = 'link-card-placeholder';
+  placeholder.dataset.url = url;
+  
+  const placeholderContent = `
+    <div class="link-card-placeholder-content">
+      <div class="link-card-placeholder-url">${escapeHtml(url)}</div>
+      <div class="link-card-placeholder-loading">Loading...</div>
+    </div>
+  `;
+  
+  placeholder.innerHTML = placeholderContent;
+  
+  // Change cursor to pointer when hovering over link-card placeholder
+  placeholder.addEventListener('mouseenter', (e) => {
+    const entry = placeholder.closest('.entry');
+    if (entry) {
+      entry.classList.add('has-link-card-hover');
+    }
+  });
+  
+  placeholder.addEventListener('mouseleave', (e) => {
+    const entry = placeholder.closest('.entry');
+    if (entry) {
+      entry.classList.remove('has-link-card-hover');
+    }
+  });
+  
+  placeholder.addEventListener('mousedown', (e) => {
+    e.stopPropagation();
+  });
+  placeholder.addEventListener('dblclick', (e) => {
+    e.stopPropagation();
+  });
+  
+  return placeholder;
+}
+
+function createLinkCard(cardData) {
+  const card = document.createElement('div');
+  card.className = cardData.image ? 'link-card' : 'link-card link-card-no-image';
+  card.dataset.url = cardData.url;
+  card.dataset.title = cardData.title;
+  card.dataset.siteName = cardData.siteName;
+  card.dataset.description = cardData.description || '';
+  
+  const cardContent = `
+    ${cardData.image ? `<div class="link-card-image" style="background-image: url('${cardData.image}')"></div>` : ''}
+    <div class="link-card-content">
+      <div class="link-card-site">${escapeHtml(cardData.siteName)}</div>
+      <div class="link-card-title">${escapeHtml(cardData.title)}</div>
+      ${cardData.description ? `<div class="link-card-description">${escapeHtml(cardData.description)}</div>` : ''}
+    </div>
+  `;
+  
+  card.innerHTML = cardContent;
+  
+  // Change cursor to pointer when hovering over link-card
+  card.addEventListener('mouseenter', (e) => {
+    const entry = card.closest('.entry');
+    if (entry) {
+      entry.classList.add('has-link-card-hover');
+    }
+  });
+  
+  card.addEventListener('mouseleave', (e) => {
+    const entry = card.closest('.entry');
+    if (entry) {
+      entry.classList.remove('has-link-card-hover');
+    }
+  });
+  
+  card.addEventListener('click', (e) => {
+    e.stopPropagation();
+    
+    // Command/Ctrl + click: open link
+    if (e.metaKey || e.ctrlKey) {
+      window.open(cardData.url, '_blank');
+      return;
+    }
+    
+    // Regular click: create entry and navigate to it
+    const entryText = cardData.url;
+    
+    // Check for duplicate entry at the same directory level
+    const duplicateId = findDuplicateEntry(entryText, currentViewEntryId);
+    if (duplicateId) {
+      // Navigate to existing entry instead of creating duplicate
+      navigateToEntry(duplicateId);
+      return;
+    }
+    
+    const entryId = `entry-${entryIdCounter++}`;
+    const entry = document.createElement('div');
+    entry.className = 'entry melt';
+    entry.id = entryId;
+    
+    // Position the new entry near the card
+    const cardRect = card.getBoundingClientRect();
+    const cardWorldPos = screenToWorld(cardRect.left, cardRect.top);
+    const offsetX = 300; // Offset to the right of the card
+    const offsetY = 0;
+    
+    entry.style.left = `${cardWorldPos.x + offsetX}px`;
+    entry.style.top = `${cardWorldPos.y + offsetY}px`;
+    entry.style.width = '400px';
+    entry.style.minHeight = '60px';
+    
+    // Create entry text from link card data
+    entry.innerHTML = meltify(entryText);
+    world.appendChild(entry);
+    
+    // Store entry data
+    const entryData = {
+      id: entryId,
+      element: entry,
+      text: entryText,
+      position: { x: cardWorldPos.x + offsetX, y: cardWorldPos.y + offsetY },
+      parentEntryId: currentViewEntryId
+    };
+    entries.set(entryId, entryData);
+    
+    // Navigate to the new entry
+    navigateToEntry(entryId);
+    
+    // Remove melt class after animation
+    const maxDuration = 1500;
+    setTimeout(() => {
+      entry.classList.remove('melt');
+      const spans = entry.querySelectorAll('span');
+      spans.forEach(span => {
+        span.style.animation = 'none';
+        span.style.transform = '';
+        span.style.filter = '';
+        span.style.opacity = '';
+      });
+    }, maxDuration);
+  });
+  card.addEventListener('mousedown', (e) => {
+    e.stopPropagation();
+  });
+  card.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Right-click: edit the parent entry with the card's URL as text
+    const entryEl = findEntryElement(card);
+    if (entryEl && entryEl.id !== 'anchor' && entryEl.id) {
+      const entryData = entries.get(entryEl.id);
+      if (entryData) {
+        const rect = entryEl.getBoundingClientRect();
+        const worldPos = screenToWorld(rect.left, rect.top);
+        // Edit with the card's URL as the text
+        placeEditorAtWorld(worldPos.x, worldPos.y, cardData.url, entryEl.id);
+      }
+    }
+  });
+  
+  return card;
+}
+
+function processTextWithLinks(text) {
+  const urls = extractUrls(text);
+  let processedText = text;
+  
+  // Remove URLs from text (they'll be shown as cards)
+  urls.forEach((url) => {
+    processedText = processedText.replace(url, '').trim();
+  });
+  
+  // Clean up multiple spaces/newlines
+  processedText = processedText.replace(/\s+/g, ' ').trim();
+  
+  return { processedText, urls };
+}
+
+// Helper to find entry element from event target
+function findEntryElement(target) {
+  let el = target;
+  while (el && el !== world) {
+    if (el.classList && (el.classList.contains('entry') || el.id === 'anchor')) {
+      return el;
+    }
+    el = el.parentElement;
+  }
+  return null;
+}
+
+// Click to type / Drag entries
+let clickStart = null;
+let isClick = false;
+let dragThreshold = 5; // Pixels to move before starting drag
+let hasMoved = false;
+
+viewport.addEventListener('mousedown', (e) => {
+  if(e.target === editor || editor.contains(e.target)) return;
+  // Don't handle clicks on breadcrumb
+  if(e.target.closest('#breadcrumb')) return;
+  
+  const entryEl = findEntryElement(e.target);
+  
+  if(entryEl) {
+    // Only prepare for drag if Shift is held (for shift+drag to move)
+    if(e.shiftKey) {
+      e.preventDefault();
+      draggingEntry = entryEl;
+      isClick = false;
+      hasMoved = false;
+      
+      // Calculate offset from mouse to entry position in world coordinates
+      const entryRect = entryEl.getBoundingClientRect();
+      const entryWorldPos = screenToWorld(entryRect.left, entryRect.top);
+      const mouseWorldPos = screenToWorld(e.clientX, e.clientY);
+      dragOffset.x = mouseWorldPos.x - entryWorldPos.x;
+      dragOffset.y = mouseWorldPos.y - entryWorldPos.y;
+      
+      clickStart = { x: e.clientX, y: e.clientY, t: performance.now() };
+    } else {
+      // Regular click - just track for potential click action
+      clickStart = { x: e.clientX, y: e.clientY, t: performance.now(), entryEl: entryEl, button: e.button };
+    }
+  } else {
+    // Start panning viewport
+    dragging = true;
+    viewport.classList.add('dragging');
+    last = { x: e.clientX, y: e.clientY };
+    clickStart = { x: e.clientX, y: e.clientY, t: performance.now() };
+  }
+});
+
+viewport.addEventListener('mousemove', (e) => {
+  if(draggingEntry) {
+    // Only allow dragging if Shift is still held
+    if(!e.shiftKey) {
+      // Shift was released, cancel drag
+      draggingEntry = null;
+      hasMoved = false;
+      return;
+    }
+    
+    // Check if we've moved enough to start dragging
+    if(clickStart){
+      const dist = Math.hypot(e.clientX - clickStart.x, e.clientY - clickStart.y);
+      if(dist > dragThreshold){
+        hasMoved = true;
+      }
+    }
+    
+    // Only drag if we've moved past the threshold
+    if(hasMoved){
+      e.preventDefault();
+      const mouseWorldPos = screenToWorld(e.clientX, e.clientY);
+      const newX = mouseWorldPos.x - dragOffset.x;
+      const newY = mouseWorldPos.y - dragOffset.y;
+      
+      draggingEntry.style.left = `${newX}px`;
+      draggingEntry.style.top = `${newY}px`;
+      
+      // Update stored position
+      const entryId = draggingEntry.id;
+      if(entryId === 'anchor') {
+        anchorPos.x = newX;
+        anchorPos.y = newY;
+      } else {
+        const entryData = entries.get(entryId);
+        if(entryData) {
+          entryData.position = { x: newX, y: newY };
+        }
+      }
+    }
+    
+    isClick = false;
+  } else if(dragging) {
+    // Pan viewport
+    const dx = e.clientX - last.x;
+    const dy = e.clientY - last.y;
+    last = { x: e.clientX, y: e.clientY };
+    cam.x += dx;
+    cam.y += dy;
+    applyTransform();
+    isClick = false;
+  }
+});
+
+window.addEventListener('mouseup', (e) => {
+  if(draggingEntry) {
+    // Only reset if we didn't actually drag
+    if(!hasMoved){
+      // Check if it was a click (no movement)
+      if(clickStart) {
+        const dist = Math.hypot(e.clientX - clickStart.x, e.clientY - clickStart.y);
+        const dt = performance.now() - clickStart.t;
+        isClick = (dist < dragThreshold && dt < 350);
+        
+        // Navigate to entry if it was a click (not a drag)
+        if(isClick && draggingEntry.id !== 'anchor' && draggingEntry.id) {
+          navigateToEntry(draggingEntry.id);
+        }
+      }
+    }
+    
+    draggingEntry = null;
+    clickStart = null;
+    hasMoved = false;
+  } else if(dragging) {
+    dragging = false;
+    viewport.classList.remove('dragging');
+    
+    // Check if it was a click (no movement) - place editor
+    // Don't place editor if we're navigating or navigation just completed
+    if(clickStart && !isNavigating && !navigationJustCompleted) {
+      const dist = Math.hypot(e.clientX - clickStart.x, e.clientY - clickStart.y);
+      const dt = performance.now() - clickStart.t;
+      if(dist < 6 && dt < 350 && !isClick){
+        const w = screenToWorld(e.clientX, e.clientY);
+        placeEditorAtWorld(w.x, w.y);
+      }
+    }
+    clickStart = null;
+  } else if(clickStart && clickStart.entryEl) {
+    // Handle click on entry (not dragging)
+    // Skip navigation if this was a right-click (button 2) - let contextmenu handle it
+    if(e.button !== 2 && clickStart.button !== 2) {
+      const dist = Math.hypot(e.clientX - clickStart.x, e.clientY - clickStart.y);
+      const dt = performance.now() - clickStart.t;
+      const isClick = (dist < dragThreshold && dt < 350);
+      
+      if(isClick) {
+        const entryEl = clickStart.entryEl;
+        
+        // Command/Ctrl + click: open link in browser
+        if((e.metaKey || e.ctrlKey) && entryEl.id !== 'anchor' && entryEl.id) {
+          const entryData = entries.get(entryEl.id);
+          if(entryData) {
+            const urls = extractUrls(entryData.text);
+            if(urls.length > 0) {
+              window.open(urls[0], '_blank');
+            }
+          }
+        } 
+        // Regular click: navigate to entry (open breadcrumb)
+        else if(!e.shiftKey && entryEl.id !== 'anchor' && entryEl.id) {
+          navigateToEntry(entryEl.id);
+        }
+      }
+    }
+    
+    clickStart = null;
+  }
+});
+
+viewport.addEventListener('wheel', (e) => {
+  e.preventDefault();
+
+  const mouse = { x: e.clientX, y: e.clientY };
+  const before = screenToWorld(mouse.x, mouse.y);
+
+  const delta = -e.deltaY;
+  const zoomFactor = Math.exp(delta * 0.0012);
+
+  const newZ = clamp(cam.z * zoomFactor, 0.12, 8);
+  cam.z = newZ;
+
+  const after = screenToWorld(mouse.x, mouse.y);
+
+  cam.x += (after.x - before.x) * cam.z;
+  cam.y += (after.y - before.y) * cam.z;
+
+  applyTransform();
+}, { passive: false });
+
+editor.addEventListener('keydown', (e) => {
+  if((e.metaKey || e.ctrlKey) && e.key === 'Enter'){
+    e.preventDefault();
+    commitEditor();
+    return;
+  }
+
+  if(e.key === 'Escape'){
+    e.preventDefault();
+    
+    // Remove editing class from entry
+    if(editingEntryId && editingEntryId !== 'anchor'){
+      const entryData = entries.get(editingEntryId);
+      if(entryData && entryData.element){
+        entryData.element.classList.remove('editing');
+      }
+    }
+    
+    editor.textContent = '';
+    editor.style.display = 'none';
+    editingEntryId = null;
+    return;
+  }
+});
+
+editor.addEventListener('mousedown', (e) => e.stopPropagation());
+editor.addEventListener('wheel', (e) => e.stopPropagation());
+editor.addEventListener('paste', (e) => {
+  // Only prevent paste during navigation transitions or right after navigation
+  if (isNavigating || navigationJustCompleted) {
+    e.preventDefault();
+    e.stopPropagation();
+    // Clear the editor content to be safe
+    editor.textContent = '';
+    return;
+  }
+  // Also prevent paste if editor is hidden (shouldn't happen, but safety check)
+  if (editor.style.display === 'none') {
+    e.preventDefault();
+    e.stopPropagation();
+    return;
+  }
+  // Allow paste to work normally when editor is visible and focused
+});
+
+// Right-click to edit entry
+viewport.addEventListener('contextmenu', (e) => {
+  if(e.target === editor || editor.contains(e.target)) return;
+  
+  const entryEl = findEntryElement(e.target);
+  
+  // Don't edit if clicking on a link card (handled by card's contextmenu)
+  if(e.target.closest('.link-card')) return;
+  
+  if(entryEl && entryEl.id !== 'anchor' && entryEl.id){
+    e.preventDefault();
+    e.stopPropagation();
+    
+    const entryData = entries.get(entryEl.id);
+    if(entryData){
+      const rect = entryEl.getBoundingClientRect();
+      const worldPos = screenToWorld(rect.left, rect.top);
+      placeEditorAtWorld(worldPos.x, worldPos.y, entryData.text, entryEl.id);
+    }
+  }
+});
+
+requestAnimationFrame(() => {
+  centerAnchor();
+});
