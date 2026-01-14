@@ -16,17 +16,29 @@ function getPool() {
       throw new Error('POSTGRES_URL or POSTGRES_URL_NON_POOLING environment variable is not set');
     }
     
-    // Determine if this is a Supabase connection
-    const isSupabase = connectionString.includes('supabase.co') || 
-                       connectionString.includes('pooler.supabase.com') ||
-                       connectionString.includes('supabase.com');
+    // Determine if this is a Supabase connection (check multiple patterns)
+    const connectionLower = connectionString.toLowerCase();
+    const hasSupabaseInString = connectionLower.includes('supabase');
+    const hasSupabaseEnvVars = !!(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL);
+    const isSupabase = hasSupabaseInString || hasSupabaseEnvVars;
+    
+    // For Supabase, always use SSL with rejectUnauthorized: false
+    // This handles their self-signed certificates
+    // If we detect Supabase env vars but connection string doesn't match, still use SSL
+    const sslConfig = isSupabase 
+      ? { rejectUnauthorized: false }
+      : undefined;
     
     pool = new Pool({
       connectionString,
-      // Always use SSL for Supabase connections, and disable certificate validation
-      // (Supabase uses self-signed certs that need this)
-      ssl: isSupabase ? { rejectUnauthorized: false } : undefined
+      ssl: sslConfig
     });
+    
+    // Log connection info for debugging (without exposing sensitive data)
+    if (isSupabase) {
+      const detectedVia = hasSupabaseInString ? 'connection string' : 'environment variables';
+      console.log(`Using Supabase Postgres connection with SSL (detected via ${detectedVia})`);
+    }
   }
   return pool;
 }
