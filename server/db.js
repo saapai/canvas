@@ -10,15 +10,22 @@ let dbInitialized = false;
 
 function getPool() {
   if (!pool) {
-    const connectionString = process.env.POSTGRES_URL;
+    // Check for POSTGRES_URL first, then fall back to POSTGRES_URL_NON_POOLING
+    const connectionString = process.env.POSTGRES_URL || process.env.POSTGRES_URL_NON_POOLING;
     if (!connectionString) {
-      throw new Error('POSTGRES_URL environment variable is not set');
+      throw new Error('POSTGRES_URL or POSTGRES_URL_NON_POOLING environment variable is not set');
     }
+    
+    // Determine if this is a Supabase connection
+    const isSupabase = connectionString.includes('supabase.co') || 
+                       connectionString.includes('pooler.supabase.com') ||
+                       connectionString.includes('supabase.com');
+    
     pool = new Pool({
       connectionString,
-      ssl: connectionString.includes('supabase.co') || connectionString.includes('pooler.supabase.com')
-        ? { rejectUnauthorized: false }
-        : undefined
+      // Always use SSL for Supabase connections, and disable certificate validation
+      // (Supabase uses self-signed certs that need this)
+      ssl: isSupabase ? { rejectUnauthorized: false } : undefined
     });
   }
   return pool;
