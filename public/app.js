@@ -230,10 +230,15 @@ async function bootstrap() {
   const pageUsername = window.PAGE_USERNAME;
   const isOwner = window.PAGE_IS_OWNER === true;
   const pathParts = window.location.pathname.split('/').filter(Boolean);
-  const isUserPage = !!pageUsername || (pathParts.length > 0 && pathParts[0] !== 'index.html');
+  const isUserPage = !!pageUsername || (pathParts.length > 0 && pathParts[0] !== 'index.html' && pathParts[0] !== '');
   
   initAuthUI();
   setAnchorGreeting();
+  
+  // If on a user page, hide auth overlay immediately
+  if (isUserPage) {
+    hideAuthOverlay();
+  }
   
   try {
     const res = await fetch('/api/auth/me');
@@ -259,7 +264,7 @@ async function bootstrap() {
     } else {
       // Not logged in
       if (isUserPage) {
-        // Load public entries (read-only)
+        // Load public entries (read-only) - don't show auth
         const targetUsername = pageUsername || pathParts[0];
         await loadUserEntries(targetUsername, false);
       } else {
@@ -269,7 +274,7 @@ async function bootstrap() {
   } catch (error) {
     console.error('Error checking auth:', error);
     if (isUserPage) {
-      // Try to load public entries anyway
+      // Try to load public entries anyway - don't show auth
       const targetUsername = pageUsername || pathParts[0];
       await loadUserEntries(targetUsername, false);
     } else {
