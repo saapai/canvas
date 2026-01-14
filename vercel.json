@@ -1,17 +1,20 @@
 {
-  "version": 2,
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "/server/index.js"
+      "destination": "/api"
     },
     {
       "source": "/:username/:path*",
-      "destination": "/server/index.js"
+      "destination": "/api"
     },
     {
       "source": "/:username",
-      "destination": "/server/index.js"
+      "destination": "/api"
+    },
+    {
+      "source": "/",
+      "destination": "/api"
     }
   ]
 }
