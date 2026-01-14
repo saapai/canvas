@@ -235,14 +235,6 @@ async function bootstrap() {
   // If on a user page, hide auth overlay IMMEDIATELY and keep it hidden
   if (isUserPage) {
     hideAuthOverlay();
-    // Prevent any code from showing it
-    const originalShowAuth = showAuthOverlay;
-    showAuthOverlay = function() {
-      // Do nothing on user pages
-      if (!isUserPage) {
-        originalShowAuth();
-      }
-    };
   }
   
   initAuthUI();
