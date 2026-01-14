@@ -69,15 +69,14 @@ body::before{
   padding: 0;
   line-height: 1.6;
   font-size: 16px;
-  white-space: pre-wrap;
-  word-wrap: break-word;
+  white-space: pre;
   user-select: none;
   color: var(--ink);
-  max-width: 600px;
   cursor: move;
   transition: background-color 0.2s ease;
   text-rendering: geometricPrecision;
   -webkit-font-smoothing: antialiased;
+  overflow: visible;
 }
 
 .entry:has(.link-card:hover),
@@ -113,8 +112,7 @@ body::before{
   position: absolute;
   display: none;
   min-width: 220px;
-  width: 520px;
-  max-width: 640px;
+  width: auto;
   padding: 0;
   border: none;
   background: transparent;
@@ -124,10 +122,10 @@ body::before{
   line-height: 1.55;
   outline: none;
   user-select: text;
-  white-space: pre-wrap;
-  word-break: break-word;
+  white-space: pre;
   text-rendering: geometricPrecision;
   -webkit-font-smoothing: antialiased;
+  overflow: visible;
 }
 
 #editor:focus{

@@ -677,7 +677,26 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null){
   editor.style.top  = `${wy}px`;
   editor.style.display = 'block';
   editor.textContent = text;
+  
+  // Set editor width to match entry width if editing, or use content width
+  if(entryId && entryId !== 'anchor'){
+    const entryData = entries.get(entryId);
+    if(entryData && entryData.element){
+      const entryWidth = entryData.element.offsetWidth || 400;
+      editor.style.width = `${entryWidth}px`;
+    }
+  } else {
+    // For new entries, let it expand naturally
+    editor.style.width = 'auto';
+  }
+  
   editor.focus();
+  
+  // Update width based on content after rendering
+  requestAnimationFrame(() => {
+    const contentWidth = Math.max(editor.scrollWidth, editor.offsetWidth, 220);
+    editor.style.width = `${contentWidth}px`;
+  });
 
   const range = document.createRange();
   const sel = window.getSelection();
@@ -733,7 +752,9 @@ async function commitEditor(){
       } else {
         entryData.element.innerHTML = '';
       }
-      entryData.element.style.width = `${editor.offsetWidth}px`;
+      // Use scrollWidth to get actual content width (works better with white-space: pre)
+      const contentWidth = Math.max(editor.scrollWidth, editor.offsetWidth, 220);
+      entryData.element.style.width = `${contentWidth}px`;
       entryData.element.style.minHeight = `${editor.offsetHeight}px`;
       entryData.text = trimmedRight;
 
@@ -800,7 +821,9 @@ async function commitEditor(){
 
   entry.style.left = `${editorWorldPos.x}px`;
   entry.style.top  = `${editorWorldPos.y}px`;
-  entry.style.width = `${editor.offsetWidth}px`;
+  // Use scrollWidth to get actual content width (works better with white-space: pre)
+  const contentWidth = Math.max(editor.scrollWidth, editor.offsetWidth, 220);
+  entry.style.width = `${contentWidth}px`;
   entry.style.minHeight = `${editor.offsetHeight}px`;
 
   // Only render text if there is any
@@ -1353,6 +1376,14 @@ editor.addEventListener('keydown', (e) => {
     editingEntryId = null;
     return;
   }
+});
+
+// Update editor width as content changes (for sticky-note-like behavior)
+editor.addEventListener('input', () => {
+  // With white-space: pre, the editor expands naturally
+  // Use scrollWidth to get the actual content width and update editor width
+  const contentWidth = Math.max(editor.scrollWidth, 220); // min 220px
+  editor.style.width = `${contentWidth}px`;
 });
 
 editor.addEventListener('mousedown', (e) => e.stopPropagation());
