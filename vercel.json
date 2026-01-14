@@ -6,23 +6,22 @@
       "use": "@vercel/static"
     },
     {
-      "src": "api/index.js",
+      "src": "server/index.js",
       "use": "@vercel/node"
     }
   ],
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "api/index.js"
+      "dest": "server/index.js"
+    },
+    {
+      "src": "^/([^/]+)\\.([a-zA-Z0-9]+)$",
+      "dest": "public/$1.$2"
     },
     {
       "src": "^/([^/\\.]+)(/.*)?$",
-      "dest": "api/index.js",
-      "check": true
-    },
-    {
-      "src": "/(.*)",
-      "dest": "public/$1"
+      "dest": "server/index.js"
     }
   ]
 }

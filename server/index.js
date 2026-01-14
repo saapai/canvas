@@ -56,6 +56,9 @@ function generateUserPageHTML(user, isOwner = false, pathParts = []) {
     const indexPath = join(__dirname, '../public/index.html');
     let html = readFileSync(indexPath, 'utf8');
     
+    // Add base href to ensure static files load correctly from subdirectories
+    html = html.replace('<head>', '<head>\n  <base href="/" />');
+    
     // Update title
     html = html.replace('<title>Infinite Diary Page</title>', `<title>${user.username} - Duttapad</title>`);
     
