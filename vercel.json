@@ -1,27 +1,17 @@
 {
   "version": 2,
-  "builds": [
+  "rewrites": [
     {
-      "src": "public/**/*",
-      "use": "@vercel/static"
+      "source": "/api/:path*",
+      "destination": "/server/index.js"
     },
     {
-      "src": "server/index.js",
-      "use": "@vercel/node"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "server/index.js"
+      "source": "/:username/:path*",
+      "destination": "/server/index.js"
     },
     {
-      "src": "^/([^/]+)\\.([a-zA-Z0-9]+)$",
-      "dest": "public/$1.$2"
-    },
-    {
-      "src": "^/([^/\\.]+)(/.*)?$",
-      "dest": "server/index.js"
+      "source": "/:username",
+      "destination": "/server/index.js"
     }
   ]
 }
