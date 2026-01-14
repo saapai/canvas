@@ -45,11 +45,9 @@ const twilioClient = TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN
 app.use(cors());
 app.use(express.json());
 
-// Only serve static files in local development
-// On Vercel, static files are served automatically
-if (process.env.VERCEL !== '1') {
-  app.use(express.static('public'));
-}
+// Serve static files BEFORE any other routes
+// This ensures app.js, styles.css, etc. are served correctly
+app.use(express.static('public'));
 
 // Helper function to generate user page HTML (canvas view, editable if owner)
 function generateUserPageHTML(user, isOwner = false, pathParts = []) {
@@ -555,9 +553,15 @@ app.get('/', async (req, res) => {
 });
 
 // Serve user pages (always canvas view, editable if owner)
+// Exclude requests with file extensions (static files)
 app.get('/:username', async (req, res) => {
   try {
     const { username } = req.params;
+    
+    // Skip if this looks like a static file request (has extension)
+    if (username.includes('.')) {
+      return res.status(404).send('Not found');
+    }
     const user = await getUserByUsername(username);
     if (!user) {
       return res.status(404).send('User not found');
@@ -591,9 +595,16 @@ app.get('/:username', async (req, res) => {
 });
 
 // Handle nested paths for user pages (same as root - just show canvas)
+// Exclude requests with file extensions (static files)
 app.get('/:username/*', async (req, res) => {
   try {
     const { username } = req.params;
+    
+    // Skip if this looks like a static file request (has extension)
+    if (username.includes('.')) {
+      return res.status(404).send('Not found');
+    }
+    
     const pathParts = req.params[0] ? req.params[0].split('/').filter(Boolean).map(p => decodeURIComponent(p)) : [];
     const user = await getUserByUsername(username);
     if (!user) {
