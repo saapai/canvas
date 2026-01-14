@@ -54,7 +54,8 @@ function showAuthOverlay() {
   authStepPhone.classList.remove('hidden');
   authStepCode.classList.add('hidden');
   authStepUsername.classList.add('hidden');
-  authPhoneInput.value = '';
+  // Default to US country code so it's visible and users know to include +1
+  authPhoneInput.value = '+1 ';
   authCodeInput.value = '';
   authUsernameInput.value = '';
 }
