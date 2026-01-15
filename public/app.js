@@ -664,6 +664,7 @@ let dragging = false;
 let draggingEntry = null;
 let dragOffset = { x: 0, y: 0 };
 let last = { x: 0, y: 0 };
+let justFinishedDragging = false;
 
 // Where the editor is placed in WORLD coordinates
 let editorWorldPos = { x: 80, y: 80 };
@@ -1478,6 +1479,12 @@ function createLinkCard(cardData) {
   });
   
   card.addEventListener('click', (e) => {
+    // Don't handle click if shift was held (shift+click is for dragging)
+    // Also don't handle if we just finished dragging (prevents navigation after drag)
+    if (e.shiftKey || justFinishedDragging) {
+      return;
+    }
+    
     e.stopPropagation();
     
     // Command/Ctrl + click: open link
@@ -1783,6 +1790,15 @@ window.addEventListener('mouseup', (e) => {
   
   // Normal mode: allow all interactions
   if(draggingEntry) {
+    // Mark that we just finished dragging (even if no movement, shift+click means drag attempt)
+    if(hasMoved || e.shiftKey) {
+      justFinishedDragging = true;
+      // Clear flag after a short delay to allow click event to check it
+      setTimeout(() => {
+        justFinishedDragging = false;
+      }, 100);
+    }
+    
     // Only reset if we didn't actually drag
     if(!hasMoved){
       // Check if it was a click (no movement)
