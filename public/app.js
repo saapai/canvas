@@ -420,6 +420,8 @@ async function loadUserEntries(username, editable) {
           navigationStack.push(targetEntry.id);
           currentParent = targetEntry.id;
         } else {
+          // Entry not found in path - could be an empty subdirectory
+          // Keep the navigation stack as is (may be empty)
           break;
         }
       }
@@ -435,6 +437,7 @@ async function loadUserEntries(username, editable) {
       navigationStack = [];
     }
     
+    // Always update breadcrumb (will show even for empty subdirectories)
     updateBreadcrumb();
     updateEntryVisibility();
     
