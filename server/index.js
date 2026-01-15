@@ -353,7 +353,7 @@ app.post('/api/entries', async (req, res) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });
     }
-    const { id, text, position, parentEntryId } = req.body;
+    const { id, text, position, parentEntryId, cardData } = req.body;
     
     if (!id || !text || !position) {
       return res.status(400).json({ error: 'id, text, and position are required' });
@@ -364,6 +364,7 @@ app.post('/api/entries', async (req, res) => {
       text,
       position: { x: position.x, y: position.y },
       parentEntryId: parentEntryId || null,
+      cardData: cardData || null,
       userId: req.user.id
     };
 
@@ -381,7 +382,7 @@ app.put('/api/entries/:id', async (req, res) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
     const { id } = req.params;
-    const { text, position, parentEntryId } = req.body;
+    const { text, position, parentEntryId, cardData } = req.body;
     
     if (!text || !position) {
       return res.status(400).json({ error: 'text and position are required' });
@@ -392,6 +393,7 @@ app.put('/api/entries/:id', async (req, res) => {
       text,
       position: { x: position.x, y: position.y },
       parentEntryId: parentEntryId || null,
+      cardData: cardData || null,
       userId: req.user.id
     };
 
@@ -445,6 +447,13 @@ app.get('/api/public/:username/entries', async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
     const entries = await getEntriesByUsername(username);
+    
+    // Log entry statistics for debugging
+    console.log(`[DEBUG] User: ${username}, Total entries: ${entries.length}`);
+    const rootEntries = entries.filter(e => !e.parentEntryId);
+    const childEntries = entries.filter(e => e.parentEntryId);
+    console.log(`[DEBUG] Root entries: ${rootEntries.length}, Child entries: ${childEntries.length}`);
+    
     res.json({ user: { username: user.username }, entries });
   } catch (error) {
     console.error('Error fetching public entries:', error);

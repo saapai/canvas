@@ -86,7 +86,7 @@ export async function getAllEntries(userId) {
   try {
     const db = getPool();
     const result = await db.query(
-      `SELECT id, text, position_x, position_y, parent_entry_id
+      `SELECT id, text, position_x, position_y, parent_entry_id, card_data
        FROM entries
        WHERE user_id = $1
        ORDER BY created_at ASC`,
@@ -96,7 +96,8 @@ export async function getAllEntries(userId) {
       id: row.id,
       text: row.text,
       position: { x: row.position_x, y: row.position_y },
-      parentEntryId: row.parent_entry_id || null
+      parentEntryId: row.parent_entry_id || null,
+      cardData: row.card_data || null
     }));
   } catch (error) {
     console.error('Error fetching entries:', error);
@@ -133,8 +134,8 @@ export async function saveEntry(entry) {
   try {
     const db = getPool();
     await db.query(
-      `INSERT INTO entries (id, text, position_x, position_y, parent_entry_id, user_id, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+      `INSERT INTO entries (id, text, position_x, position_y, parent_entry_id, user_id, card_data, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
        ON CONFLICT (id) 
        DO UPDATE SET 
          text = EXCLUDED.text,
@@ -142,8 +143,9 @@ export async function saveEntry(entry) {
          position_y = EXCLUDED.position_y,
          parent_entry_id = EXCLUDED.parent_entry_id,
          user_id = EXCLUDED.user_id,
+         card_data = EXCLUDED.card_data,
          updated_at = CURRENT_TIMESTAMP`,
-      [entry.id, entry.text, entry.position.x, entry.position.y, entry.parentEntryId || null, entry.userId]
+      [entry.id, entry.text, entry.position.x, entry.position.y, entry.parentEntryId || null, entry.userId, entry.cardData ? JSON.stringify(entry.cardData) : null]
     );
     return entry;
   } catch (error) {
@@ -261,7 +263,7 @@ export async function getEntriesByUsername(username) {
   try {
     const db = getPool();
     const result = await db.query(
-      `SELECT e.id, e.text, e.position_x, e.position_y, e.parent_entry_id, e.created_at
+      `SELECT e.id, e.text, e.position_x, e.position_y, e.parent_entry_id, e.card_data, e.created_at
        FROM entries e
        JOIN users u ON e.user_id = u.id
        WHERE u.username = $1
@@ -273,6 +275,7 @@ export async function getEntriesByUsername(username) {
       text: row.text,
       position: { x: row.position_x, y: row.position_y },
       parentEntryId: row.parent_entry_id || null,
+      cardData: row.card_data || null,
       createdAt: row.created_at
     }));
   } catch (error) {

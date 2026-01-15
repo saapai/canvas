@@ -519,7 +519,8 @@ async function updateEntryOnServer(entryData) {
       body: JSON.stringify({
         text: entryData.text,
         position: entryData.position,
-        parentEntryId: entryData.parentEntryId
+        parentEntryId: entryData.parentEntryId,
+        cardData: entryData.cardData || null
       })
     });
     
@@ -1195,13 +1196,30 @@ async function commitEditor(){
     }
     
     // Replace placeholders with actual cards as they're generated
+    const allCardData = [];
     for(const { placeholder, url } of placeholders){
       const cardData = await generateLinkCard(url);
       if(cardData){
         const card = createLinkCard(cardData);
         placeholder.replaceWith(card);
+        allCardData.push(cardData);
       } else {
         placeholder.remove();
+      }
+    }
+    
+    // Save card data to entry for future loads
+    if (allCardData.length > 0 && !editingEntryId) {
+      const entryData = entries.get(entry.id);
+      if (entryData) {
+        entryData.cardData = allCardData[0]; // Store first card data
+        await updateEntryOnServer(entryData);
+      }
+    } else if (allCardData.length > 0 && editingEntryId && editingEntryId !== 'anchor') {
+      const entryData = entries.get(editingEntryId);
+      if (entryData) {
+        entryData.cardData = allCardData[0]; // Store first card data
+        await updateEntryOnServer(entryData);
       }
     }
   }
