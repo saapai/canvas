@@ -350,7 +350,7 @@ body::before{
 }
 
 /* Breadcrumb navigation */
-#breadcrumb {
+#topbar {
   position: fixed;
   top: 0;
   left: 0;
@@ -359,10 +359,17 @@ body::before{
   background: rgba(247, 242, 232, 0.95);
   backdrop-filter: blur(10px);
   border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+#breadcrumb {
   display: none;
   align-items: center;
   gap: 4px;
-  z-index: 1000;
   font-size: 14px;
   user-select: none;
 }
@@ -577,19 +584,16 @@ body::before{
 
 /* Help button */
 .help-button {
-  position: fixed;
-  top: 20px;
-  right: 20px;
-  width: 40px;
-  height: 40px;
+  position: static;
+  width: 34px;
+  height: 34px;
   border-radius: 50%;
   background: #2c2c2c;
   color: #e8e6df;
   border: 1px solid #444;
-  font-size: 24px;
+  font-size: 20px;
   font-weight: bold;
   cursor: pointer;
-  z-index: 1000;
   display: flex;
   align-items: center;
   justify-content: center;
