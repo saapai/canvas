@@ -371,7 +371,6 @@ body::before{
   z-index: 1000;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
 }
 
@@ -381,6 +380,26 @@ body::before{
   gap: 4px;
   font-size: 14px;
   user-select: none;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+}
+
+#breadcrumb::-webkit-scrollbar {
+  height: 4px;
+}
+
+#breadcrumb::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#breadcrumb::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 2px;
 }
 
 .breadcrumb-item {
@@ -393,6 +412,8 @@ body::before{
   -webkit-user-select: none;
   -moz-user-select: none;
   -ms-user-select: none;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .breadcrumb-item:hover {
@@ -402,6 +423,8 @@ body::before{
 .breadcrumb-separator {
   color: var(--ink);
   user-select: none;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .auth-overlay {
@@ -608,6 +631,8 @@ body::before{
   justify-content: center;
   transition: all 0.2s ease;
   font-family: 'Inter', sans-serif;
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .help-button:hover {

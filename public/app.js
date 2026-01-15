@@ -908,6 +908,8 @@ function updateBreadcrumb() {
   const pageUsername = window.PAGE_USERNAME;
   const isOwner = window.PAGE_IS_OWNER === true;
   
+  // Always show breadcrumb when we're in a subdirectory (navigationStack.length > 0)
+  // OR when on a user page (even at root for context)
   if (navigationStack.length === 0) {
     // On user pages, show a minimal breadcrumb at root too
     if (pageUsername) {
@@ -924,6 +926,7 @@ function updateBreadcrumb() {
     return;
   }
   
+  // In subdirectories: ALWAYS show breadcrumb (both view and edit mode)
   breadcrumb.style.display = 'flex';
   
   const homeItem = document.createElement('span');
@@ -1419,7 +1422,10 @@ function createLinkCardPlaceholder(url) {
   });
   
   placeholder.addEventListener('mousedown', (e) => {
-    e.stopPropagation();
+    // Allow shift+click to propagate for dragging
+    if (!e.shiftKey) {
+      e.stopPropagation();
+    }
   });
   placeholder.addEventListener('dblclick', (e) => {
     e.stopPropagation();
@@ -1532,7 +1538,10 @@ function createLinkCard(cardData) {
     }, maxDuration);
   });
   card.addEventListener('mousedown', (e) => {
-    e.stopPropagation();
+    // Allow shift+click to propagate for dragging
+    if (!e.shiftKey) {
+      e.stopPropagation();
+    }
   });
   card.addEventListener('contextmenu', (e) => {
     e.preventDefault();
