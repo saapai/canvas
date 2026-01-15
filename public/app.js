@@ -150,8 +150,13 @@ async function handleVerifyCode() {
       authStepUsername.classList.remove('hidden');
       authUsernameInput.focus();
     } else {
-      hideAuthOverlay();
-      await loadEntriesFromServer();
+      // User already has a username, redirect to their page
+      if (currentUser && currentUser.username) {
+        window.location.href = `/${currentUser.username}`;
+      } else {
+        hideAuthOverlay();
+        await loadEntriesFromServer();
+      }
     }
   } catch (error) {
     console.error(error);
