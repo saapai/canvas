@@ -879,6 +879,7 @@ function updateBreadcrumb() {
   
   // Always show breadcrumb on user pages (even at root for context)
   const pageUsername = window.PAGE_USERNAME;
+  const isOwner = window.PAGE_IS_OWNER === true;
   
   if (navigationStack.length === 0) {
     // On user pages, show a minimal breadcrumb at root too
@@ -900,7 +901,8 @@ function updateBreadcrumb() {
   
   const homeItem = document.createElement('span');
   homeItem.className = 'breadcrumb-item';
-  homeItem.textContent = 'all';
+  // Show "all" if owner/logged in, show username if just viewing
+  homeItem.textContent = isOwner ? 'all' : pageUsername;
   homeItem.addEventListener('click', (e) => {
     e.stopPropagation();
     e.preventDefault();
