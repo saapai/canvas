@@ -224,12 +224,34 @@ app.post('/api/auth/verify-code', async (req, res) => {
       return res.status(400).json({ error: 'Invalid or expired code' });
     }
 
+    // Try to find user by phone number
     let user = await getUserByPhone(normalizedPhone);
+    
+    // If not found, try alternative phone formats (with/without +1, with/without spaces)
     if (!user) {
+      // Try without +1 prefix if it starts with +1
+      if (normalizedPhone.startsWith('+1')) {
+        const phoneWithoutPlus = normalizedPhone.substring(2).trim();
+        user = await getUserByPhone(phoneWithoutPlus);
+      }
+      // Try with +1 if it doesn't have it
+      if (!user && !normalizedPhone.startsWith('+1')) {
+        user = await getUserByPhone('+1' + normalizedPhone);
+      }
+    }
+    
+    console.log('Phone lookup:', {
+      searchedPhone: normalizedPhone,
+      foundUser: user ? { id: user.id, phone: user.phone, username: user.username } : null
+    });
+    
+    if (!user) {
+      console.log('Creating new user with phone:', normalizedPhone);
       user = await createUser(normalizedPhone);
     } else {
       // Refetch user to ensure we have the latest data including username
       user = await getUserById(user.id);
+      console.log('Found existing user:', { id: user.id, phone: user.phone, username: user.username });
     }
 
     const token = jwt.sign(
@@ -244,6 +266,12 @@ app.post('/api/auth/verify-code', async (req, res) => {
     const usernameValue = user.username;
     const hasUsername = usernameValue != null && String(usernameValue).trim().length > 0;
     const needsUsername = !hasUsername;
+    
+    console.log('Username check:', {
+      usernameValue,
+      hasUsername,
+      needsUsername
+    });
     
     return res.json({
       user: { 
