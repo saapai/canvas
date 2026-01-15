@@ -491,42 +491,63 @@ body::before{
 .auth-phone-wrapper {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  background: rgba(15, 23, 42, 0.85);
-  border: 1px solid rgba(31, 41, 55, 0.9);
+  gap: 12px;
   margin-bottom: 24px;
 }
 
-.auth-phone-flag {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  border: 1px solid rgba(55, 65, 81, 0.9);
-  background: rgba(17, 24, 39, 0.9);
+.auth-phone-prefix {
+  font-size: 20px;
   color: #e5e7eb;
-  cursor: default;
+  font-weight: 500;
+  padding: 0 4px;
+  user-select: none;
 }
 
-.auth-phone-flag-emoji {
-  font-size: 16px;
+.auth-phone-boxes-wrapper {
+  position: relative;
+  flex: 1;
 }
 
 .auth-phone-input {
-  flex: 1;
-  border: none;
-  outline: none;
-  background: transparent;
-  color: #e5e7eb;
-  font-size: 16px;
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
 }
 
-.auth-phone-input::placeholder {
-  color: rgba(148, 163, 184, 0.9);
+.auth-phone-boxes {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.auth-phone-box {
+  flex: 1;
+  max-width: 48px;
+  height: 64px;
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.9);
+  border: 1px solid rgba(31, 41, 55, 0.9);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  color: #e5e7eb;
+  font-weight: 500;
+}
+
+.auth-phone-boxes:focus-within .auth-phone-box,
+.auth-phone-box:focus {
+  border-color: rgba(148, 163, 184, 0.9);
+}
+
+/* Add spacing between groups of 3-3-4 */
+.auth-phone-boxes .auth-phone-box:nth-child(3) {
+  margin-right: 12px;
+}
+
+.auth-phone-boxes .auth-phone-box:nth-child(6) {
+  margin-right: 12px;
 }
 
 .auth-button {

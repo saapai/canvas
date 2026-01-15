@@ -66,15 +66,28 @@
 
       <div class="auth-step" id="auth-step-phone">
         <div class="auth-phone-wrapper">
-          <button class="auth-phone-flag" type="button">
-            <span class="auth-phone-flag-emoji">🇺🇸</span>
-          </button>
-          <input
-            id="auth-phone-input"
-            class="auth-phone-input"
-            type="tel"
-            placeholder="(000) 000-0000"
-          />
+          <div class="auth-phone-prefix">+1</div>
+          <div class="auth-phone-boxes-wrapper">
+            <input
+              id="auth-phone-input"
+              class="auth-phone-input"
+              type="text"
+              inputmode="numeric"
+              maxlength="10"
+            />
+            <div class="auth-phone-boxes" id="auth-phone-boxes">
+              <div class="auth-phone-box"></div>
+              <div class="auth-phone-box"></div>
+              <div class="auth-phone-box"></div>
+              <div class="auth-phone-box"></div>
+              <div class="auth-phone-box"></div>
+              <div class="auth-phone-box"></div>
+              <div class="auth-phone-box"></div>
+              <div class="auth-phone-box"></div>
+              <div class="auth-phone-box"></div>
+              <div class="auth-phone-box"></div>
+            </div>
+          </div>
         </div>
         <button id="auth-send-code" class="auth-button">Continue with phone</button>
       </div>

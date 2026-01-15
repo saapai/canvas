@@ -19,6 +19,7 @@ const authTitle = document.getElementById('auth-title');
 const authSubtitle = document.getElementById('auth-subtitle');
 const authCodeHint = document.getElementById('auth-code-hint');
 const authCodeBoxes = document.getElementById('auth-code-boxes');
+const authPhoneBoxes = document.getElementById('auth-phone-boxes');
 
 let currentUser = null;
 let isReadOnly = false; // Set to true when viewing someone else's page
@@ -55,10 +56,15 @@ function showAuthOverlay() {
   authStepPhone.classList.remove('hidden');
   authStepCode.classList.add('hidden');
   authStepUsername.classList.add('hidden');
-  // Default to US country code so it's visible and users know to include +1
-  authPhoneInput.value = '+1 ';
+  // Clear phone input
+  authPhoneInput.value = '';
+  updatePhoneBoxes();
   authCodeInput.value = '';
   authUsernameInput.value = '';
+  // Focus phone input after a short delay to ensure DOM is ready
+  setTimeout(() => {
+    authPhoneInput.focus();
+  }, 100);
 }
 
 function hideAuthOverlay() {
@@ -78,11 +84,12 @@ function setAuthError(message) {
 }
 
 async function handleSendCode() {
-  const phone = authPhoneInput.value.trim();
-  if (!phone) {
-    setAuthError('Enter a phone number.');
+  const phoneDigits = authPhoneInput.value.replace(/\D/g, '');
+  if (phoneDigits.length !== 10) {
+    setAuthError('Enter a complete phone number.');
     return;
   }
+  const phone = '+1' + phoneDigits;
   setAuthError('');
   authSendCodeBtn.disabled = true;
   try {
@@ -117,9 +124,10 @@ async function handleSendCode() {
 }
 
 async function handleVerifyCode() {
-  const phone = authPhoneInput.value.trim();
+  const phoneDigits = authPhoneInput.value.replace(/\D/g, '');
+  const phone = '+1' + phoneDigits;
   const code = authCodeInput.value.trim();
-  if (!phone || !code) {
+  if (phoneDigits.length !== 10 || !code) {
     setAuthError('Enter your phone and the code.');
     return;
   }
@@ -158,6 +166,16 @@ function updateCodeBoxes() {
   const value = authCodeInput.value.slice(0, 6);
   const chars = value.split('');
   const boxes = authCodeBoxes.querySelectorAll('.auth-code-box');
+  boxes.forEach((box, index) => {
+    box.textContent = chars[index] || '';
+  });
+}
+
+function updatePhoneBoxes() {
+  if (!authPhoneBoxes) return;
+  const value = authPhoneInput.value.replace(/\D/g, '').slice(0, 10);
+  const chars = value.split('');
+  const boxes = authPhoneBoxes.querySelectorAll('.auth-phone-box');
   boxes.forEach((box, index) => {
     box.textContent = chars[index] || '';
   });
@@ -222,6 +240,31 @@ function initAuthUI() {
   authCodeInput.addEventListener('input', () => {
     authCodeInput.value = authCodeInput.value.replace(/\D/g, '').slice(0, 6);
     updateCodeBoxes();
+  });
+  authPhoneBoxes.addEventListener('click', () => {
+    authPhoneInput.focus();
+  });
+  authPhoneInput.addEventListener('input', (e) => {
+    // Remove all non-digits and limit to 10 digits
+    const digits = e.target.value.replace(/\D/g, '').slice(0, 10);
+    e.target.value = digits;
+    updatePhoneBoxes();
+  });
+  authPhoneInput.addEventListener('keydown', (e) => {
+    // Prevent spaces
+    if (e.key === ' ') {
+      e.preventDefault();
+    }
+    // Prevent backspace from deleting the +1 prefix (though it's not in the input)
+    // Allow normal navigation
+  });
+  authPhoneInput.addEventListener('paste', (e) => {
+    e.preventDefault();
+    const paste = (e.clipboardData || window.clipboardData).getData('text');
+    // Remove all non-digits and limit to 10
+    const digits = paste.replace(/\D/g, '').slice(0, 10);
+    authPhoneInput.value = digits;
+    updatePhoneBoxes();
   });
 }
 
