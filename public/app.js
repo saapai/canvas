@@ -732,8 +732,17 @@ function updateEntryVisibility() {
   let visibleCount = 0;
   let hiddenCount = 0;
   
+  // Show anchor only on home page (when currentViewEntryId is null)
+  if (anchor) {
+    if (currentViewEntryId === null) {
+      anchor.style.display = '';
+    } else {
+      anchor.style.display = 'none';
+    }
+  }
+  
   entries.forEach((entryData, entryId) => {
-    if (entryId === 'anchor') return; // Always show anchor
+    if (entryId === 'anchor') return; // Skip anchor in entries loop
     
     // Ensure entryData and element exist
     if (!entryData || !entryData.element) {
@@ -1782,8 +1791,9 @@ window.addEventListener('mouseup', (e) => {
         const dt = performance.now() - clickStart.t;
         isClick = (dist < dragThreshold && dt < 350);
         
-        // Navigate to entry if it was a click (not a drag)
-        if(isClick && draggingEntry.id !== 'anchor' && draggingEntry.id) {
+        // Navigate to entry if it was a click (not a drag) AND shift was NOT held
+        // If shift was held, it was a drag attempt, so don't navigate
+        if(isClick && !e.shiftKey && draggingEntry.id !== 'anchor' && draggingEntry.id) {
           navigateToEntry(draggingEntry.id);
         }
       }
