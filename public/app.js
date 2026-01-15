@@ -310,6 +310,13 @@ async function loadUserEntries(username, editable) {
     
     console.log(`[LOAD] Fetched ${entriesData.length} entries for ${username}`);
     
+    // Log entry hierarchy for debugging
+    const rootEntries = entriesData.filter(e => !e.parentEntryId);
+    const childEntries = entriesData.filter(e => e.parentEntryId);
+    console.log(`[LOAD] Root entries: ${rootEntries.length}, Child entries: ${childEntries.length}`);
+    console.log('[LOAD] Root entries:', rootEntries.map(e => ({ id: e.id, text: e.text.substring(0, 30) })));
+    console.log('[LOAD] Child entries:', childEntries.map(e => ({ id: e.id, parent: e.parentEntryId, text: e.text.substring(0, 30) })));
+    
     // Find the highest entry ID counter
     let maxCounter = 0;
     entriesData.forEach(entry => {
