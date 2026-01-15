@@ -1045,11 +1045,14 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null){
 async function commitEditor(){
   // Prevent commits during or right after navigation
   if (isNavigating || navigationJustCompleted) {
+    console.log('[COMMIT] Blocked - isNavigating:', isNavigating, 'navigationJustCompleted:', navigationJustCompleted);
     editor.textContent = '';
     editor.style.display = 'none';
     editingEntryId = null;
     return;
   }
+  
+  console.log('[COMMIT] Processing entry...');
   
   const raw = editor.innerText;
   const trimmedRight = raw.replace(/\s+$/g,'');
@@ -1851,6 +1854,7 @@ editor.addEventListener('keydown', (e) => {
   if(e.key === 'Enter' && !e.shiftKey){
     // Enter without shift: save entry
     e.preventDefault();
+    console.log('[ENTER] Committing editor, isNavigating:', isNavigating, 'navigationJustCompleted:', navigationJustCompleted);
     commitEditor();
     return;
   }
