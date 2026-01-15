@@ -186,14 +186,27 @@ Respond ONLY with valid JSON in this exact format:
 
     const content = completion.choices[0].message.content.trim();
     
-    // Extract JSON from response
+    // Extract JSON from response with better error handling
     let jsonStr = content;
     const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/);
     if (jsonMatch) {
       jsonStr = jsonMatch[1];
     }
     
-    const result = JSON.parse(jsonStr);
+    let result;
+    try {
+      result = JSON.parse(jsonStr);
+    } catch (parseErr) {
+      console.error('Failed to parse OpenAI response for link card:', content);
+      console.error('Parse error:', parseErr);
+      // Return a basic card instead of failing completely
+      return {
+        url,
+        title: metadata.title || url,
+        description: metadata.description || 'Failed to generate card preview',
+        image: metadata.image || null
+      };
+    }
     
     // Ensure image is included
     if (!result.image && metadata.image) {
