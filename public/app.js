@@ -420,7 +420,7 @@ async function loadUserEntries(username, editable) {
         const children = Array.from(entries.values()).filter(e => e.parentEntryId === currentParent);
         const targetEntry = children.find(e => {
           const entrySlug = e.text && (typeof e.text === 'string') 
-            ? (e.text.startsWith('http') ? generateUrlSlug(e.text) : generateEntrySlug(e.text))
+            ? generateEntrySlug(e.text)
             : '';
           return entrySlug === slug;
         });
@@ -781,7 +781,7 @@ function navigateToEntry(entryId) {
   
   // Update URL if we're on a user page
   if (username && pageUsername) {
-    const slug = entryData.type === 'link' ? generateUrlSlug(entryData.text) : generateEntrySlug(entryData.text);
+    const slug = generateEntrySlug(entryData.text);
     const currentPath = window.location.pathname.split('/').filter(Boolean);
     
     // Build new path: append slug to current path
@@ -832,7 +832,7 @@ function navigateBack(level = 1) {
       navigationStack.forEach(entryId => {
         const entryData = entries.get(entryId);
         if (entryData) {
-          const slug = entryData.type === 'link' ? generateUrlSlug(entryData.text) : generateEntrySlug(entryData.text);
+          const slug = generateEntrySlug(entryData.text);
           pathParts.push(slug);
         }
       });
@@ -2000,7 +2000,7 @@ window.addEventListener('popstate', (event) => {
           const children = Array.from(entries.values()).filter(e => e.parentEntryId === currentParent);
           const targetEntry = children.find(e => {
             const entrySlug = e.text && (typeof e.text === 'string') 
-              ? (e.text.startsWith('http') ? generateUrlSlug(e.text) : generateEntrySlug(e.text))
+              ? generateEntrySlug(e.text)
               : '';
             return entrySlug === slug;
           });
