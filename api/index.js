@@ -227,6 +227,9 @@ app.post('/api/auth/verify-code', async (req, res) => {
     let user = await getUserByPhone(normalizedPhone);
     if (!user) {
       user = await createUser(normalizedPhone);
+    } else {
+      // Refetch user to ensure we have the latest data including username
+      user = await getUserById(user.id);
     }
 
     const token = jwt.sign(
@@ -236,9 +239,18 @@ app.post('/api/auth/verify-code', async (req, res) => {
     );
     setAuthCookie(res, token);
 
-    const needsUsername = !user.username;
+    // Check if user has a username (handle null, undefined, and empty string)
+    // Make sure to check the actual value from the database
+    const usernameValue = user.username;
+    const hasUsername = usernameValue != null && String(usernameValue).trim().length > 0;
+    const needsUsername = !hasUsername;
+    
     return res.json({
-      user: { id: user.id, phone: user.phone, username: user.username || null },
+      user: { 
+        id: user.id, 
+        phone: user.phone, 
+        username: hasUsername ? String(usernameValue).trim() : null 
+      },
       needsUsername
     });
   } catch (error) {
@@ -353,25 +365,21 @@ app.post('/api/entries', async (req, res) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });
     }
-    const { id, text, position, parentEntryId, cardData } = req.body;
+    const { id, text, position, parentEntryId } = req.body;
     
     if (!id || !text || !position) {
       return res.status(400).json({ error: 'id, text, and position are required' });
     }
-
-    console.log(`[SAVE] Saving entry ${id} for user ${req.user.id}, parent: ${parentEntryId}, text: ${text.substring(0, 30)}`);
 
     const entry = {
       id,
       text,
       position: { x: position.x, y: position.y },
       parentEntryId: parentEntryId || null,
-      cardData: cardData || null,
       userId: req.user.id
     };
 
     const savedEntry = await saveEntry(entry);
-    console.log(`[SAVE] Successfully saved entry ${id}`);
     res.json(savedEntry);
   } catch (error) {
     console.error('Error saving entry:', error);
@@ -385,7 +393,7 @@ app.put('/api/entries/:id', async (req, res) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
     const { id } = req.params;
-    const { text, position, parentEntryId, cardData } = req.body;
+    const { text, position, parentEntryId } = req.body;
     
     if (!text || !position) {
       return res.status(400).json({ error: 'text and position are required' });
@@ -396,7 +404,6 @@ app.put('/api/entries/:id', async (req, res) => {
       text,
       position: { x: position.x, y: position.y },
       parentEntryId: parentEntryId || null,
-      cardData: cardData || null,
       userId: req.user.id
     };
 
@@ -414,9 +421,7 @@ app.delete('/api/entries/:id', async (req, res) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
     const { id } = req.params;
-    console.log(`[DELETE] Deleting entry ${id} for user ${req.user.id}`);
     await deleteEntry(id, req.user.id);
-    console.log(`[DELETE] Successfully deleted entry ${id}`);
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting entry:', error);
@@ -451,15 +456,7 @@ app.get('/api/public/:username/entries', async (req, res) => {
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
-    
     const entries = await getEntriesByUsername(username);
-    
-    // Log entry statistics for debugging
-    console.log(`[DEBUG] User: ${username}, Total entries: ${entries.length}`);
-    const rootEntries = entries.filter(e => !e.parentEntryId);
-    const childEntries = entries.filter(e => e.parentEntryId);
-    console.log(`[DEBUG] Root entries: ${rootEntries.length}, Child entries: ${childEntries.length}`);
-    
     res.json({ user: { username: user.username }, entries });
   } catch (error) {
     console.error('Error fetching public entries:', error);
@@ -665,4 +662,3 @@ if (process.env.VERCEL !== '1') {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }
-// Force redeploy
