@@ -1617,11 +1617,8 @@ viewport.addEventListener('mousedown', (e) => {
   const entryEl = findEntryElement(e.target);
   
   if(entryEl) {
-    // Don't allow dragging link cards - they should stay with their entry
-    const isLinkCard = e.target.closest('.link-card');
-    
-    // Only prepare for drag if Shift is held (for shift+drag to move) and not on link card
-    if(e.shiftKey && !isLinkCard) {
+    // Only prepare for drag if Shift is held (for shift+drag to move)
+    if(e.shiftKey) {
       e.preventDefault();
       draggingEntry = entryEl;
       isClick = false;
