@@ -1614,8 +1614,11 @@ viewport.addEventListener('mousedown', (e) => {
   const entryEl = findEntryElement(e.target);
   
   if(entryEl) {
-    // Only prepare for drag if Shift is held (for shift+drag to move)
-    if(e.shiftKey) {
+    // Don't allow dragging link cards - they should stay with their entry
+    const isLinkCard = e.target.closest('.link-card');
+    
+    // Only prepare for drag if Shift is held (for shift+drag to move) and not on link card
+    if(e.shiftKey && !isLinkCard) {
       e.preventDefault();
       draggingEntry = entryEl;
       isClick = false;
@@ -2002,5 +2005,30 @@ window.addEventListener('popstate', (event) => {
     }
   }
 });
+
+// Help modal functionality
+const helpButton = document.getElementById('help-button');
+const helpModal = document.getElementById('help-modal');
+const helpClose = document.getElementById('help-close');
+
+if (helpButton) {
+  helpButton.addEventListener('click', () => {
+    helpModal.classList.remove('hidden');
+  });
+}
+
+if (helpClose) {
+  helpClose.addEventListener('click', () => {
+    helpModal.classList.add('hidden');
+  });
+}
+
+if (helpModal) {
+  helpModal.addEventListener('click', (e) => {
+    if (e.target === helpModal) {
+      helpModal.classList.add('hidden');
+    }
+  });
+}
 
 bootstrap();

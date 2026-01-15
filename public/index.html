@@ -12,6 +12,47 @@
 </head>
 <body>
   <div id="breadcrumb"></div>
+  <button id="help-button" class="help-button" title="Show help">?</button>
+  <div id="help-modal" class="help-modal hidden">
+    <div class="help-content">
+      <button id="help-close" class="help-close">×</button>
+      <h2>How to Use</h2>
+      <div class="help-section">
+        <div class="help-item">
+          <strong>Click anywhere</strong>
+          <span>Start typing to create an entry</span>
+        </div>
+        <div class="help-item">
+          <strong>Enter</strong>
+          <span>Save the current entry</span>
+        </div>
+        <div class="help-item">
+          <strong>Shift + Enter</strong>
+          <span>New line within an entry</span>
+        </div>
+        <div class="help-item">
+          <strong>Right-click entry</strong>
+          <span>Edit existing entry</span>
+        </div>
+        <div class="help-item">
+          <strong>Shift + Drag entry</strong>
+          <span>Move an entry around</span>
+        </div>
+        <div class="help-item">
+          <strong>Click entry</strong>
+          <span>Navigate into entry (subdirectory)</span>
+        </div>
+        <div class="help-item">
+          <strong>Drag canvas</strong>
+          <span>Pan around the canvas</span>
+        </div>
+        <div class="help-item">
+          <strong>Scroll</strong>
+          <span>Zoom in/out</span>
+        </div>
+      </div>
+    </div>
+  </div>
   <div id="auth-overlay" class="auth-overlay hidden">
     <div class="auth-modal">
       <div class="auth-title" id="auth-title">What’s your phone number?</div>
