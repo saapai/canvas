@@ -335,6 +335,9 @@ async function loadUserEntries(username, editable) {
       entry.style.left = `${entryData.position.x}px`;
       entry.style.top = `${entryData.position.y}px`;
       
+      // Initially hide all entries - visibility will be set after navigation state is determined
+      entry.style.display = 'none';
+      
       // Process text with links
       const { processedText, urls } = processTextWithLinks(entryData.text);
       
