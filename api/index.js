@@ -445,6 +445,13 @@ app.get('/api/public/:username/entries', async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
     const entries = await getEntriesByUsername(username);
+    
+    // Log entry statistics for debugging
+    console.log(`[DEBUG] User: ${username}, Total entries: ${entries.length}`);
+    const rootEntries = entries.filter(e => !e.parentEntryId);
+    const childEntries = entries.filter(e => e.parentEntryId);
+    console.log(`[DEBUG] Root entries: ${rootEntries.length}, Child entries: ${childEntries.length}`);
+    
     res.json({ user: { username: user.username }, entries });
   } catch (error) {
     console.error('Error fetching public entries:', error);

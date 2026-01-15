@@ -308,6 +308,8 @@ async function loadUserEntries(username, editable) {
     const data = await response.json();
     const entriesData = data.entries || [];
     
+    console.log(`[LOAD] Fetched ${entriesData.length} entries for ${username}`);
+    
     // Find the highest entry ID counter
     let maxCounter = 0;
     entriesData.forEach(entry => {
@@ -719,11 +721,17 @@ function findDuplicateEntry(text, parentEntryId) {
 }
 
 function updateEntryVisibility() {
+  let visibleCount = 0;
+  let hiddenCount = 0;
+  
   entries.forEach((entryData, entryId) => {
     if (entryId === 'anchor') return; // Always show anchor
     
     // Ensure entryData and element exist
-    if (!entryData || !entryData.element) return;
+    if (!entryData || !entryData.element) {
+      console.warn(`Missing entry data or element for: ${entryId}`);
+      return;
+    }
     
     // Ensure entry is in the DOM (restore if missing)
     if (!entryData.element.parentElement) {
@@ -736,9 +744,17 @@ function updateEntryVisibility() {
     const shouldShow = entryParent === currentViewEntryId;
     entryData.element.style.display = shouldShow ? '' : 'none';
     
+    if (shouldShow) {
+      visibleCount++;
+    } else {
+      hiddenCount++;
+    }
+    
     // Don't regenerate cards - they should already be in the entry
     // Cards are created when entries are first created or edited
   });
+  
+  console.log(`[VISIBILITY] Current context: ${currentViewEntryId}, Visible: ${visibleCount}, Hidden: ${hiddenCount}, Total: ${entries.size}`);
 }
 
 function navigateToEntry(entryId) {
