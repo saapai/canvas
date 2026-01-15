@@ -1848,11 +1848,13 @@ viewport.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 editor.addEventListener('keydown', (e) => {
-  if((e.metaKey || e.ctrlKey) && e.key === 'Enter'){
+  if(e.key === 'Enter' && !e.shiftKey){
+    // Enter without shift: save entry
     e.preventDefault();
     commitEditor();
     return;
   }
+  // Shift+Enter: allow newline (default behavior)
 
   if(e.key === 'Escape'){
     e.preventDefault();
