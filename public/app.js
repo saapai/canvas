@@ -1482,6 +1482,8 @@ function createLinkCard(cardData) {
     // Don't handle click if shift was held (shift+click is for dragging)
     // Also don't handle if we just finished dragging (prevents navigation after drag)
     if (e.shiftKey || justFinishedDragging) {
+      e.preventDefault();
+      e.stopPropagation();
       return;
     }
     
@@ -1650,6 +1652,13 @@ viewport.addEventListener('mousedown', (e) => {
       isClick = false;
       hasMoved = false;
       
+      // Set cursor to move for the entry and all its children (including link cards)
+      entryEl.style.cursor = 'move';
+      const linkCards = entryEl.querySelectorAll('.link-card, .link-card-placeholder');
+      linkCards.forEach(card => {
+        card.style.cursor = 'move';
+      });
+      
       // Calculate offset from mouse to entry position in world coordinates
       const entryRect = entryEl.getBoundingClientRect();
       const entryWorldPos = screenToWorld(entryRect.left, entryRect.top);
@@ -1693,7 +1702,12 @@ viewport.addEventListener('mousemove', (e) => {
   if(draggingEntry) {
     // Only allow dragging if Shift is still held
     if(!e.shiftKey) {
-      // Shift was released, cancel drag
+      // Shift was released, cancel drag and reset cursor
+      draggingEntry.style.cursor = '';
+      const linkCards = draggingEntry.querySelectorAll('.link-card, .link-card-placeholder');
+      linkCards.forEach(card => {
+        card.style.cursor = '';
+      });
       draggingEntry = null;
       hasMoved = false;
       return;
@@ -1813,6 +1827,15 @@ window.addEventListener('mouseup', (e) => {
           navigateToEntry(draggingEntry.id);
         }
       }
+    }
+    
+    // Reset cursor for entry and link cards
+    if(draggingEntry) {
+      draggingEntry.style.cursor = '';
+      const linkCards = draggingEntry.querySelectorAll('.link-card, .link-card-placeholder');
+      linkCards.forEach(card => {
+        card.style.cursor = '';
+      });
     }
     
     draggingEntry = null;
