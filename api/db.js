@@ -34,24 +34,24 @@ export async function initDatabase() {
     const db = getPool();
     
     await db.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id SERIAL PRIMARY KEY,
+        phone TEXT UNIQUE NOT NULL,
+        username TEXT UNIQUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await db.query(`
       CREATE TABLE IF NOT EXISTS entries (
         id TEXT PRIMARY KEY,
         text TEXT NOT NULL,
         position_x REAL NOT NULL,
         position_y REAL NOT NULL,
         parent_entry_id TEXT,
-        user_id TEXT,
+        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-
-    await db.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
-        phone TEXT UNIQUE NOT NULL,
-        username TEXT UNIQUE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
 
@@ -68,6 +68,12 @@ export async function initDatabase() {
     `);
     await db.query(`
       CREATE INDEX IF NOT EXISTS idx_entries_user_id ON entries(user_id);
+    `);
+    await db.query(`
+      CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+    `);
+    await db.query(`
+      CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone);
     `);
     await db.query(`
       CREATE INDEX IF NOT EXISTS idx_phone_verification_phone ON phone_verification_codes(phone);
