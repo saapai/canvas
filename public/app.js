@@ -2095,4 +2095,13 @@ if (helpModal) {
   });
 }
 
+// Keyboard shortcut: Command/Ctrl+Shift+1 to navigate to home page
+window.addEventListener('keydown', (e) => {
+  // Command+Shift+1 (Mac) or Ctrl+Shift+1 (Windows/Linux)
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === '1') {
+    e.preventDefault();
+    navigateToRoot();
+  }
+});
+
 bootstrap();
