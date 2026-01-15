@@ -359,6 +359,8 @@ app.post('/api/entries', async (req, res) => {
       return res.status(400).json({ error: 'id, text, and position are required' });
     }
 
+    console.log(`[SAVE] Saving entry ${id} for user ${req.user.id}, parent: ${parentEntryId}, text: ${text.substring(0, 30)}`);
+
     const entry = {
       id,
       text,
@@ -369,6 +371,7 @@ app.post('/api/entries', async (req, res) => {
     };
 
     const savedEntry = await saveEntry(entry);
+    console.log(`[SAVE] Successfully saved entry ${id}`);
     res.json(savedEntry);
   } catch (error) {
     console.error('Error saving entry:', error);
@@ -411,7 +414,9 @@ app.delete('/api/entries/:id', async (req, res) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
     const { id } = req.params;
+    console.log(`[DELETE] Deleting entry ${id} for user ${req.user.id}`);
     await deleteEntry(id, req.user.id);
+    console.log(`[DELETE] Successfully deleted entry ${id}`);
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting entry:', error);
@@ -446,13 +451,26 @@ app.get('/api/public/:username/entries', async (req, res) => {
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
+    
+    // Get ALL entries without any filtering
+    const db = await import('./db.js');
+    const pool = db.getPool();
+    const rawResult = await pool.query(
+      `SELECT COUNT(*) as count FROM entries WHERE user_id = $1`,
+      [user.id]
+    );
+    console.log(`[DEBUG] Database shows ${rawResult.rows[0].count} total entries for user ${user.id}`);
+    
     const entries = await getEntriesByUsername(username);
     
     // Log entry statistics for debugging
-    console.log(`[DEBUG] User: ${username}, Total entries: ${entries.length}`);
+    console.log(`[DEBUG] User: ${username}, Fetched entries: ${entries.length}`);
     const rootEntries = entries.filter(e => !e.parentEntryId);
     const childEntries = entries.filter(e => e.parentEntryId);
     console.log(`[DEBUG] Root entries: ${rootEntries.length}, Child entries: ${childEntries.length}`);
+    
+    // Log all entry IDs
+    console.log(`[DEBUG] All entry IDs:`, entries.map(e => e.id));
     
     res.json({ user: { username: user.username }, entries });
   } catch (error) {
