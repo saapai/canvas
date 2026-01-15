@@ -1620,6 +1620,7 @@ viewport.addEventListener('mousedown', (e) => {
     // Only prepare for drag if Shift is held (for shift+drag to move)
     if(e.shiftKey) {
       e.preventDefault();
+      e.stopPropagation(); // Stop event from being handled elsewhere
       draggingEntry = entryEl;
       isClick = false;
       hasMoved = false;
@@ -1632,6 +1633,8 @@ viewport.addEventListener('mousedown', (e) => {
       dragOffset.y = mouseWorldPos.y - entryWorldPos.y;
       
       clickStart = { x: e.clientX, y: e.clientY, t: performance.now() };
+      
+      console.log('[SHIFT+DRAG] Starting drag on entry:', entryEl.id, 'from target:', e.target);
     } else {
       // Regular click - just track for potential click action
       clickStart = { x: e.clientX, y: e.clientY, t: performance.now(), entryEl: entryEl, button: e.button };
