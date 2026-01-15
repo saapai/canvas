@@ -877,8 +877,22 @@ function navigateToRoot() {
 function updateBreadcrumb() {
   breadcrumb.innerHTML = '';
   
+  // Always show breadcrumb on user pages (even at root for context)
+  const pageUsername = window.PAGE_USERNAME;
+  
   if (navigationStack.length === 0) {
-    breadcrumb.style.display = 'none';
+    // On user pages, show a minimal breadcrumb at root too
+    if (pageUsername) {
+      breadcrumb.style.display = 'flex';
+      const homeItem = document.createElement('span');
+      homeItem.className = 'breadcrumb-item';
+      homeItem.textContent = pageUsername;
+      homeItem.style.cursor = 'default';
+      homeItem.style.opacity = '0.7';
+      breadcrumb.appendChild(homeItem);
+    } else {
+      breadcrumb.style.display = 'none';
+    }
     return;
   }
   
