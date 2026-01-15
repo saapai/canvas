@@ -79,6 +79,13 @@ body::before{
   overflow: visible;
 }
 
+/* Entry text should not overlay link cards */
+.entry > span {
+  position: relative;
+  z-index: 1;
+  display: inline-block;
+}
+
 .entry:has(.link-card:hover),
 .entry:has(.link-card-placeholder:hover),
 .entry.has-link-card-hover {
@@ -229,6 +236,8 @@ body::before{
   min-width: 360px;
   max-width: 100%;
   box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  position: relative;
+  z-index: 10;
 }
 
 .link-card:hover{
