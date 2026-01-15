@@ -1909,6 +1909,15 @@ viewport.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 editor.addEventListener('keydown', (e) => {
+  // Allow Command/Ctrl+Shift+1 to navigate home even when editor is focused
+  const isOneKey = e.key === '1' || e.key === 'Digit1' || e.code === 'Digit1';
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && isOneKey) {
+    e.preventDefault();
+    e.stopPropagation();
+    navigateToRoot();
+    return;
+  }
+  
   if(e.key === 'Enter' && !e.shiftKey){
     // Enter without shift: save entry
     e.preventDefault();
@@ -2098,10 +2107,13 @@ if (helpModal) {
 // Keyboard shortcut: Command/Ctrl+Shift+1 to navigate to home page
 window.addEventListener('keydown', (e) => {
   // Command+Shift+1 (Mac) or Ctrl+Shift+1 (Windows/Linux)
-  if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === '1') {
+  // Check for both '1'/'Digit1' in key and 'Digit1' in code to handle different keyboard layouts
+  const isOneKey = e.key === '1' || e.key === 'Digit1' || e.code === 'Digit1';
+  if ((e.metaKey || e.ctrlKey) && e.shiftKey && isOneKey) {
     e.preventDefault();
+    e.stopPropagation();
     navigateToRoot();
   }
-});
+}, true); // Use capture phase to catch event before other handlers
 
 bootstrap();
