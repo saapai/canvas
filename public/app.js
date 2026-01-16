@@ -1217,6 +1217,10 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null){
     const entryData = entries.get(entryId);
     if(entryData && entryData.element){
       entryData.element.classList.add('editing');
+      // Set initial border dimensions after a brief delay to ensure editor is sized
+      setTimeout(() => {
+        updateEditingBorderDimensions(entryData.element);
+      }, 0);
     }
   }
   
