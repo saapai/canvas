@@ -913,12 +913,20 @@ function zoomToFitEntries() {
   // Never zoom in - only zoom out or stay at current zoom
   const finalZoom = Math.min(clampedZoom, cam.z);
 
-  // Calculate target camera position with slight offset to keep things off-center
+  // Calculate target camera position
   const screenCenterX = viewportWidth / 2;
   const screenCenterY = viewportHeight / 2;
-  // Offset by 10% of viewport size to keep things slightly off-center
-  const offsetX = viewportWidth * 0.1;
-  const offsetY = viewportHeight * 0.1;
+  
+  // If there's only one entry, add slight offset to keep it off-center
+  // Otherwise, center normally
+  let offsetX = 0;
+  let offsetY = 0;
+  if (visibleEntries.length === 1) {
+    // Offset by 10% of viewport size for single entry
+    offsetX = viewportWidth * 0.1;
+    offsetY = viewportHeight * 0.1;
+  }
+  
   const targetX = screenCenterX - contentCenterX * finalZoom + offsetX;
   const targetY = screenCenterY - contentCenterY * finalZoom + offsetY;
 
