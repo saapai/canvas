@@ -1493,7 +1493,7 @@ function updateEntryDimensions(entry) {
     }
     
     // Height: calculate based on actual rendered content
-    // Temporarily set width and remove height constraints to measure
+    // Set width first, then let the browser calculate natural height
     entry.style.width = `${contentWidth}px`;
     entry.style.height = 'auto';
     entry.style.minHeight = 'auto';
@@ -1501,39 +1501,32 @@ function updateEntryDimensions(entry) {
     // Force a layout recalculation
     void entry.offsetHeight;
     
-    // Calculate height from all children
-    let contentHeight = 0;
+    // Use the entry's natural scrollHeight which includes all content and margins
+    let contentHeight = entry.scrollHeight;
+    
+    // But we need to measure more accurately to ensure it includes all children properly
+    // Get the actual bounding box of all content including margins
     if (entry.children.length > 0) {
-      let topMost = Infinity;
-      let bottomMost = -Infinity;
+      // Get the first and last child positions relative to entry
+      const firstChild = entry.children[0];
+      const lastChild = entry.children[entry.children.length - 1];
       
-      Array.from(entry.children).forEach(child => {
-        const childRect = child.getBoundingClientRect();
+      if (firstChild && lastChild) {
+        const firstRect = firstChild.getBoundingClientRect();
+        const lastRect = lastChild.getBoundingClientRect();
         const entryRect = entry.getBoundingClientRect();
-        const relativeTop = childRect.top - entryRect.top;
-        const relativeBottom = childRect.bottom - entryRect.top;
+        const firstStyles = window.getComputedStyle(firstChild);
+        const lastStyles = window.getComputedStyle(lastChild);
         
-        topMost = Math.min(topMost, relativeTop);
-        bottomMost = Math.max(bottomMost, relativeBottom);
-      });
-      
-      contentHeight = bottomMost - topMost;
-    } else {
-      // For text content, use scrollHeight or measure text height
-      const temp = document.createElement('div');
-      temp.style.position = 'absolute';
-      temp.style.visibility = 'hidden';
-      temp.style.whiteSpace = 'pre';
-      temp.style.font = window.getComputedStyle(entry).font;
-      temp.style.fontSize = window.getComputedStyle(entry).fontSize;
-      temp.style.fontFamily = window.getComputedStyle(entry).fontFamily;
-      temp.style.lineHeight = window.getComputedStyle(entry).lineHeight;
-      temp.style.width = `${contentWidth}px`;
-      const textContent = entry.innerText || entry.textContent || '';
-      temp.textContent = textContent || ' ';
-      document.body.appendChild(temp);
-      contentHeight = temp.offsetHeight;
-      document.body.removeChild(temp);
+        // Calculate from first child's top margin to last child's bottom margin
+        const firstMarginTop = parseFloat(firstStyles.marginTop) || 0;
+        const lastMarginBottom = parseFloat(lastStyles.marginBottom) || 0;
+        
+        const relativeFirstTop = firstRect.top - entryRect.top - firstMarginTop;
+        const relativeLastBottom = lastRect.bottom - entryRect.top + lastMarginBottom;
+        
+        contentHeight = Math.max(contentHeight, relativeLastBottom - relativeFirstTop);
+      }
     }
     
     // Set dimensions
