@@ -861,8 +861,11 @@ function zoomToFitEntries() {
   });
 
   if (visibleEntries.length === 0) {
-    // No entries to fit, just center on anchor or default position
-    centerAnchor();
+    // No entries to fit - only center anchor on initial load, not on navigation
+    // This prevents anchor from moving when navigating back to empty home page
+    if (!hasZoomedToFit) {
+      centerAnchor();
+    }
     return;
   }
 
@@ -886,12 +889,14 @@ function zoomToFitEntries() {
   });
   
   // On home page, include anchor in bounding box
+  // Use stored anchorPos instead of recalculating from style to prevent drift
   if (currentViewEntryId === null && anchor) {
+    const anchorWorldX = anchorPos.x;
+    const anchorWorldY = anchorPos.y;
+    // Get dimensions in world coordinates (accounting for current zoom)
     const anchorRect = anchor.getBoundingClientRect();
-    const anchorWorldX = parseFloat(anchor.style.left) || 0;
-    const anchorWorldY = parseFloat(anchor.style.top) || 0;
-    const anchorWorldWidth = anchorRect.width;
-    const anchorWorldHeight = anchorRect.height;
+    const anchorWorldWidth = anchorRect.width / cam.z;
+    const anchorWorldHeight = anchorRect.height / cam.z;
     
     minX = Math.min(minX, anchorWorldX);
     minY = Math.min(minY, anchorWorldY);
@@ -1186,6 +1191,12 @@ function navigateToRoot() {
   updateBreadcrumb();
   updateEntryVisibility();
   
+  // Ensure anchor position is set correctly (use stored position, don't recalculate)
+  if (anchor) {
+    anchor.style.left = `${anchorPos.x}px`;
+    anchor.style.top = `${anchorPos.y}px`;
+  }
+  
   // Recalculate dimensions for all visible entries after navigation
   setTimeout(() => {
     entries.forEach((entryData, entryId) => {
@@ -1196,7 +1207,7 @@ function navigateToRoot() {
       }
     });
     
-    // Zoom to fit all visible entries
+    // Zoom to fit all visible entries (same as initial load)
     requestAnimationFrame(() => {
       zoomToFitEntries();
     });
