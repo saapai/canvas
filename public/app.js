@@ -2468,49 +2468,89 @@ editor.addEventListener('keydown', (e) => {
         }
       }
       
-      // Check if line starts with "-"
+      // Check if line starts with "-" (cursor is right after the dash, before space would be inserted)
       const lineText = fullText.substring(lineStart, cursorPos);
       if (lineText === '-') {
         e.preventDefault();
         
-        // Replace "- " with "• "
-        const beforeText = fullText.substring(0, lineStart);
-        const afterText = fullText.substring(cursorPos);
-        
-        editor.textContent = beforeText + '• ' + afterText;
-        
-        // Set cursor after bullet
-        const newCursorPos = lineStart + 2;
-        setTimeout(() => {
-          const range = document.createRange();
-          const sel = window.getSelection();
+        // Replace "-" with "• " directly in the DOM for immediate visual feedback
+        if (textNode.nodeType === Node.TEXT_NODE) {
+          const text = textNode.textContent;
           
+          // Calculate position within this text node
+          // We need to find where in the full text this node starts
           const walker = document.createTreeWalker(
             editor,
             NodeFilter.SHOW_TEXT,
             null
           );
           let node;
-          let pos = 0;
+          let nodeStartPos = 0;
           while (node = walker.nextNode()) {
-            const nodeLength = node.textContent.length;
-            if (pos + nodeLength >= newCursorPos) {
-              range.setStart(node, newCursorPos - pos);
-              range.setEnd(node, newCursorPos - pos);
-              sel.removeAllRanges();
-              sel.addRange(range);
-              return;
+            if (node === textNode) {
+              break;
             }
-            pos += nodeLength;
+            nodeStartPos += node.textContent.length;
           }
-          // Fallback: move to end
-          range.selectNodeContents(editor);
-          range.collapse(false);
+          
+          // Calculate offset within this text node
+          const nodeOffset = cursorPos - nodeStartPos;
+          
+          // Replace the dash with bullet point and space
+          const beforeDash = text.substring(0, nodeOffset - 1);
+          const afterDash = text.substring(nodeOffset);
+          
+          // Update the text node directly for immediate visual feedback
+          textNode.textContent = beforeDash + '• ' + afterDash;
+          
+          // Set cursor position immediately after the bullet and space
+          const newOffset = nodeOffset - 1 + 2; // -1 (remove dash) + 2 (add "• ")
+          const range = document.createRange();
+          range.setStart(textNode, newOffset);
+          range.setEnd(textNode, newOffset);
+          const sel = window.getSelection();
           sel.removeAllRanges();
           sel.addRange(range);
-        }, 0);
+        } else {
+          // Fallback: replace entire text content
+          const beforeText = fullText.substring(0, lineStart);
+          const afterText = fullText.substring(cursorPos);
+          editor.textContent = beforeText + '• ' + afterText;
+          
+          // Set cursor after bullet
+          const newCursorPos = lineStart + 2;
+          requestAnimationFrame(() => {
+            const range = document.createRange();
+            const sel = window.getSelection();
+            
+            const walker = document.createTreeWalker(
+              editor,
+              NodeFilter.SHOW_TEXT,
+              null
+            );
+            let node;
+            let pos = 0;
+            while (node = walker.nextNode()) {
+              const nodeLength = node.textContent.length;
+              if (pos + nodeLength >= newCursorPos) {
+                range.setStart(node, newCursorPos - pos);
+                range.setEnd(node, newCursorPos - pos);
+                sel.removeAllRanges();
+                sel.addRange(range);
+                return;
+              }
+              pos += nodeLength;
+            }
+            // Fallback: move to end
+            range.selectNodeContents(editor);
+            range.collapse(false);
+            sel.removeAllRanges();
+            sel.addRange(range);
+          });
+        }
         
-        editor.dispatchEvent(new Event('input'));
+        // Trigger input event to update dimensions
+        editor.dispatchEvent(new Event('input', { bubbles: true }));
         return;
       }
     }
