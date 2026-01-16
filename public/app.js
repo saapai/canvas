@@ -2579,7 +2579,22 @@ editor.addEventListener('keydown', (e) => {
   }
   
   // Handle Enter key
-  if(e.key === 'Enter' && !e.shiftKey){
+  if(e.key === 'Enter'){
+    // Command/Ctrl+Enter always saves, regardless of bullets
+    if(e.metaKey || e.ctrlKey) {
+      e.preventDefault();
+      console.log('[CMD+ENTER] Committing editor');
+      commitEditor();
+      return;
+    }
+    
+    // Shift+Enter is handled separately (allows newline in bullet lists)
+    if(e.shiftKey) {
+      // Allow default behavior (newline)
+      return;
+    }
+    
+    // Regular Enter - check if we're on a bullet line
     const selection = window.getSelection();
     let isOnBulletLine = false;
     
@@ -2626,8 +2641,8 @@ editor.addEventListener('keydown', (e) => {
       // Check if line starts with bullet
       isOnBulletLine = lineText.trim().startsWith('•');
       
-      // If line starts with bullet and not Command/Ctrl+Enter, continue bullet on new line
-      if (isOnBulletLine && !(e.metaKey || e.ctrlKey)) {
+      // If line starts with bullet, continue bullet on new line
+      if (isOnBulletLine) {
         e.preventDefault();
         
         const beforeText = fullText.substring(0, cursorPos);
@@ -2671,13 +2686,11 @@ editor.addEventListener('keydown', (e) => {
       }
     }
     
-    // Command/Ctrl+Enter or Enter on non-bullet line: save entry
-    if ((e.metaKey || e.ctrlKey) || !isOnBulletLine) {
-      e.preventDefault();
-      console.log('[ENTER] Committing editor, isNavigating:', isNavigating, 'navigationJustCompleted:', navigationJustCompleted);
-      commitEditor();
-      return;
-    }
+    // Not on bullet line: Enter saves the entry
+    e.preventDefault();
+    console.log('[ENTER] Committing editor, isNavigating:', isNavigating, 'navigationJustCompleted:', navigationJustCompleted);
+    commitEditor();
+    return;
   }
   // Shift+Enter: allow newline (default behavior)
 
