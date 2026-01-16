@@ -27,6 +27,7 @@ let isReadOnly = false; // Set to true when viewing someone else's page
 // Camera state
 let cam = { x: 0, y: 0, z: 1 };
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+let hasZoomedToFit = false;
 
 const anchorPos = { x: 0, y: 0 };
 
@@ -545,6 +546,17 @@ async function loadUserEntries(username, editable) {
     updateBreadcrumb();
     updateEntryVisibility();
     
+    // Zoom to fit all entries on initial load only
+    if (!hasZoomedToFit) {
+      hasZoomedToFit = true;
+      // Wait for link cards to load and then fit
+      setTimeout(() => {
+        requestAnimationFrame(() => {
+          zoomToFitEntries();
+        });
+      }, 500);
+    }
+    
     if (isReadOnly) {
       editor.style.display = 'none';
       // Keep pan/zoom but disable editing
@@ -742,6 +754,17 @@ async function loadEntriesFromServer() {
     // Update visibility after loading
     updateEntryVisibility();
     
+    // Zoom to fit all entries on initial load only
+    if (!hasZoomedToFit) {
+      hasZoomedToFit = true;
+      // Wait for link cards to load and then fit
+      setTimeout(() => {
+        requestAnimationFrame(() => {
+          zoomToFitEntries();
+        });
+      }, 500);
+    }
+    
     return entriesData;
   } catch (error) {
     console.error('Error loading entries from server:', error);
@@ -804,6 +827,82 @@ function centerAnchor(){
   
   anchor.style.left = `${anchorPos.x}px`;
   anchor.style.top = `${anchorPos.y}px`;
+}
+
+function zoomToFitEntries() {
+  const visibleEntries = Array.from(entries.values()).filter(entryData => {
+    const element = entryData.element;
+    if (!element) return false;
+    // Only include root entries (those without parent or those visible in current view)
+    if (currentViewEntryId === null) {
+      // Root view - include only root entries
+      return !entryData.parentEntryId && element.style.display !== 'none';
+    } else {
+      // Subdirectory view - include entries visible in current navigation
+      return element.style.display !== 'none';
+    }
+  });
+
+  if (visibleEntries.length === 0) {
+    // No entries to fit, just center on anchor or default position
+    centerAnchor();
+    return;
+  }
+
+  // Calculate bounding box of all visible entries in world coordinates
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+
+  visibleEntries.forEach(entryData => {
+    const element = entryData.element;
+    if (!element) return;
+    
+    const rect = element.getBoundingClientRect();
+    const worldX = parseFloat(element.style.left) || 0;
+    const worldY = parseFloat(element.style.top) || 0;
+    const worldWidth = rect.width;
+    const worldHeight = rect.height;
+
+    minX = Math.min(minX, worldX);
+    minY = Math.min(minY, worldY);
+    maxX = Math.max(maxX, worldX + worldWidth);
+    maxY = Math.max(maxY, worldY + worldHeight);
+  });
+
+  // Add padding around entries
+  const padding = 80;
+  minX -= padding;
+  minY -= padding;
+  maxX += padding;
+  maxY += padding;
+
+  const contentWidth = maxX - minX;
+  const contentHeight = maxY - minY;
+  const contentCenterX = (minX + maxX) / 2;
+  const contentCenterY = (minY + maxY) / 2;
+
+  // Get viewport dimensions
+  const viewportRect = viewport.getBoundingClientRect();
+  const viewportWidth = viewportRect.width;
+  const viewportHeight = viewportRect.height;
+
+  // Calculate zoom to fit content
+  const scaleX = viewportWidth / contentWidth;
+  const scaleY = viewportHeight / contentHeight;
+  const newZoom = Math.min(scaleX, scaleY, 2.0); // Cap zoom at 2x to avoid too much zoom in
+  const clampedZoom = clamp(newZoom, 0.12, 2.0);
+
+  // Set zoom
+  cam.z = clampedZoom;
+
+  // Center content in viewport
+  const screenCenterX = viewportWidth / 2;
+  const screenCenterY = viewportHeight / 2;
+
+  // Calculate camera position to center the content
+  cam.x = screenCenterX - contentCenterX * cam.z;
+  cam.y = screenCenterY - contentCenterY * cam.z;
+
+  applyTransform();
 }
 
 // Check if a duplicate entry exists at the current directory level
