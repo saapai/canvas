@@ -2272,8 +2272,16 @@ viewport.addEventListener('mousemove', (e) => {
         const entryData = entries.get(entryId);
         if(entryData) {
           entryData.position = { x: newX, y: newY };
-          // Save position change to server (debounce this in production)
-          updateEntryOnServer(entryData);
+          // Debounce position saves to avoid too many server requests
+          if (entryData.positionSaveTimeout) {
+            clearTimeout(entryData.positionSaveTimeout);
+          }
+          entryData.positionSaveTimeout = setTimeout(() => {
+            updateEntryOnServer(entryData).catch(err => {
+              console.error('Error saving position:', err);
+            });
+            entryData.positionSaveTimeout = null;
+          }, 300); // Wait 300ms after dragging stops before saving
         }
       }
     }
@@ -2370,6 +2378,22 @@ window.addEventListener('mouseup', (e) => {
       linkCards.forEach(card => {
         card.style.cursor = '';
       });
+    }
+    
+    // Save final position immediately when dragging ends
+    if (draggingEntry && draggingEntry.id !== 'anchor') {
+      const entryData = entries.get(draggingEntry.id);
+      if (entryData) {
+        // Clear any pending debounced save
+        if (entryData.positionSaveTimeout) {
+          clearTimeout(entryData.positionSaveTimeout);
+          entryData.positionSaveTimeout = null;
+        }
+        // Save final position immediately
+        updateEntryOnServer(entryData).catch(err => {
+          console.error('Error saving final position:', err);
+        });
+      }
     }
     
     draggingEntry = null;
