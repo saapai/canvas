@@ -1029,6 +1029,22 @@ function navigateToEntry(entryId) {
   updateBreadcrumb();
   updateEntryVisibility();
   
+  // Recalculate dimensions for all visible entries after navigation
+  setTimeout(() => {
+    entries.forEach((entryData, entryId) => {
+      if (entryId === 'anchor') return;
+      const entry = entryData.element;
+      if (entry && entry.style.display !== 'none') {
+        updateEntryDimensions(entry);
+      }
+    });
+    
+    // Zoom to fit all visible entries
+    requestAnimationFrame(() => {
+      zoomToFitEntries();
+    });
+  }, 100);
+  
   // Update URL if we're on a user page
   if (username && pageUsername) {
     const slug = generateEntrySlug(entryData.text);
@@ -1070,6 +1086,22 @@ function navigateBack(level = 1) {
   }
   updateBreadcrumb();
   updateEntryVisibility();
+  
+  // Recalculate dimensions for all visible entries after navigation
+  setTimeout(() => {
+    entries.forEach((entryData, entryId) => {
+      if (entryId === 'anchor') return;
+      const entry = entryData.element;
+      if (entry && entry.style.display !== 'none') {
+        updateEntryDimensions(entry);
+      }
+    });
+    
+    // Zoom to fit all visible entries
+    requestAnimationFrame(() => {
+      zoomToFitEntries();
+    });
+  }, 100);
   
   // Update URL to reflect navigation state
   const pageUsername = window.PAGE_USERNAME;
@@ -1125,6 +1157,22 @@ function navigateToRoot() {
   currentViewEntryId = null;
   updateBreadcrumb();
   updateEntryVisibility();
+  
+  // Recalculate dimensions for all visible entries after navigation
+  setTimeout(() => {
+    entries.forEach((entryData, entryId) => {
+      if (entryId === 'anchor') return;
+      const entry = entryData.element;
+      if (entry && entry.style.display !== 'none') {
+        updateEntryDimensions(entry);
+      }
+    });
+    
+    // Zoom to fit all visible entries
+    requestAnimationFrame(() => {
+      zoomToFitEntries();
+    });
+  }, 100);
   
   // Update URL to root user page
   const pageUsername = window.PAGE_USERNAME;
