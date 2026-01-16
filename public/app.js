@@ -909,12 +909,18 @@ function zoomToFitEntries() {
   // Zoom out 1.25x more to add breathing room (equal in all directions)
   const zoomWithPadding = newZoom / 1.25;
   const clampedZoom = clamp(zoomWithPadding, 0.12, 2.0);
+  
+  // Never zoom in - only zoom out or stay at current zoom
+  const finalZoom = Math.min(clampedZoom, cam.z);
 
-  // Calculate target camera position
+  // Calculate target camera position with slight offset to keep things off-center
   const screenCenterX = viewportWidth / 2;
   const screenCenterY = viewportHeight / 2;
-  const targetX = screenCenterX - contentCenterX * clampedZoom;
-  const targetY = screenCenterY - contentCenterY * clampedZoom;
+  // Offset by 10% of viewport size to keep things slightly off-center
+  const offsetX = viewportWidth * 0.1;
+  const offsetY = viewportHeight * 0.1;
+  const targetX = screenCenterX - contentCenterX * finalZoom + offsetX;
+  const targetY = screenCenterY - contentCenterY * finalZoom + offsetY;
 
   // Store starting values for animation
   const startX = cam.x;
@@ -922,7 +928,7 @@ function zoomToFitEntries() {
   const startZ = cam.z;
   
   // Target values
-  const targetZ = clampedZoom;
+  const targetZ = finalZoom;
   
   // Animation parameters
   const duration = 800; // milliseconds
