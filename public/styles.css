@@ -105,7 +105,8 @@ body::before{
 }
 
 /* Hover effect for clickable entries (blue highlight animation) */
-.entry:hover:not(.read-only):not(.editing)::before {
+/* Works in both normal and read-only (view) mode */
+.entry:hover:not(.editing)::before {
   content: '';
   position: absolute;
   top: -2px;
@@ -119,17 +120,25 @@ body::before{
   box-sizing: border-box;
 }
 
-/* Read-only mode: disable all hover effects and visual feedback */
+/* Read-only mode: keep cursor and allow hover highlight */
 .entry.read-only {
   cursor: pointer !important;
   transition: none !important;
 }
 
-.entry.read-only:hover {
-  background-color: transparent !important;
-  border: none !important;
-  box-shadow: none !important;
-  transform: none !important;
+/* Ensure read-only entries still show the hover highlight */
+.entry.read-only:hover::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  width: calc(100% + 4px);
+  height: calc(100% + 4px);
+  background-color: rgba(59, 130, 246, 0.1);
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: -1;
+  box-sizing: border-box;
 }
 
 .entry.editing .link-card,
@@ -258,6 +267,22 @@ body::before{
   border-color: rgba(0,0,0,0.15);
   box-shadow: 0 2px 8px rgba(0,0,0,0.08);
   transform: translateY(-1px);
+}
+
+/* Ensure entry highlight shows when hovering over link cards */
+.entry:has(.link-card:hover):not(.editing)::before,
+.entry:has(.link-card-placeholder:hover):not(.editing)::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  width: calc(100% + 4px);
+  height: calc(100% + 4px);
+  background-color: rgba(59, 130, 246, 0.1);
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: -1;
+  box-sizing: border-box;
 }
 
 .link-card-image{
