@@ -2349,12 +2349,8 @@ editor.addEventListener('keydown', (e) => {
 // Helper function to calculate width of widest line (accounting for line breaks)
 function getWidestLineWidth(element) {
   const text = element.innerText || element.textContent || '';
-  if (!text) return 220;
   
-  const lines = text.split('\n');
-  if (lines.length === 0) return 220;
-  
-  // Create a temporary element to measure each line's width
+  // Calculate one character width as the minimum
   const temp = document.createElement('span');
   temp.style.position = 'absolute';
   temp.style.visibility = 'hidden';
@@ -2363,6 +2359,21 @@ function getWidestLineWidth(element) {
   temp.style.fontSize = window.getComputedStyle(element).fontSize;
   temp.style.fontFamily = window.getComputedStyle(element).fontFamily;
   document.body.appendChild(temp);
+  
+  // Get one character width as minimum
+  temp.textContent = 'M';
+  const oneCharWidth = temp.offsetWidth;
+  
+  if (!text || text.trim().length === 0) {
+    document.body.removeChild(temp);
+    return oneCharWidth;
+  }
+  
+  const lines = text.split('\n');
+  if (lines.length === 0) {
+    document.body.removeChild(temp);
+    return oneCharWidth;
+  }
   
   let maxWidth = 0;
   for (const line of lines) {
@@ -2374,7 +2385,8 @@ function getWidestLineWidth(element) {
   }
   
   document.body.removeChild(temp);
-  return Math.max(maxWidth, 220); // min 220px
+  // Use one character width as minimum instead of fixed 220px
+  return Math.max(maxWidth, oneCharWidth);
 }
 
 // Update editor width as content changes (for sticky-note-like behavior)
