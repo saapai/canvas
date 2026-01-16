@@ -1541,7 +1541,37 @@ function updateEntryDimensions(entry) {
         const relativeFirstTop = firstRect.top - entryRect.top - firstMarginTop;
         const relativeLastBottom = lastRect.bottom - entryRect.top + lastMarginBottom;
         
-        contentHeight = Math.max(contentHeight, relativeLastBottom - relativeFirstTop);
+        const calculatedHeight = relativeLastBottom - relativeFirstTop;
+        
+        // For link cards, ensure symmetric visual padding
+        // If we have only a link card, adjust entry height to provide equal padding
+        const linkCard = entry.querySelector('.link-card, .link-card-placeholder');
+        if (linkCard && entry.children.length === 1) {
+          // Single link card - calculate height with equal top/bottom margins
+          const cardRect = linkCard.getBoundingClientRect();
+          const cardHeight = cardRect.height;
+          // Use the larger margin for both top and bottom to create symmetry
+          const symmetricMargin = Math.max(firstMarginTop, lastMarginBottom);
+          const symmetricHeight = cardHeight + (symmetricMargin * 2);
+          
+          // Adjust entry height and card position to center it vertically
+          contentHeight = symmetricHeight;
+          
+          // Adjust the card's margin to center it
+          if (linkCard) {
+            const cardStyles = window.getComputedStyle(linkCard);
+            const currentMarginTop = parseFloat(cardStyles.marginTop) || 0;
+            const currentMarginBottom = parseFloat(cardStyles.marginBottom) || 0;
+            
+            // Only adjust if margins are unequal
+            if (Math.abs(currentMarginTop - currentMarginBottom) > 1) {
+              linkCard.style.marginTop = `${symmetricMargin}px`;
+              linkCard.style.marginBottom = `${symmetricMargin}px`;
+            }
+          }
+        } else {
+          contentHeight = Math.max(contentHeight, calculatedHeight);
+        }
       }
     }
     
