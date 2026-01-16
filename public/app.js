@@ -917,18 +917,44 @@ function zoomToFitEntries() {
   const screenCenterX = viewportWidth / 2;
   const screenCenterY = viewportHeight / 2;
   
-  // If there's only one entry, add slight offset to keep it off-center
-  // Otherwise, center normally
-  let offsetX = 0;
-  let offsetY = 0;
-  if (visibleEntries.length === 1) {
-    // Offset by 10% of viewport size for single entry
-    offsetX = viewportWidth * 0.1;
-    offsetY = viewportHeight * 0.1;
-  }
+  let targetX, targetY;
   
-  const targetX = screenCenterX - contentCenterX * finalZoom + offsetX;
-  const targetY = screenCenterY - contentCenterY * finalZoom + offsetY;
+  // On home page, use mean of centering on entries and centering on anchor
+  if (currentViewEntryId === null && anchor) {
+    // Position 1: Center on all entries
+    const entriesCenterX = screenCenterX - contentCenterX * finalZoom;
+    const entriesCenterY = screenCenterY - contentCenterY * finalZoom;
+    
+    // Position 2: Center on anchor with same zoom
+    const anchorRect = anchor.getBoundingClientRect();
+    const anchorWorldX = parseFloat(anchor.style.left) || 0;
+    const anchorWorldY = parseFloat(anchor.style.top) || 0;
+    const anchorWorldWidth = anchorRect.width;
+    const anchorWorldHeight = anchorRect.height;
+    const anchorCenterX = anchorWorldX + anchorWorldWidth / 2;
+    const anchorCenterY = anchorWorldY + anchorWorldHeight / 2;
+    
+    const anchorCenterX_screen = screenCenterX - anchorCenterX * finalZoom;
+    const anchorCenterY_screen = screenCenterY - anchorCenterY * finalZoom;
+    
+    // Mean of the two positions
+    targetX = (entriesCenterX + anchorCenterX_screen) / 2;
+    targetY = (entriesCenterY + anchorCenterY_screen) / 2;
+  } else {
+    // For subdirectories or when no anchor, use normal centering
+    // If there's only one entry, add slight offset to keep it off-center
+    // Otherwise, center normally
+    let offsetX = 0;
+    let offsetY = 0;
+    if (visibleEntries.length === 1) {
+      // Offset by 10% of viewport size for single entry
+      offsetX = viewportWidth * 0.1;
+      offsetY = viewportHeight * 0.1;
+    }
+    
+    targetX = screenCenterX - contentCenterX * finalZoom + offsetX;
+    targetY = screenCenterY - contentCenterY * finalZoom + offsetY;
+  }
 
   // Store starting values for animation
   const startX = cam.x;
