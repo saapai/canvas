@@ -857,18 +857,44 @@ function zoomToFitEntries() {
   const newZoom = Math.min(scaleX, scaleY, 2.0); // Cap zoom at 2x to avoid too much zoom in
   const clampedZoom = clamp(newZoom, 0.12, 2.0);
 
-  // Set zoom
-  cam.z = clampedZoom;
-
-  // Center content in viewport
+  // Calculate target camera position
   const screenCenterX = viewportWidth / 2;
   const screenCenterY = viewportHeight / 2;
+  const targetX = screenCenterX - contentCenterX * clampedZoom;
+  const targetY = screenCenterY - contentCenterY * clampedZoom;
 
-  // Calculate camera position to center the content
-  cam.x = screenCenterX - contentCenterX * cam.z;
-  cam.y = screenCenterY - contentCenterY * cam.z;
-
-  applyTransform();
+  // Store starting values for animation
+  const startX = cam.x;
+  const startY = cam.y;
+  const startZ = cam.z;
+  
+  // Target values
+  const targetZ = clampedZoom;
+  
+  // Animation parameters
+  const duration = 800; // milliseconds
+  const startTime = performance.now();
+  
+  function animate(currentTime) {
+    const elapsed = currentTime - startTime;
+    const progress = Math.min(elapsed / duration, 1);
+    
+    // Use ease-out easing for smooth deceleration
+    const easeOut = 1 - Math.pow(1 - progress, 3);
+    
+    // Interpolate camera values
+    cam.x = startX + (targetX - startX) * easeOut;
+    cam.y = startY + (targetY - startY) * easeOut;
+    cam.z = startZ + (targetZ - startZ) * easeOut;
+    
+    applyTransform();
+    
+    if (progress < 1) {
+      requestAnimationFrame(animate);
+    }
+  }
+  
+  requestAnimationFrame(animate);
 }
 
 // Check if a duplicate entry exists at the current directory level
