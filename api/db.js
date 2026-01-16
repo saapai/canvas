@@ -34,24 +34,25 @@ export async function initDatabase() {
     const db = getPool();
     
     await db.query(`
-      CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
-        phone TEXT UNIQUE NOT NULL,
-        username TEXT UNIQUE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-
-    await db.query(`
       CREATE TABLE IF NOT EXISTS entries (
         id TEXT PRIMARY KEY,
         text TEXT NOT NULL,
         position_x REAL NOT NULL,
         position_y REAL NOT NULL,
         parent_entry_id TEXT,
-        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        user_id TEXT,
+        link_cards_data JSONB,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    await db.query(`
+      CREATE TABLE IF NOT EXISTS users (
+        id TEXT PRIMARY KEY,
+        phone TEXT UNIQUE NOT NULL,
+        username TEXT UNIQUE,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
 
@@ -70,12 +71,6 @@ export async function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_entries_user_id ON entries(user_id);
     `);
     await db.query(`
-      CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
-    `);
-    await db.query(`
-      CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone);
-    `);
-    await db.query(`
       CREATE INDEX IF NOT EXISTS idx_phone_verification_phone ON phone_verification_codes(phone);
     `);
 
@@ -92,7 +87,7 @@ export async function getAllEntries(userId) {
   try {
     const db = getPool();
     const result = await db.query(
-      `SELECT id, text, position_x, position_y, parent_entry_id
+      `SELECT id, text, position_x, position_y, parent_entry_id, link_cards_data
        FROM entries
        WHERE user_id = $1
        ORDER BY created_at ASC`,
@@ -103,7 +98,7 @@ export async function getAllEntries(userId) {
       text: row.text,
       position: { x: row.position_x, y: row.position_y },
       parentEntryId: row.parent_entry_id || null,
-      cardData: null
+      linkCardsData: row.link_cards_data || null
     }));
   } catch (error) {
     console.error('Error fetching entries:', error);
@@ -139,9 +134,10 @@ export async function getEntryById(id, userId) {
 export async function saveEntry(entry) {
   try {
     const db = getPool();
+    const linkCardsData = entry.linkCardsData ? JSON.stringify(entry.linkCardsData) : null;
     await db.query(
-      `INSERT INTO entries (id, text, position_x, position_y, parent_entry_id, user_id, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+      `INSERT INTO entries (id, text, position_x, position_y, parent_entry_id, user_id, link_cards_data, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
        ON CONFLICT (id) 
        DO UPDATE SET 
          text = EXCLUDED.text,
@@ -149,8 +145,9 @@ export async function saveEntry(entry) {
          position_y = EXCLUDED.position_y,
          parent_entry_id = EXCLUDED.parent_entry_id,
          user_id = EXCLUDED.user_id,
+         link_cards_data = EXCLUDED.link_cards_data,
          updated_at = CURRENT_TIMESTAMP`,
-      [entry.id, entry.text, entry.position.x, entry.position.y, entry.parentEntryId || null, entry.userId]
+      [entry.id, entry.text, entry.position.x, entry.position.y, entry.parentEntryId || null, entry.userId, linkCardsData]
     );
     return entry;
   } catch (error) {
@@ -183,9 +180,10 @@ export async function saveAllEntries(entries, userId) {
       await client.query('BEGIN');
       
       for (const entry of entries) {
+        const linkCardsData = entry.linkCardsData ? JSON.stringify(entry.linkCardsData) : null;
         await client.query(
-          `INSERT INTO entries (id, text, position_x, position_y, parent_entry_id, user_id, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+          `INSERT INTO entries (id, text, position_x, position_y, parent_entry_id, user_id, link_cards_data, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
            ON CONFLICT (id) 
            DO UPDATE SET 
              text = EXCLUDED.text,
@@ -193,8 +191,9 @@ export async function saveAllEntries(entries, userId) {
              position_y = EXCLUDED.position_y,
              parent_entry_id = EXCLUDED.parent_entry_id,
              user_id = EXCLUDED.user_id,
+             link_cards_data = EXCLUDED.link_cards_data,
              updated_at = CURRENT_TIMESTAMP`,
-          [entry.id, entry.text, entry.position.x, entry.position.y, entry.parentEntryId || null, userId]
+          [entry.id, entry.text, entry.position.x, entry.position.y, entry.parentEntryId || null, userId, linkCardsData]
         );
       }
       
@@ -280,7 +279,6 @@ export async function getEntriesByUsername(username) {
       text: row.text,
       position: { x: row.position_x, y: row.position_y },
       parentEntryId: row.parent_entry_id || null,
-      cardData: null,
       createdAt: row.created_at
     }));
   } catch (error) {

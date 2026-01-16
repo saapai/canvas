@@ -467,32 +467,58 @@ async function loadUserEntries(username, editable) {
         element: entry,
         text: entryData.text,
         position: entryData.position,
-        parentEntryId: entryData.parentEntryId
+        parentEntryId: entryData.parentEntryId,
+        linkCardsData: entryData.linkCardsData || []
       };
       entries.set(entryData.id, storedEntryData);
       
       // Generate link cards if URLs exist
       if (urls.length > 0) {
-        // Use Promise.all to wait for all cards to be generated
-        const cardPromises = urls.map(async (url) => {
-          const cardData = await generateLinkCard(url);
-          if (cardData) {
-            const card = createLinkCard(cardData);
-            entry.appendChild(card);
-            return card;
-          }
-          return null;
-        });
+        const cachedLinkCardsData = entryData.linkCardsData || [];
         
-        // Wait for all cards to be added, then update dimensions
-        Promise.all(cardPromises).then((cards) => {
-          // Filter out null cards and update dimensions
-          const validCards = cards.filter(card => card !== null);
-          if (validCards.length > 0) {
-            // Wait a bit for the DOM to update and images to load
-            setTimeout(() => {
-              updateEntryDimensions(entry);
-            }, 100);
+        urls.forEach((url, index) => {
+          const cachedCardData = cachedLinkCardsData[index];
+          
+          if (cachedCardData) {
+            // Use cached card data immediately
+            const card = createLinkCard(cachedCardData);
+            entry.appendChild(card);
+            updateEntryWidthForLinkCard(entry, card);
+            
+            // Refresh card data in the background
+            generateLinkCard(url).then(freshCardData => {
+              if (freshCardData) {
+                // Update the card with fresh data
+                const freshCard = createLinkCard(freshCardData);
+                card.replaceWith(freshCard);
+                updateEntryWidthForLinkCard(entry, freshCard);
+                
+                // Update cached data
+                storedEntryData.linkCardsData[index] = freshCardData;
+              }
+            });
+          } else {
+            // No cached data - show placeholder and generate
+            const placeholder = createLinkCardPlaceholder(url);
+            entry.appendChild(placeholder);
+            
+            generateLinkCard(url).then(cardData => {
+              if (cardData) {
+                const card = createLinkCard(cardData);
+                placeholder.replaceWith(card);
+                updateEntryWidthForLinkCard(entry, card);
+                
+                // Cache the card data
+                if (!storedEntryData.linkCardsData) storedEntryData.linkCardsData = [];
+                storedEntryData.linkCardsData[index] = cardData;
+                
+                setTimeout(() => {
+                  updateEntryDimensions(entry);
+                }, 100);
+              } else {
+                placeholder.remove();
+              }
+            });
           }
         });
       }
@@ -593,7 +619,8 @@ async function saveEntryToServer(entryData) {
         id: entryData.id,
         text: entryData.text,
         position: entryData.position,
-        parentEntryId: entryData.parentEntryId
+        parentEntryId: entryData.parentEntryId,
+        linkCardsData: entryData.linkCardsData || null
       })
     });
     
@@ -625,7 +652,7 @@ async function updateEntryOnServer(entryData) {
         text: entryData.text,
         position: entryData.position,
         parentEntryId: entryData.parentEntryId,
-        cardData: entryData.cardData || null
+        linkCardsData: entryData.linkCardsData || null
       })
     });
     
@@ -2369,6 +2396,10 @@ editor.addEventListener('keydown', (e) => {
 function updateEditingBorderDimensions(entry) {
   if (!entry || !entry.classList.contains('editing')) return;
   
+  // Don't resize if entry has link cards (link cards are hidden during editing)
+  // The border should wrap only the text content, not the hidden cards
+  const hasLinkCards = entry.querySelectorAll('.link-card, .link-card-placeholder').length > 0;
+  
   // Get the editor's current dimensions
   const editorWidth = editor.offsetWidth;
   const editorHeight = editor.scrollHeight;
@@ -2397,12 +2428,6 @@ function updateEditingBorderDimensions(entry) {
   
   entry.style.setProperty('width', `${entryWidth}px`, 'important');
   entry.style.setProperty('height', `${entryHeight}px`, 'important');
-  
-  // Update editor position to account for left padding
-  const currentLeft = parseFloat(editor.style.left) || 0;
-  const currentTop = parseFloat(editor.style.top) || 0;
-  editor.style.left = `${currentLeft}px`;
-  editor.style.top = `${currentTop}px`;
 }
 
 function getWidestLineWidth(element) {
