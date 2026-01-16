@@ -855,7 +855,9 @@ function zoomToFitEntries() {
   const scaleX = viewportWidth / contentWidth;
   const scaleY = viewportHeight / contentHeight;
   const newZoom = Math.min(scaleX, scaleY, 2.0); // Cap zoom at 2x to avoid too much zoom in
-  const clampedZoom = clamp(newZoom, 0.12, 2.0);
+  // Zoom out 1.25x more to add breathing room (equal in all directions)
+  const zoomWithPadding = newZoom / 1.25;
+  const clampedZoom = clamp(zoomWithPadding, 0.12, 2.0);
 
   // Calculate target camera position
   const screenCenterX = viewportWidth / 2;
