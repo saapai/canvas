@@ -106,12 +106,18 @@ body::before{
 }
 
 /* Hover effect for clickable entries (blue highlight animation) */
-.entry:hover:not(.read-only):not(.editing) {
+.entry:hover:not(.read-only):not(.editing)::before {
+  content: '';
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  width: calc(100% + 8px);
+  height: calc(100% + 8px);
   background-color: rgba(59, 130, 246, 0.1);
-  box-shadow: 
-    0 0 0 2px rgba(59, 130, 246, 0.3),
-    inset 0 0 0 2px rgba(59, 130, 246, 0.1);
-  border-radius: 4px;
+  border: 2px solid rgba(59, 130, 246, 0.3);
+  border-radius: 8px;
+  pointer-events: none;
+  z-index: -1;
 }
 
 /* Read-only mode: disable all hover effects and visual feedback */

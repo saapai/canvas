@@ -1468,14 +1468,21 @@ async function commitEditor(){
 
 function updateEntryWidthForLinkCard(entry, card) {
   // Update entry width to account for link card width
+  // Link cards have min-width: 360px and width: 100%, so entry must be at least 360px
   requestAnimationFrame(() => {
-    const entryRect = entry.getBoundingClientRect();
-    const cardRect = card.getBoundingClientRect();
-    const currentEntryWidth = parseFloat(entry.style.width) || entryRect.width;
-    const cardWidth = cardRect.width;
-    if (cardWidth > currentEntryWidth) {
-      entry.style.width = `${cardWidth}px`;
-    }
+    // Wait a frame for the card to be fully rendered
+    requestAnimationFrame(() => {
+      const cardRect = card.getBoundingClientRect();
+      const cardWidth = cardRect.width;
+      
+      // Link card min-width is 360px, so ensure entry is at least that wide
+      const minCardWidth = 360;
+      const currentEntryWidth = parseFloat(entry.style.width) || 0;
+      
+      // Use the maximum of: card's actual width, min card width, or current entry width
+      const newWidth = Math.max(cardWidth, minCardWidth, currentEntryWidth || minCardWidth);
+      entry.style.width = `${newWidth}px`;
+    });
   });
 }
 
