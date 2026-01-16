@@ -72,7 +72,7 @@ body::before{
   white-space: pre;
   user-select: none;
   color: var(--ink);
-  cursor: move;
+  cursor: pointer;
   transition: background-color 0.2s ease, box-shadow 0.2s ease;
   text-rendering: geometricPrecision;
   -webkit-font-smoothing: antialiased;
@@ -108,10 +108,10 @@ body::before{
 /* Hover effect for clickable entries (blue highlight animation) */
 .entry:hover:not(.read-only):not(.editing) {
   background-color: rgba(59, 130, 246, 0.1);
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+  box-shadow: 
+    0 0 0 2px rgba(59, 130, 246, 0.3),
+    inset 0 0 0 2px rgba(59, 130, 246, 0.1);
   border-radius: 4px;
-  padding: 2px;
-  margin: -2px;
 }
 
 /* Read-only mode: disable all hover effects and visual feedback */
