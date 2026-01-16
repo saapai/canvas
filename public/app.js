@@ -1596,26 +1596,31 @@ function updateEntryDimensions(entry) {
         const linkCard = entry.querySelector('.link-card, .link-card-placeholder');
         if (linkCard && entry.children.length === 1) {
           // Single link card - calculate height with equal top/bottom margins
-          const cardRect = linkCard.getBoundingClientRect();
-          const cardHeight = cardRect.height;
-          // Use the larger margin for both top and bottom to create symmetry
-          const symmetricMargin = Math.max(firstMarginTop, lastMarginBottom);
-          const symmetricHeight = cardHeight + (symmetricMargin * 2);
+          // First, reset any existing margins to get the card's natural height
+          linkCard.style.marginTop = '0';
+          linkCard.style.marginBottom = '0';
+          linkCard.style.marginLeft = '0';
+          linkCard.style.marginRight = '0';
           
-          // Adjust entry height and card position to center it vertically
-          contentHeight = symmetricHeight;
+          // Force a reflow to get accurate measurements
+          void linkCard.offsetHeight;
           
-          // Adjust the card's margin to center it with equal padding on all sides
-          if (linkCard) {
-            // Set equal margins on all sides to create symmetric padding
-            linkCard.style.marginTop = `${symmetricMargin}px`;
-            linkCard.style.marginBottom = `${symmetricMargin}px`;
-            linkCard.style.marginLeft = `${symmetricMargin}px`;
-            linkCard.style.marginRight = `${symmetricMargin}px`;
-            
-            // Card should not be 100% width anymore - it should use its natural width
-            // But we'll recalculate after margins are set
-          }
+          // Get the card's natural height (without margins)
+          const cardNaturalHeight = linkCard.offsetHeight;
+          
+          // Calculate desired padding - use a consistent padding value
+          // This ensures equal top and bottom padding
+          const desiredPadding = 12; // Fixed 12px padding for symmetry
+          
+          // Set equal margins on all sides to create symmetric padding
+          linkCard.style.marginTop = `${desiredPadding}px`;
+          linkCard.style.marginBottom = `${desiredPadding}px`;
+          linkCard.style.marginLeft = `${desiredPadding}px`;
+          linkCard.style.marginRight = `${desiredPadding}px`;
+          
+          // Entry height = card natural height + top margin + bottom margin
+          // This ensures the card is perfectly centered vertically
+          contentHeight = cardNaturalHeight + (desiredPadding * 2);
         } else {
           contentHeight = Math.max(contentHeight, calculatedHeight);
         }
