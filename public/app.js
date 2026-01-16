@@ -2720,6 +2720,56 @@ editor.addEventListener('input', () => {
   }
 });
 
+editor.addEventListener('blur', (e) => {
+  // Auto-save when editor loses focus (e.g., clicking elsewhere)
+  // Only save if there's content and we're not navigating
+  if (isNavigating || navigationJustCompleted) {
+    return;
+  }
+  
+  // Check if editor has content
+  const raw = editor.innerText || editor.textContent || '';
+  const trimmed = raw.trim();
+  
+  // Only commit if there's actual content (for both new and existing entries)
+  if (trimmed.length > 0) {
+    // Use setTimeout to ensure blur completes before commit
+    // This prevents issues with focus changes during commit
+    setTimeout(() => {
+      // Double-check editor is still blurred and has content
+      // Also check that we're not about to place a new editor (which would refocus)
+      if (document.activeElement !== editor && editor.innerText.trim().length > 0) {
+        commitEditor();
+      }
+    }, 0);
+  } else if (trimmed.length === 0 && editingEntryId && editingEntryId !== 'anchor') {
+    // If empty and editing existing entry, delete it
+    setTimeout(() => {
+      if (document.activeElement !== editor) {
+        const entryData = entries.get(editingEntryId);
+        if (entryData) {
+          entryData.element.classList.remove('editing');
+          entryData.element.remove();
+          entries.delete(editingEntryId);
+          deleteEntryFromServer(editingEntryId);
+          editor.textContent = '';
+          editor.style.display = 'none';
+          editingEntryId = null;
+        }
+      }
+    }, 0);
+  } else if (trimmed.length === 0 && (!editingEntryId || editingEntryId === 'anchor')) {
+    // If empty and creating new entry, just hide the editor
+    setTimeout(() => {
+      if (document.activeElement !== editor) {
+        editor.textContent = '';
+        editor.style.display = 'none';
+        editingEntryId = null;
+      }
+    }, 0);
+  }
+});
+
 editor.addEventListener('mousedown', (e) => e.stopPropagation());
 editor.addEventListener('wheel', (e) => e.stopPropagation());
 editor.addEventListener('paste', (e) => {
