@@ -74,6 +74,17 @@ export async function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_phone_verification_phone ON phone_verification_codes(phone);
     `);
 
+    // Add link_cards_data column if it doesn't exist (migration for existing databases)
+    try {
+      await db.query(`
+        ALTER TABLE entries 
+        ADD COLUMN IF NOT EXISTS link_cards_data JSONB;
+      `);
+    } catch (error) {
+      // Column might already exist, ignore error
+      console.log('Note: link_cards_data column check:', error.message);
+    }
+
     dbInitialized = true;
     console.log('Database initialized successfully');
   } catch (error) {
