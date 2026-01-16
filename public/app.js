@@ -2085,12 +2085,13 @@ function createLinkCard(cardData) {
     }, maxDuration);
   });
   card.addEventListener('mousedown', (e) => {
-    // Allow shift+click to propagate for dragging the entry
+    // For shift+click, allow event to bubble up to viewport handler for dragging
     // Only stop propagation for non-shift clicks (to prevent navigation)
-    if (!e.shiftKey) {
-      e.stopPropagation();
+    if (e.shiftKey) {
+      // Let shift+click propagate - don't stop it
+      return;
     }
-    // For shift+click, let the event bubble up to viewport handler for dragging
+    e.stopPropagation();
   });
   card.addEventListener('contextmenu', (e) => {
     e.preventDefault();
