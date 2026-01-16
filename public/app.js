@@ -493,6 +493,7 @@ async function loadUserEntries(username, editable) {
           if (cardData) {
             const card = createLinkCard(cardData);
             entry.appendChild(card);
+            updateEntryWidthForLinkCard(entry, card);
           }
         });
       }
@@ -732,6 +733,7 @@ async function loadEntriesFromServer() {
           if (cardData) {
             const card = createLinkCard(cardData);
             entry.appendChild(card);
+            updateEntryWidthForLinkCard(entry, card);
           }
         });
       }
@@ -1205,6 +1207,7 @@ async function commitEditor(){
         for(const url of urls){
           const placeholder = createLinkCardPlaceholder(url);
           entryData.element.appendChild(placeholder);
+          updateEntryWidthForLinkCard(entryData.element, placeholder);
           placeholders.push({ placeholder, url });
         }
         
@@ -1214,6 +1217,7 @@ async function commitEditor(){
           if(cardData){
             const card = createLinkCard(cardData);
             placeholder.replaceWith(card);
+            updateEntryWidthForLinkCard(entryData.element, card);
           } else {
             placeholder.remove();
           }
@@ -1302,6 +1306,7 @@ async function commitEditor(){
     for(const url of urls){
       const placeholder = createLinkCardPlaceholder(url);
       entry.appendChild(placeholder);
+      updateEntryWidthForLinkCard(entry, placeholder);
       placeholders.push({ placeholder, url });
     }
     
@@ -1312,6 +1317,7 @@ async function commitEditor(){
       if(cardData){
         const card = createLinkCard(cardData);
         placeholder.replaceWith(card);
+        updateEntryWidthForLinkCard(entry, card);
         allCardData.push(cardData);
       } else {
         placeholder.remove();
@@ -1359,6 +1365,19 @@ async function commitEditor(){
   editor.textContent = '';
   editor.style.display = 'none';
   editingEntryId = null;
+}
+
+function updateEntryWidthForLinkCard(entry, card) {
+  // Update entry width to account for link card width
+  requestAnimationFrame(() => {
+    const entryRect = entry.getBoundingClientRect();
+    const cardRect = card.getBoundingClientRect();
+    const currentEntryWidth = parseFloat(entry.style.width) || entryRect.width;
+    const cardWidth = cardRect.width;
+    if (cardWidth > currentEntryWidth) {
+      entry.style.width = `${cardWidth}px`;
+    }
+  });
 }
 
 function meltify(text){
