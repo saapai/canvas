@@ -1479,13 +1479,44 @@ function updateEntryDimensions(entry) {
       const linkCards = entry.querySelectorAll('.link-card, .link-card-placeholder');
     
     if (linkCards.length > 0) {
-      // If there are link cards, use their width (they have min-width: 360px)
+      // If there are link cards, calculate width with symmetric padding
+      // First, set margins on all cards, then calculate width
       linkCards.forEach(card => {
+        const cardStyles = window.getComputedStyle(card);
+        const currentMarginTop = parseFloat(cardStyles.marginTop) || 0;
+        const currentMarginBottom = parseFloat(cardStyles.marginBottom) || 0;
+        const symmetricMargin = Math.max(currentMarginTop, currentMarginBottom, 16); // Default to 16px
+        
+        // Set equal margins on all sides first
+        card.style.marginTop = `${symmetricMargin}px`;
+        card.style.marginBottom = `${symmetricMargin}px`;
+        card.style.marginLeft = `${symmetricMargin}px`;
+        card.style.marginRight = `${symmetricMargin}px`;
+        
+        // Get card's natural width (without margins)
+        // Force a layout recalculation
+        void card.offsetWidth;
         const cardRect = card.getBoundingClientRect();
-        contentWidth = Math.max(contentWidth, cardRect.width);
+        
+        // Calculate the card's content width (excluding margins)
+        // Card might be 100% width, so we need to get its min-width or natural width
+        const cardMinWidth = parseFloat(cardStyles.minWidth) || 360;
+        const cardContentWidth = Math.max(cardRect.width - (symmetricMargin * 2), cardMinWidth);
+        
+        // Entry width = card content width + left margin + right margin
+        const entryWidth = cardContentWidth + (symmetricMargin * 2);
+        contentWidth = Math.max(contentWidth, entryWidth);
+        
+        // Override card width to be content width, not 100%
+        card.style.width = `${cardContentWidth}px`;
+        card.style.maxWidth = 'none';
       });
+      
+      // Ensure minimum width with padding (min card 360px + padding)
       const minCardWidth = 360;
-      contentWidth = Math.max(contentWidth, minCardWidth);
+      const symmetricMargin = 16; // Default symmetric margin
+      const minWidthWithPadding = minCardWidth + (symmetricMargin * 2);
+      contentWidth = Math.max(contentWidth, minWidthWithPadding);
     } else {
       // For text-only entries, calculate width from text content
       // Always use the stored entry text if available, as it's the source of truth
@@ -1572,17 +1603,16 @@ function updateEntryDimensions(entry) {
           // Adjust entry height and card position to center it vertically
           contentHeight = symmetricHeight;
           
-          // Adjust the card's margin to center it
+          // Adjust the card's margin to center it with equal padding on all sides
           if (linkCard) {
-            const cardStyles = window.getComputedStyle(linkCard);
-            const currentMarginTop = parseFloat(cardStyles.marginTop) || 0;
-            const currentMarginBottom = parseFloat(cardStyles.marginBottom) || 0;
+            // Set equal margins on all sides to create symmetric padding
+            linkCard.style.marginTop = `${symmetricMargin}px`;
+            linkCard.style.marginBottom = `${symmetricMargin}px`;
+            linkCard.style.marginLeft = `${symmetricMargin}px`;
+            linkCard.style.marginRight = `${symmetricMargin}px`;
             
-            // Only adjust if margins are unequal
-            if (Math.abs(currentMarginTop - currentMarginBottom) > 1) {
-              linkCard.style.marginTop = `${symmetricMargin}px`;
-              linkCard.style.marginBottom = `${symmetricMargin}px`;
-            }
+            // Card should not be 100% width anymore - it should use its natural width
+            // But we'll recalculate after margins are set
           }
         } else {
           contentHeight = Math.max(contentHeight, calculatedHeight);
