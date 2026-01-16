@@ -570,15 +570,25 @@ async function loadUserEntries(username, editable) {
     updateBreadcrumb();
     updateEntryVisibility();
     
+    // Recalculate dimensions for all existing entries to fix old fixed-width entries
+    setTimeout(() => {
+      entriesData.forEach(entryData => {
+        const entry = document.querySelector(`#${entryData.id}`);
+        if (entry) {
+          updateEntryDimensions(entry);
+        }
+      });
+    }, 100);
+    
     // Zoom to fit all entries on initial load only
     if (!hasZoomedToFit) {
       hasZoomedToFit = true;
-      // Wait for link cards to load and then fit
+      // Wait for link cards to load and dimension recalculation, then fit
       setTimeout(() => {
         requestAnimationFrame(() => {
           zoomToFitEntries();
         });
-      }, 500);
+      }, 600);
     }
     
     if (isReadOnly) {
