@@ -1527,8 +1527,8 @@ async function commitEditor(){
   // Update visibility - new entry should be visible in current view
   updateEntryVisibility();
   
-  // Save to server
-  saveEntryToServer(entryData);
+  // Save to server (await to ensure it completes)
+  await saveEntryToServer(entryData);
 
   // Generate and add cards for URLs (async, after text is rendered)
   if(urls.length > 0){
@@ -2085,10 +2085,12 @@ function createLinkCard(cardData) {
     }, maxDuration);
   });
   card.addEventListener('mousedown', (e) => {
-    // Allow shift+click to propagate for dragging
+    // Allow shift+click to propagate for dragging the entry
+    // Only stop propagation for non-shift clicks (to prevent navigation)
     if (!e.shiftKey) {
       e.stopPropagation();
     }
+    // For shift+click, let the event bubble up to viewport handler for dragging
   });
   card.addEventListener('contextmenu', (e) => {
     e.preventDefault();
@@ -2197,7 +2199,7 @@ viewport.addEventListener('mousedown', (e) => {
       
       clickStart = { x: e.clientX, y: e.clientY, t: performance.now() };
       
-      console.log('[SHIFT+DRAG] Starting drag on entry:', entryEl.id, 'from target:', e.target);
+      console.log('[SHIFT+DRAG] Starting drag on entry:', entryEl.id, 'from target:', e.target, 'isLinkCard:', e.target.closest('.link-card, .link-card-placeholder') !== null);
     } else {
       // Regular click - just track for potential click action
       clickStart = { x: e.clientX, y: e.clientY, t: performance.now(), entryEl: entryEl, button: e.button };
