@@ -95,8 +95,7 @@ body::before{
 .entry.editing{
   border: 2px solid rgba(59, 130, 246, 0.4);
   border-radius: 4px;
-  padding: 2px;
-  margin: -2px;
+  box-sizing: border-box;
 }
 
 /* Hide entry text content when editing (editor overlay shows the text instead) */
@@ -109,15 +108,16 @@ body::before{
 .entry:hover:not(.read-only):not(.editing)::before {
   content: '';
   position: absolute;
-  top: -4px;
-  left: -4px;
-  width: calc(100% + 8px);
-  height: calc(100% + 8px);
+  top: -2px;
+  left: -2px;
+  width: calc(100% + 4px);
+  height: calc(100% + 4px);
   background-color: rgba(59, 130, 246, 0.1);
   border: 2px solid rgba(59, 130, 246, 0.3);
-  border-radius: 8px;
+  border-radius: 4px;
   pointer-events: none;
   z-index: -1;
+  box-sizing: border-box;
 }
 
 /* Read-only mode: disable all hover effects and visual feedback */

@@ -451,31 +451,15 @@ async function loadUserEntries(username, editable) {
         entry.innerHTML = '';
       }
       
-      // Set proper width for entries based on content
-      if (entryData.text) {
-        const temp = document.createElement('div');
-        temp.style.position = 'absolute';
-        temp.style.visibility = 'hidden';
-        temp.style.whiteSpace = 'pre';
-        temp.style.font = window.getComputedStyle(entry).font;
-        temp.style.fontSize = window.getComputedStyle(entry).fontSize;
-        temp.style.fontFamily = window.getComputedStyle(entry).fontFamily;
-        temp.textContent = entryData.text;
-        document.body.appendChild(temp);
-        const contentWidth = getWidestLineWidth(temp);
-        document.body.removeChild(temp);
-        entry.style.width = `${contentWidth}px`;
-      } else {
-        entry.style.width = '400px';
-      }
-      entry.style.minHeight = '60px';
-      
       // In read-only mode, allow clicks for navigation
       if (!editable) {
         entry.style.cursor = 'pointer';
       }
       
       world.appendChild(entry);
+      
+      // Update entry dimensions based on actual content after rendering
+      updateEntryDimensions(entry);
       
       // Store entry data
       const storedEntryData = {
@@ -705,28 +689,10 @@ async function loadEntriesFromServer() {
         entry.innerHTML = '';
       }
       
-      // Set proper width for entries based on content
-      // Calculate width of widest line for multi-line entries
-      if (entryData.text) {
-        // Create temporary element to measure text width
-        const temp = document.createElement('div');
-        temp.style.position = 'absolute';
-        temp.style.visibility = 'hidden';
-        temp.style.whiteSpace = 'pre';
-        temp.style.font = window.getComputedStyle(entry).font;
-        temp.style.fontSize = window.getComputedStyle(entry).fontSize;
-        temp.style.fontFamily = window.getComputedStyle(entry).fontFamily;
-        temp.textContent = entryData.text;
-        document.body.appendChild(temp);
-        const contentWidth = getWidestLineWidth(temp);
-        document.body.removeChild(temp);
-        entry.style.width = `${contentWidth}px`;
-      } else {
-        entry.style.width = '400px';
-      }
-      entry.style.minHeight = '60px';
-      
       world.appendChild(entry);
+      
+      // Update entry dimensions based on actual content after rendering
+      updateEntryDimensions(entry);
       
       // Store entry data
       const storedEntryData = {
@@ -1294,10 +1260,6 @@ async function commitEditor(){
       } else {
         entryData.element.innerHTML = '';
       }
-      // Calculate width based on widest line (preserves line structure)
-      const contentWidth = getWidestLineWidth(editor);
-      entryData.element.style.width = `${contentWidth}px`;
-      entryData.element.style.minHeight = `${editor.offsetHeight}px`;
       entryData.text = trimmedRight;
 
       // Generate and add cards for URLs
@@ -1322,6 +1284,9 @@ async function commitEditor(){
           }
         }
       }
+      
+      // Update entry dimensions based on actual content
+      updateEntryDimensions(entryData.element);
 
       // Remove editing class
       entryData.element.classList.remove('editing');
@@ -1365,10 +1330,6 @@ async function commitEditor(){
 
   entry.style.left = `${editorWorldPos.x}px`;
   entry.style.top  = `${editorWorldPos.y}px`;
-  // Calculate width based on widest line (preserves line structure)
-  const contentWidth = getWidestLineWidth(editor);
-  entry.style.width = `${contentWidth}px`;
-  entry.style.minHeight = `${editor.offsetHeight}px`;
 
   // Only render text if there is any
   if(processedText){
@@ -1377,6 +1338,9 @@ async function commitEditor(){
     entry.innerHTML = '';
   }
   world.appendChild(entry);
+  
+  // Update entry dimensions based on actual content after rendering
+  updateEntryDimensions(entry);
 
   // Store entry data
   const entryData = {
@@ -1466,24 +1430,96 @@ async function commitEditor(){
   editingEntryId = null;
 }
 
-function updateEntryWidthForLinkCard(entry, card) {
-  // Update entry width to account for link card width
-  // Link cards have min-width: 360px and width: 100%, so entry must be at least 360px
+function updateEntryDimensions(entry) {
+  // Update entry width and height based on actual content
   requestAnimationFrame(() => {
-    // Wait a frame for the card to be fully rendered
-    requestAnimationFrame(() => {
-      const cardRect = card.getBoundingClientRect();
-      const cardWidth = cardRect.width;
-      
-      // Link card min-width is 360px, so ensure entry is at least that wide
+    // Calculate actual content dimensions
+    // Width: use widest line or link card width
+    let contentWidth = 0;
+    const linkCards = entry.querySelectorAll('.link-card, .link-card-placeholder');
+    
+    if (linkCards.length > 0) {
+      // If there are link cards, use their width (they have min-width: 360px)
+      linkCards.forEach(card => {
+        const cardRect = card.getBoundingClientRect();
+        contentWidth = Math.max(contentWidth, cardRect.width);
+      });
       const minCardWidth = 360;
-      const currentEntryWidth = parseFloat(entry.style.width) || 0;
+      contentWidth = Math.max(contentWidth, minCardWidth);
+    } else {
+      // For text-only entries, calculate width from text content
+      const textContent = entry.innerText || entry.textContent || '';
+      if (textContent) {
+        const temp = document.createElement('div');
+        temp.style.position = 'absolute';
+        temp.style.visibility = 'hidden';
+        temp.style.whiteSpace = 'pre';
+        temp.style.font = window.getComputedStyle(entry).font;
+        temp.style.fontSize = window.getComputedStyle(entry).fontSize;
+        temp.style.fontFamily = window.getComputedStyle(entry).fontFamily;
+        temp.textContent = textContent;
+        document.body.appendChild(temp);
+        contentWidth = getWidestLineWidth(temp);
+        document.body.removeChild(temp);
+      } else {
+        contentWidth = 220; // Default minimum
+      }
+    }
+    
+    // Height: calculate based on actual rendered content
+    // Temporarily set width and remove height constraints to measure
+    entry.style.width = `${contentWidth}px`;
+    entry.style.height = 'auto';
+    entry.style.minHeight = 'auto';
+    
+    // Force a layout recalculation
+    void entry.offsetHeight;
+    
+    // Calculate height from all children
+    let contentHeight = 0;
+    if (entry.children.length > 0) {
+      let topMost = Infinity;
+      let bottomMost = -Infinity;
       
-      // Use the maximum of: card's actual width, min card width, or current entry width
-      const newWidth = Math.max(cardWidth, minCardWidth, currentEntryWidth || minCardWidth);
-      entry.style.width = `${newWidth}px`;
-    });
+      Array.from(entry.children).forEach(child => {
+        const childRect = child.getBoundingClientRect();
+        const entryRect = entry.getBoundingClientRect();
+        const relativeTop = childRect.top - entryRect.top;
+        const relativeBottom = childRect.bottom - entryRect.top;
+        
+        topMost = Math.min(topMost, relativeTop);
+        bottomMost = Math.max(bottomMost, relativeBottom);
+      });
+      
+      contentHeight = bottomMost - topMost;
+    } else {
+      // For text content, use scrollHeight or measure text height
+      const temp = document.createElement('div');
+      temp.style.position = 'absolute';
+      temp.style.visibility = 'hidden';
+      temp.style.whiteSpace = 'pre';
+      temp.style.font = window.getComputedStyle(entry).font;
+      temp.style.fontSize = window.getComputedStyle(entry).fontSize;
+      temp.style.fontFamily = window.getComputedStyle(entry).fontFamily;
+      temp.style.lineHeight = window.getComputedStyle(entry).lineHeight;
+      temp.style.width = `${contentWidth}px`;
+      const textContent = entry.innerText || entry.textContent || '';
+      temp.textContent = textContent || ' ';
+      document.body.appendChild(temp);
+      contentHeight = temp.offsetHeight;
+      document.body.removeChild(temp);
+    }
+    
+    // Set dimensions
+    entry.style.width = `${contentWidth}px`;
+    entry.style.height = `${Math.max(contentHeight, 0)}px`;
+    entry.style.minHeight = 'auto';
   });
+}
+
+function updateEntryWidthForLinkCard(entry, card) {
+  // Update entry dimensions to account for link card
+  updateEntryDimensions(entry);
 }
 
 function meltify(text){
