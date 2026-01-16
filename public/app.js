@@ -2422,8 +2422,183 @@ editor.addEventListener('keydown', (e) => {
     return;
   }
   
+  // Handle space after dash to create bullet point
+  if (e.key === ' ' && !e.shiftKey) {
+    const selection = window.getSelection();
+    if (selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      const textNode = range.startContainer;
+      const offset = range.startOffset;
+      
+      // Get full text and cursor position
+      const fullText = editor.innerText || editor.textContent || '';
+      let cursorPos = 0;
+      
+      // Calculate cursor position in full text
+      if (textNode.nodeType === Node.TEXT_NODE) {
+        const walker = document.createTreeWalker(
+          editor,
+          NodeFilter.SHOW_TEXT,
+          null
+        );
+        let node;
+        while (node = walker.nextNode()) {
+          if (node === textNode) {
+            cursorPos += offset;
+            break;
+          }
+          cursorPos += node.textContent.length;
+        }
+      } else {
+        cursorPos = fullText.length;
+      }
+      
+      // Find start of current line
+      let lineStart = 0;
+      for (let i = cursorPos - 1; i >= 0; i--) {
+        if (fullText[i] === '\n') {
+          lineStart = i + 1;
+          break;
+        }
+      }
+      
+      // Check if line starts with "-"
+      const lineText = fullText.substring(lineStart, cursorPos);
+      if (lineText === '-') {
+        e.preventDefault();
+        
+        // Replace "- " with "• "
+        const beforeText = fullText.substring(0, lineStart);
+        const afterText = fullText.substring(cursorPos);
+        
+        editor.textContent = beforeText + '• ' + afterText;
+        
+        // Set cursor after bullet
+        const newCursorPos = lineStart + 2;
+        setTimeout(() => {
+          const range = document.createRange();
+          const sel = window.getSelection();
+          
+          const walker = document.createTreeWalker(
+            editor,
+            NodeFilter.SHOW_TEXT,
+            null
+          );
+          let node;
+          let pos = 0;
+          while (node = walker.nextNode()) {
+            const nodeLength = node.textContent.length;
+            if (pos + nodeLength >= newCursorPos) {
+              range.setStart(node, newCursorPos - pos);
+              range.setEnd(node, newCursorPos - pos);
+              sel.removeAllRanges();
+              sel.addRange(range);
+              return;
+            }
+            pos += nodeLength;
+          }
+          // Fallback: move to end
+          range.selectNodeContents(editor);
+          range.collapse(false);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }, 0);
+        
+        editor.dispatchEvent(new Event('input'));
+        return;
+      }
+    }
+  }
+  
+  // Handle Enter key
   if(e.key === 'Enter' && !e.shiftKey){
-    // Enter without shift: save entry
+    const selection = window.getSelection();
+    if (selection.rangeCount > 0) {
+      const range = selection.getRangeAt(0);
+      const textNode = range.startContainer;
+      const offset = range.startOffset;
+      
+      // Get full text and cursor position
+      const fullText = editor.innerText || editor.textContent || '';
+      let cursorPos = 0;
+      
+      if (textNode.nodeType === Node.TEXT_NODE) {
+        const walker = document.createTreeWalker(
+          editor,
+          NodeFilter.SHOW_TEXT,
+          null
+        );
+        let node;
+        while (node = walker.nextNode()) {
+          if (node === textNode) {
+            cursorPos += offset;
+            break;
+          }
+          cursorPos += node.textContent.length;
+        }
+      } else {
+        cursorPos = fullText.length;
+      }
+      
+      // Find start of current line
+      let lineStart = 0;
+      for (let i = cursorPos - 1; i >= 0; i--) {
+        if (fullText[i] === '\n') {
+          lineStart = i + 1;
+          break;
+        }
+      }
+      
+      // Get current line text
+      const lineEnd = fullText.indexOf('\n', cursorPos);
+      const lineText = fullText.substring(lineStart, lineEnd >= 0 ? lineEnd : fullText.length);
+      
+      // If line starts with bullet, continue bullet on new line
+      if (lineText.trim().startsWith('•')) {
+        e.preventDefault();
+        
+        const beforeText = fullText.substring(0, cursorPos);
+        const afterText = fullText.substring(cursorPos);
+        
+        editor.textContent = beforeText + '\n• ' + afterText;
+        
+        // Set cursor after new bullet
+        const newCursorPos = cursorPos + 3; // "\n• " is 3 chars
+        setTimeout(() => {
+          const range = document.createRange();
+          const sel = window.getSelection();
+          
+          const walker = document.createTreeWalker(
+            editor,
+            NodeFilter.SHOW_TEXT,
+            null
+          );
+          let node;
+          let pos = 0;
+          while (node = walker.nextNode()) {
+            const nodeLength = node.textContent.length;
+            if (pos + nodeLength >= newCursorPos) {
+              range.setStart(node, newCursorPos - pos);
+              range.setEnd(node, newCursorPos - pos);
+              sel.removeAllRanges();
+              sel.addRange(range);
+              return;
+            }
+            pos += nodeLength;
+          }
+          // Fallback: move to end
+          range.selectNodeContents(editor);
+          range.collapse(false);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }, 0);
+        
+        editor.dispatchEvent(new Event('input'));
+        return;
+      }
+    }
+    
+    // Enter without shift: save entry (if not on bullet line)
     e.preventDefault();
     console.log('[ENTER] Committing editor, isNavigating:', isNavigating, 'navigationJustCompleted:', navigationJustCompleted);
     commitEditor();
