@@ -1311,11 +1311,14 @@ async function commitEditor(){
         }
       }
       
-      // Update entry dimensions based on actual content
-      updateEntryDimensions(entryData.element);
-
-      // Remove editing class
+      // Remove editing class first
       entryData.element.classList.remove('editing');
+      
+      // Update entry dimensions based on actual content after a brief delay
+      // to ensure DOM is updated and animations have started
+      setTimeout(() => {
+        updateEntryDimensions(entryData.element);
+      }, 50);
       
       // Save to server
       updateEntryOnServer(entryData);
@@ -1366,7 +1369,10 @@ async function commitEditor(){
   world.appendChild(entry);
   
   // Update entry dimensions based on actual content after rendering
-  updateEntryDimensions(entry);
+  // Wait a bit for DOM to update
+  setTimeout(() => {
+    updateEntryDimensions(entry);
+  }, 50);
 
   // Store entry data
   const entryData = {
@@ -1474,7 +1480,17 @@ function updateEntryDimensions(entry) {
       contentWidth = Math.max(contentWidth, minCardWidth);
     } else {
       // For text-only entries, calculate width from text content
-      const textContent = entry.innerText || entry.textContent || '';
+      // First try to get text from the entry data if available, otherwise from DOM
+      let textContent = '';
+      const entryId = entry.id;
+      const entryData = entries.get(entryId);
+      if (entryData && entryData.text) {
+        textContent = entryData.text;
+      } else {
+        // Fall back to reading from DOM (strips HTML tags)
+        textContent = entry.innerText || entry.textContent || '';
+      }
+      
       if (textContent) {
         const temp = document.createElement('div');
         temp.style.position = 'absolute';
