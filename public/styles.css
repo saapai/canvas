@@ -96,6 +96,11 @@ body::before{
   border: 2px solid rgba(59, 130, 246, 0.4);
   border-radius: 4px;
   box-sizing: border-box;
+  /* Asymmetric padding: 1 character on left, 2 on right, 0.5 character top/bottom */
+  padding: 8px 32px 8px 16px;
+  /* Dynamic dimensions will be set by JS */
+  width: auto !important;
+  height: auto !important;
 }
 
 /* Hide entry text content when editing (editor overlay shows the text instead) */

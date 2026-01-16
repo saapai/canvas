@@ -2361,6 +2361,46 @@ editor.addEventListener('keydown', (e) => {
 });
 
 // Helper function to calculate width of widest line (accounting for line breaks)
+// Update editing border dimensions to wrap content dynamically
+function updateEditingBorderDimensions(entry) {
+  if (!entry || !entry.classList.contains('editing')) return;
+  
+  // Get the editor's current dimensions
+  const editorWidth = editor.offsetWidth;
+  const editorHeight = editor.scrollHeight;
+  
+  // Calculate one character width for asymmetric padding
+  const temp = document.createElement('span');
+  temp.style.position = 'absolute';
+  temp.style.visibility = 'hidden';
+  temp.style.whiteSpace = 'pre';
+  temp.style.font = window.getComputedStyle(editor).font;
+  temp.style.fontSize = window.getComputedStyle(editor).fontSize;
+  temp.style.fontFamily = window.getComputedStyle(editor).fontFamily;
+  temp.textContent = 'M';
+  document.body.appendChild(temp);
+  const oneCharWidth = temp.offsetWidth;
+  document.body.removeChild(temp);
+  
+  // Asymmetric padding: 1 character on left, 2 on right, 0.5 character top/bottom
+  const leftPadding = oneCharWidth;
+  const rightPadding = oneCharWidth * 2;
+  const verticalPadding = oneCharWidth * 0.5;
+  
+  // Set entry dimensions to wrap the editor with padding
+  const entryWidth = editorWidth + leftPadding + rightPadding;
+  const entryHeight = editorHeight + (verticalPadding * 2);
+  
+  entry.style.setProperty('width', `${entryWidth}px`, 'important');
+  entry.style.setProperty('height', `${entryHeight}px`, 'important');
+  
+  // Update editor position to account for left padding
+  const currentLeft = parseFloat(editor.style.left) || 0;
+  const currentTop = parseFloat(editor.style.top) || 0;
+  editor.style.left = `${currentLeft}px`;
+  editor.style.top = `${currentTop}px`;
+}
+
 function getWidestLineWidth(element) {
   const text = element.innerText || element.textContent || '';
   
@@ -2403,11 +2443,19 @@ function getWidestLineWidth(element) {
   return Math.max(maxWidth, oneCharWidth);
 }
 
-// Update editor width as content changes (for sticky-note-like behavior)
+// Update editor width and entry border dimensions as content changes
 editor.addEventListener('input', () => {
   // Calculate width based on widest line (preserves line structure)
   const contentWidth = getWidestLineWidth(editor);
   editor.style.width = `${contentWidth}px`;
+  
+  // Also update the editing entry's dimensions if we're editing an entry
+  if (editingEntryId && editingEntryId !== 'anchor') {
+    const entryData = entries.get(editingEntryId);
+    if (entryData && entryData.element) {
+      updateEditingBorderDimensions(entryData.element);
+    }
+  }
 });
 
 editor.addEventListener('mousedown', (e) => e.stopPropagation());
