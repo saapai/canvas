@@ -1273,6 +1273,9 @@ async function commitEditor(){
       const existingCards = entryData.element.querySelectorAll('.link-card, .link-card-placeholder');
       existingCards.forEach(card => card.remove());
 
+      // Update entry text FIRST before any DOM changes
+      entryData.text = trimmedRight;
+      
       // Remove editing class first so content is visible for melt animation
       entryData.element.classList.remove('editing');
       
@@ -1282,7 +1285,6 @@ async function commitEditor(){
       } else {
         entryData.element.innerHTML = '';
       }
-      entryData.text = trimmedRight;
 
       // Generate and add cards for URLs
       if(urls.length > 0){
@@ -1307,24 +1309,20 @@ async function commitEditor(){
         }
       }
       
-      // Update entry dimensions based on actual content after a brief delay
-      // to ensure DOM is updated and animations have started
-      // Also recalculate after link cards are fully loaded
-      if (urls.length === 0) {
-        // No link cards - update immediately after a brief delay
-        setTimeout(() => {
-          updateEntryDimensions(entryData.element);
-        }, 100);
-      } else {
-        // Has link cards - update after cards are loaded
-        setTimeout(() => {
-          updateEntryDimensions(entryData.element);
-          // Re-update after another delay to ensure cards are fully rendered
+      // Update entry dimensions based on actual content
+      // Force immediate recalculation, then update again after rendering
+      updateEntryDimensions(entryData.element);
+      
+      // Also recalculate after a delay to ensure DOM is fully updated
+      setTimeout(() => {
+        updateEntryDimensions(entryData.element);
+        if (urls.length > 0) {
+          // Has link cards - update again after cards are loaded
           setTimeout(() => {
             updateEntryDimensions(entryData.element);
-          }, 200);
-        }, 100);
-      }
+          }, 300);
+        }
+      }, 150);
       
       // Save to server
       updateEntryOnServer(entryData);
@@ -1540,8 +1538,13 @@ function updateEntryDimensions(entry) {
         temp.style.font = window.getComputedStyle(entry).font;
         temp.style.fontSize = window.getComputedStyle(entry).fontSize;
         temp.style.fontFamily = window.getComputedStyle(entry).fontFamily;
+        temp.style.lineHeight = window.getComputedStyle(entry).lineHeight;
         temp.textContent = textContent;
         document.body.appendChild(temp);
+        
+        // Force layout calculation
+        void temp.offsetWidth;
+        
         contentWidth = getWidestLineWidth(temp);
         document.body.removeChild(temp);
         
@@ -1555,8 +1558,7 @@ function updateEntryDimensions(entry) {
     }
     
     // Height: calculate based on actual rendered content
-    // Set width first, then let the browser calculate natural height
-    entry.style.width = `${contentWidth}px`;
+    // Don't set width yet - we'll set it at the end after all calculations
     entry.style.height = 'auto';
     entry.style.minHeight = 'auto';
     
@@ -1620,10 +1622,15 @@ function updateEntryDimensions(entry) {
       }
     }
     
-      // Set dimensions
-      entry.style.width = `${contentWidth}px`;
-      entry.style.height = `${Math.max(contentHeight, 0)}px`;
-      entry.style.minHeight = 'auto';
+    // Set dimensions - force update with !important equivalent by using setProperty
+    entry.style.setProperty('width', `${contentWidth}px`, 'important');
+    entry.style.setProperty('height', `${Math.max(contentHeight, 0)}px`, 'important');
+    entry.style.setProperty('min-height', 'auto', 'important');
+    entry.style.setProperty('max-width', 'none', 'important');
+    entry.style.setProperty('min-width', 'auto', 'important');
+    
+    // Force a reflow to ensure width is applied
+    void entry.offsetWidth;
     });
   });
 }
