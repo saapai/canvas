@@ -113,7 +113,6 @@ body::before{
   width: calc(100% + 4px);
   height: calc(100% + 4px);
   background-color: rgba(59, 130, 246, 0.1);
-  border: 2px solid rgba(59, 130, 246, 0.3);
   border-radius: 4px;
   pointer-events: none;
   z-index: -1;
