@@ -1211,18 +1211,9 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null){
   editor.style.display = 'block';
   editor.textContent = text;
   
-  // Set editor width to match entry width if editing, or use content width
-  if(entryId && entryId !== 'anchor'){
-    const entryData = entries.get(entryId);
-    if(entryData && entryData.element){
-      const entryWidth = entryData.element.offsetWidth || 400;
-      editor.style.width = `${entryWidth}px`;
-    }
-  } else {
-    // For new entries, let it expand naturally
-    editor.style.width = 'auto';
-  }
-  
+  // Set editor width based on actual content, not fixed entry width
+  // This allows the editor to expand/contract based on text content
+  editor.style.width = 'auto';
   editor.focus();
   
   // Update width based on content after rendering
@@ -1318,9 +1309,22 @@ async function commitEditor(){
       
       // Update entry dimensions based on actual content after a brief delay
       // to ensure DOM is updated and animations have started
-      setTimeout(() => {
-        updateEntryDimensions(entryData.element);
-      }, 50);
+      // Also recalculate after link cards are fully loaded
+      if (urls.length === 0) {
+        // No link cards - update immediately after a brief delay
+        setTimeout(() => {
+          updateEntryDimensions(entryData.element);
+        }, 100);
+      } else {
+        // Has link cards - update after cards are loaded
+        setTimeout(() => {
+          updateEntryDimensions(entryData.element);
+          // Re-update after another delay to ensure cards are fully rendered
+          setTimeout(() => {
+            updateEntryDimensions(entryData.element);
+          }, 200);
+        }, 100);
+      }
       
       // Save to server
       updateEntryOnServer(entryData);
@@ -1466,11 +1470,13 @@ async function commitEditor(){
 
 function updateEntryDimensions(entry) {
   // Update entry width and height based on actual content
+  // Use requestAnimationFrame to ensure DOM is ready
   requestAnimationFrame(() => {
-    // Calculate actual content dimensions
-    // Width: use widest line or link card width
-    let contentWidth = 0;
-    const linkCards = entry.querySelectorAll('.link-card, .link-card-placeholder');
+    requestAnimationFrame(() => {
+      // Calculate actual content dimensions
+      // Width: use widest line or link card width
+      let contentWidth = 0;
+      const linkCards = entry.querySelectorAll('.link-card, .link-card-placeholder');
     
     if (linkCards.length > 0) {
       // If there are link cards, use their width (they have min-width: 360px)
@@ -1482,18 +1488,20 @@ function updateEntryDimensions(entry) {
       contentWidth = Math.max(contentWidth, minCardWidth);
     } else {
       // For text-only entries, calculate width from text content
-      // First try to get text from the entry data if available, otherwise from DOM
+      // Always use the stored entry text if available, as it's the source of truth
       let textContent = '';
       const entryId = entry.id;
       const entryData = entries.get(entryId);
       if (entryData && entryData.text) {
+        // Use the stored raw text - this is always up-to-date
         textContent = entryData.text;
       } else {
-        // Fall back to reading from DOM (strips HTML tags)
+        // Fall back to reading from DOM (strips HTML tags), but prefer entry text
+        // Note: DOM reading might not be accurate if text has been melted/animated
         textContent = entry.innerText || entry.textContent || '';
       }
       
-      if (textContent) {
+      if (textContent && textContent.trim()) {
         const temp = document.createElement('div');
         temp.style.position = 'absolute';
         temp.style.visibility = 'hidden';
@@ -1505,6 +1513,11 @@ function updateEntryDimensions(entry) {
         document.body.appendChild(temp);
         contentWidth = getWidestLineWidth(temp);
         document.body.removeChild(temp);
+        
+        // Ensure minimum width for readability
+        if (contentWidth < 220) {
+          contentWidth = 220;
+        }
       } else {
         contentWidth = 220; // Default minimum
       }
@@ -1577,10 +1590,11 @@ function updateEntryDimensions(entry) {
       }
     }
     
-    // Set dimensions
-    entry.style.width = `${contentWidth}px`;
-    entry.style.height = `${Math.max(contentHeight, 0)}px`;
-    entry.style.minHeight = 'auto';
+      // Set dimensions
+      entry.style.width = `${contentWidth}px`;
+      entry.style.height = `${Math.max(contentHeight, 0)}px`;
+      entry.style.minHeight = 'auto';
+    });
   });
 }
 
