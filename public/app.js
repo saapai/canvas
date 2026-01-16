@@ -473,12 +473,26 @@ async function loadUserEntries(username, editable) {
       
       // Generate link cards if URLs exist
       if (urls.length > 0) {
-        urls.forEach(async (url) => {
+        // Use Promise.all to wait for all cards to be generated
+        const cardPromises = urls.map(async (url) => {
           const cardData = await generateLinkCard(url);
           if (cardData) {
             const card = createLinkCard(cardData);
             entry.appendChild(card);
-            updateEntryWidthForLinkCard(entry, card);
+            return card;
+          }
+          return null;
+        });
+        
+        // Wait for all cards to be added, then update dimensions
+        Promise.all(cardPromises).then((cards) => {
+          // Filter out null cards and update dimensions
+          const validCards = cards.filter(card => card !== null);
+          if (validCards.length > 0) {
+            // Wait a bit for the DOM to update and images to load
+            setTimeout(() => {
+              updateEntryDimensions(entry);
+            }, 100);
           }
         });
       }
@@ -1478,42 +1492,42 @@ function updateEntryDimensions(entry) {
     
     if (linkCards.length > 0) {
       // If there are link cards, calculate width with symmetric padding
-      // First, set margins on all cards, then calculate width
+      // Use consistent padding for all link cards (same as height calculation)
+      const desiredPadding = 12; // Fixed 12px padding for symmetry
+      
       linkCards.forEach(card => {
-        const cardStyles = window.getComputedStyle(card);
-        const currentMarginTop = parseFloat(cardStyles.marginTop) || 0;
-        const currentMarginBottom = parseFloat(cardStyles.marginBottom) || 0;
-        const symmetricMargin = Math.max(currentMarginTop, currentMarginBottom, 16); // Default to 16px
+        // Reset margins to get natural dimensions
+        card.style.marginTop = '0';
+        card.style.marginBottom = '0';
+        card.style.marginLeft = '0';
+        card.style.marginRight = '0';
+        card.style.width = 'auto';
+        card.style.maxWidth = 'none';
         
-        // Set equal margins on all sides first
-        card.style.marginTop = `${symmetricMargin}px`;
-        card.style.marginBottom = `${symmetricMargin}px`;
-        card.style.marginLeft = `${symmetricMargin}px`;
-        card.style.marginRight = `${symmetricMargin}px`;
-        
-        // Get card's natural width (without margins)
         // Force a layout recalculation
         void card.offsetWidth;
-        const cardRect = card.getBoundingClientRect();
         
-        // Calculate the card's content width (excluding margins)
-        // Card might be 100% width, so we need to get its min-width or natural width
+        const cardStyles = window.getComputedStyle(card);
         const cardMinWidth = parseFloat(cardStyles.minWidth) || 360;
-        const cardContentWidth = Math.max(cardRect.width - (symmetricMargin * 2), cardMinWidth);
+        const cardNaturalWidth = Math.max(card.offsetWidth, cardMinWidth);
         
-        // Entry width = card content width + left margin + right margin
-        const entryWidth = cardContentWidth + (symmetricMargin * 2);
+        // Set equal margins on all sides
+        card.style.marginTop = `${desiredPadding}px`;
+        card.style.marginBottom = `${desiredPadding}px`;
+        card.style.marginLeft = `${desiredPadding}px`;
+        card.style.marginRight = `${desiredPadding}px`;
+        
+        // Set the card's width explicitly to its natural width
+        card.style.width = `${cardNaturalWidth}px`;
+        
+        // Entry width = card natural width + left padding + right padding
+        const entryWidth = cardNaturalWidth + (desiredPadding * 2);
         contentWidth = Math.max(contentWidth, entryWidth);
-        
-        // Override card width to be content width, not 100%
-        card.style.width = `${cardContentWidth}px`;
-        card.style.maxWidth = 'none';
       });
       
       // Ensure minimum width with padding (min card 360px + padding)
       const minCardWidth = 360;
-      const symmetricMargin = 16; // Default symmetric margin
-      const minWidthWithPadding = minCardWidth + (symmetricMargin * 2);
+      const minWidthWithPadding = minCardWidth + (desiredPadding * 2);
       contentWidth = Math.max(contentWidth, minWidthWithPadding);
     } else {
       // For text-only entries, calculate width from text content
