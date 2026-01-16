@@ -1530,15 +1530,29 @@ function updateEntryDimensions(entry) {
         textContent = entry.innerText || entry.textContent || '';
       }
       
+      // Calculate one character width as the minimum
+      const entryStyles = window.getComputedStyle(entry);
+      const tempChar = document.createElement('div');
+      tempChar.style.position = 'absolute';
+      tempChar.style.visibility = 'hidden';
+      tempChar.style.whiteSpace = 'pre';
+      tempChar.style.font = entryStyles.font;
+      tempChar.style.fontSize = entryStyles.fontSize;
+      tempChar.style.fontFamily = entryStyles.fontFamily;
+      tempChar.textContent = 'M'; // Use 'M' as a typical wide character
+      document.body.appendChild(tempChar);
+      const oneCharWidth = tempChar.offsetWidth;
+      document.body.removeChild(tempChar);
+      
       if (textContent && textContent.trim()) {
         const temp = document.createElement('div');
         temp.style.position = 'absolute';
         temp.style.visibility = 'hidden';
         temp.style.whiteSpace = 'pre';
-        temp.style.font = window.getComputedStyle(entry).font;
-        temp.style.fontSize = window.getComputedStyle(entry).fontSize;
-        temp.style.fontFamily = window.getComputedStyle(entry).fontFamily;
-        temp.style.lineHeight = window.getComputedStyle(entry).lineHeight;
+        temp.style.font = entryStyles.font;
+        temp.style.fontSize = entryStyles.fontSize;
+        temp.style.fontFamily = entryStyles.fontFamily;
+        temp.style.lineHeight = entryStyles.lineHeight;
         temp.textContent = textContent;
         document.body.appendChild(temp);
         
@@ -1548,12 +1562,10 @@ function updateEntryDimensions(entry) {
         contentWidth = getWidestLineWidth(temp);
         document.body.removeChild(temp);
         
-        // Ensure minimum width for readability
-        if (contentWidth < 220) {
-          contentWidth = 220;
-        }
+        // Use one character width as minimum, or actual width if larger
+        contentWidth = Math.max(oneCharWidth, contentWidth);
       } else {
-        contentWidth = 220; // Default minimum
+        contentWidth = oneCharWidth; // Default to one character width
       }
     }
     
@@ -1627,7 +1639,15 @@ function updateEntryDimensions(entry) {
       }
     }
     
-    // Set dimensions - force update with !important equivalent by using setProperty
+    // Reset width first to allow contraction, then set new width
+    entry.style.width = 'auto';
+    entry.style.minWidth = 'auto';
+    entry.style.maxWidth = 'none';
+    
+    // Force a reflow to ensure reset is applied
+    void entry.offsetWidth;
+    
+    // Now set the calculated width - this allows both expansion and contraction
     entry.style.setProperty('width', `${contentWidth}px`, 'important');
     entry.style.setProperty('height', `${Math.max(contentHeight, 0)}px`, 'important');
     entry.style.setProperty('min-height', 'auto', 'important');
