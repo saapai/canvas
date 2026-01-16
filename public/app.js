@@ -1280,7 +1280,10 @@ async function commitEditor(){
       const existingCards = entryData.element.querySelectorAll('.link-card, .link-card-placeholder');
       existingCards.forEach(card => card.remove());
 
-      // Update entry content
+      // Remove editing class first so content is visible for melt animation
+      entryData.element.classList.remove('editing');
+      
+      // Update entry content with melt animation
       if(processedText){
         entryData.element.innerHTML = meltify(processedText);
       } else {
@@ -1310,9 +1313,6 @@ async function commitEditor(){
           }
         }
       }
-      
-      // Remove editing class first
-      entryData.element.classList.remove('editing');
       
       // Update entry dimensions based on actual content after a brief delay
       // to ensure DOM is updated and animations have started
@@ -2081,7 +2081,8 @@ window.addEventListener('mouseup', (e) => {
             }
           } 
           // Regular click: navigate to entry (open breadcrumb)
-          else if (entryEl.id !== 'anchor' && entryEl.id) {
+          // But don't navigate if we're currently editing
+          else if (entryEl.id !== 'anchor' && entryEl.id && !editingEntryId) {
             navigateToEntry(entryEl.id);
           }
         }
@@ -2113,7 +2114,8 @@ window.addEventListener('mouseup', (e) => {
         
         // Navigate to entry if it was a click (not a drag) AND shift was NOT held
         // If shift was held, it was a drag attempt, so don't navigate
-        if(isClick && !e.shiftKey && draggingEntry.id !== 'anchor' && draggingEntry.id) {
+        // Also don't navigate if we're currently editing
+        if(isClick && !e.shiftKey && draggingEntry.id !== 'anchor' && draggingEntry.id && !editingEntryId) {
           navigateToEntry(draggingEntry.id);
         }
       }
@@ -2168,7 +2170,8 @@ window.addEventListener('mouseup', (e) => {
           }
         } 
         // Regular click: navigate to entry (open breadcrumb)
-        else if(!e.shiftKey && entryEl.id !== 'anchor' && entryEl.id) {
+        // But don't navigate if we're currently editing
+        else if(!e.shiftKey && entryEl.id !== 'anchor' && entryEl.id && !editingEntryId) {
           navigateToEntry(entryEl.id);
         }
       }
