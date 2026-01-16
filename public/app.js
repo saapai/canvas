@@ -2636,6 +2636,21 @@ window.addEventListener('popstate', (event) => {
         currentViewEntryId = navigationStack.length > 0 ? navigationStack[navigationStack.length - 1] : null;
         updateBreadcrumb();
         updateEntryVisibility();
+        
+        // Recalculate dimensions and zoom after popstate navigation
+        setTimeout(() => {
+          entries.forEach((entryData, entryId) => {
+            if (entryId === 'anchor') return;
+            const entry = entryData.element;
+            if (entry && entry.style.display !== 'none') {
+              updateEntryDimensions(entry);
+            }
+          });
+          
+          requestAnimationFrame(() => {
+            zoomToFitEntries();
+          });
+        }, 100);
       }
     }
   }
