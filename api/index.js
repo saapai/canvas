@@ -243,11 +243,17 @@ app.post('/api/auth/verify-code', async (req, res) => {
     
     console.log('Phone lookup:', {
       searchedPhone: normalizedPhone,
-      foundUsers: users.length
+      foundUsers: users.length,
+      users: users.map(u => ({ id: u.id, phone: u.phone, username: u.username }))
     });
     
     // Filter users to only those with usernames
     const usersWithUsernames = users.filter(u => u.username && String(u.username).trim().length > 0);
+    
+    console.log('Users with usernames:', {
+      count: usersWithUsernames.length,
+      usernames: usersWithUsernames.map(u => ({ id: u.id, username: u.username }))
+    });
     
     if (usersWithUsernames.length > 0) {
       // Return list of usernames for selection
