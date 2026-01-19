@@ -270,11 +270,14 @@ export async function getUserById(id) {
 export async function getUserByPhone(phone) {
   try {
     const db = getPool();
+    // Normalize phone by removing spaces
+    const normalizedPhone = phone.replace(/\s/g, '');
+    
     const result = await db.query(
       `SELECT id, phone, username
        FROM users
-       WHERE phone = $1`,
-      [phone]
+       WHERE REPLACE(phone, ' ', '') = $1`,
+      [normalizedPhone]
     );
     if (result.rows.length === 0) return null;
     return result.rows[0];
@@ -287,12 +290,16 @@ export async function getUserByPhone(phone) {
 export async function getUsersByPhone(phone) {
   try {
     const db = getPool();
+    // Normalize phone by removing spaces and other non-digit characters except +
+    const normalizedPhone = phone.replace(/\s/g, '');
+    
+    // Search for phone numbers that match when normalized (spaces removed)
     const result = await db.query(
       `SELECT id, phone, username
        FROM users
-       WHERE phone = $1
+       WHERE REPLACE(phone, ' ', '') = $1
        ORDER BY created_at ASC`,
-      [phone]
+      [normalizedPhone]
     );
     return result.rows;
   } catch (error) {
