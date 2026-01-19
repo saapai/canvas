@@ -116,6 +116,13 @@
         <button id="auth-edit-phone" class="auth-link-button" type="button">Change phone</button>
       </div>
 
+      <div class="auth-step hidden" id="auth-step-select-username">
+        <label class="auth-label">Select your account</label>
+        <select id="auth-username-select" class="auth-select">
+        </select>
+        <button id="auth-continue-username" class="auth-button">Continue</button>
+      </div>
+
       <div class="auth-step hidden" id="auth-step-username">
         <label class="auth-label" for="auth-username-input">Choose a name</label>
         <input id="auth-username-input" class="auth-input" type="text" maxlength="40" placeholder="This appears as your greeting" />

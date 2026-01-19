@@ -6,13 +6,16 @@ const breadcrumb = document.getElementById('breadcrumb');
 const authOverlay = document.getElementById('auth-overlay');
 const authStepPhone = document.getElementById('auth-step-phone');
 const authStepCode = document.getElementById('auth-step-code');
+const authStepSelectUsername = document.getElementById('auth-step-select-username');
 const authStepUsername = document.getElementById('auth-step-username');
 const authPhoneInput = document.getElementById('auth-phone-input');
 const authCodeInput = document.getElementById('auth-code-input');
+const authUsernameSelect = document.getElementById('auth-username-select');
 const authUsernameInput = document.getElementById('auth-username-input');
 const authSendCodeBtn = document.getElementById('auth-send-code');
 const authVerifyCodeBtn = document.getElementById('auth-verify-code');
 const authEditPhoneBtn = document.getElementById('auth-edit-phone');
+const authContinueUsernameBtn = document.getElementById('auth-continue-username');
 const authSaveUsernameBtn = document.getElementById('auth-save-username');
 const authError = document.getElementById('auth-error');
 const authTitle = document.getElementById('auth-title');
@@ -20,6 +23,9 @@ const authSubtitle = document.getElementById('auth-subtitle');
 const authCodeHint = document.getElementById('auth-code-hint');
 const authCodeBoxes = document.getElementById('auth-code-boxes');
 const authPhoneBoxes = document.getElementById('auth-phone-boxes');
+
+let verifiedPhone = null;
+let existingUsernames = [];
 
 let currentUser = null;
 let isReadOnly = false; // Set to true when viewing someone else's page
@@ -56,12 +62,15 @@ function showAuthOverlay() {
   }
   authStepPhone.classList.remove('hidden');
   authStepCode.classList.add('hidden');
+  authStepSelectUsername.classList.add('hidden');
   authStepUsername.classList.add('hidden');
   // Clear phone input
   authPhoneInput.value = '';
   updatePhoneBoxes();
   authCodeInput.value = '';
   authUsernameInput.value = '';
+  verifiedPhone = null;
+  existingUsernames = [];
   // Focus phone input after a short delay to ensure DOM is ready
   setTimeout(() => {
     authPhoneInput.focus();
@@ -144,14 +153,29 @@ async function handleVerifyCode() {
     if (!res.ok) {
       throw new Error(data.error || 'Failed to verify code');
     }
-    currentUser = data.user;
-    setAnchorGreeting();
-    if (data.needsUsername) {
+    
+    // Check if there are existing usernames to select from
+    if (data.existingUsernames && data.existingUsernames.length > 0) {
+      verifiedPhone = data.phone;
+      existingUsernames = data.existingUsernames;
+      showUsernameSelection();
+    } else if (data.needsUsername) {
+      // No existing usernames, create new one
+      currentUser = data.user;
+      setAnchorGreeting();
       authStepCode.classList.add('hidden');
       authStepUsername.classList.remove('hidden');
+      if (authTitle) {
+        authTitle.textContent = 'Choose a name';
+      }
+      if (authSubtitle) {
+        authSubtitle.textContent = '';
+      }
       authUsernameInput.focus();
     } else {
       // User already has a username, redirect to their page
+      currentUser = data.user;
+      setAnchorGreeting();
       if (currentUser && currentUser.username) {
         window.location.href = `/${currentUser.username}`;
       } else {
@@ -185,6 +209,93 @@ function updatePhoneBoxes() {
   boxes.forEach((box, index) => {
     box.textContent = chars[index] || '';
   });
+}
+
+function showUsernameSelection() {
+  authStepCode.classList.add('hidden');
+  authStepSelectUsername.classList.remove('hidden');
+  if (authTitle) {
+    authTitle.textContent = 'Select your account';
+  }
+  if (authSubtitle) {
+    authSubtitle.textContent = '';
+  }
+  
+  // Populate the select dropdown
+  authUsernameSelect.innerHTML = '';
+  existingUsernames.forEach(user => {
+    const option = document.createElement('option');
+    option.value = user.id;
+    option.textContent = user.username;
+    authUsernameSelect.appendChild(option);
+  });
+  
+  // Add "Add new" option at the end
+  const addNewOption = document.createElement('option');
+  addNewOption.value = '__add_new__';
+  addNewOption.textContent = '+ Add new';
+  authUsernameSelect.appendChild(addNewOption);
+  
+  authUsernameSelect.focus();
+}
+
+async function handleContinueUsername() {
+  const selectedValue = authUsernameSelect.value;
+  if (!selectedValue) {
+    setAuthError('Please select an account.');
+    return;
+  }
+  
+  setAuthError('');
+  authContinueUsernameBtn.disabled = true;
+  
+  try {
+    if (selectedValue === '__add_new__') {
+      // User wants to create a new username
+      const res = await fetch('/api/auth/create-new-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: verifiedPhone })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to create new user');
+      }
+      
+      currentUser = data.user;
+      setAnchorGreeting();
+      authStepSelectUsername.classList.add('hidden');
+      authStepUsername.classList.remove('hidden');
+      if (authTitle) {
+        authTitle.textContent = 'Choose a name';
+      }
+      if (authSubtitle) {
+        authSubtitle.textContent = '';
+      }
+      authUsernameInput.focus();
+    } else {
+      // User selected an existing username
+      const res = await fetch('/api/auth/select-username', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: selectedValue })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to select username');
+      }
+      
+      currentUser = data.user;
+      setAnchorGreeting();
+      // Redirect to user's page
+      window.location.href = `/${currentUser.username}`;
+    }
+  } catch (error) {
+    console.error(error);
+    setAuthError(error.message);
+  } finally {
+    authContinueUsernameBtn.disabled = false;
+  }
 }
 
 async function handleSaveUsername() {
@@ -230,6 +341,10 @@ function initAuthUI() {
   authSaveUsernameBtn.addEventListener('click', (e) => {
     e.preventDefault();
     handleSaveUsername();
+  });
+  authContinueUsernameBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    handleContinueUsername();
   });
   authEditPhoneBtn.addEventListener('click', (e) => {
     e.preventDefault();

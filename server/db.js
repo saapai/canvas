@@ -36,7 +36,7 @@ export async function initDatabase() {
     await db.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
-        phone TEXT UNIQUE NOT NULL,
+        phone TEXT NOT NULL,
         username TEXT UNIQUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
@@ -78,6 +78,28 @@ export async function initDatabase() {
     await db.query(`
       CREATE INDEX IF NOT EXISTS idx_phone_verification_phone ON phone_verification_codes(phone);
     `);
+
+    // Remove UNIQUE constraint from phone column if it exists (migration for multi-username support)
+    try {
+      // First, check if the constraint exists
+      const constraintCheck = await db.query(`
+        SELECT constraint_name 
+        FROM information_schema.table_constraints 
+        WHERE table_name = 'users' 
+          AND constraint_type = 'UNIQUE' 
+          AND constraint_name LIKE '%phone%';
+      `);
+      
+      if (constraintCheck.rows.length > 0) {
+        for (const row of constraintCheck.rows) {
+          await db.query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS ${row.constraint_name};`);
+          console.log(`Dropped constraint: ${row.constraint_name}`);
+        }
+      }
+    } catch (error) {
+      // Constraint might not exist, ignore error
+      console.log('Note: phone unique constraint migration:', error.message);
+    }
 
     dbInitialized = true;
     console.log('Database initialized successfully');
@@ -243,6 +265,23 @@ export async function getUserByPhone(phone) {
     return result.rows[0];
   } catch (error) {
     console.error('Error fetching user by phone:', error);
+    throw error;
+  }
+}
+
+export async function getUsersByPhone(phone) {
+  try {
+    const db = getPool();
+    const result = await db.query(
+      `SELECT id, phone, username
+       FROM users
+       WHERE phone = $1
+       ORDER BY created_at ASC`,
+      [phone]
+    );
+    return result.rows;
+  } catch (error) {
+    console.error('Error fetching users by phone:', error);
     throw error;
   }
 }

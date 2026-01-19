@@ -17,6 +17,7 @@ import {
   saveAllEntries,
   getUserById,
   getUserByPhone,
+  getUsersByPhone,
   getUserByUsername,
   getEntriesByUsername,
   getEntryPath,
@@ -224,34 +225,87 @@ app.post('/api/auth/verify-code', async (req, res) => {
       return res.status(400).json({ error: 'Invalid or expired code' });
     }
 
-    // Try to find user by phone number
-    let user = await getUserByPhone(normalizedPhone);
+    // Try to find all users by phone number
+    let users = await getUsersByPhone(normalizedPhone);
     
     // If not found, try alternative phone formats (with/without +1, with/without spaces)
-    if (!user) {
+    if (users.length === 0) {
       // Try without +1 prefix if it starts with +1
       if (normalizedPhone.startsWith('+1')) {
         const phoneWithoutPlus = normalizedPhone.substring(2).trim();
-        user = await getUserByPhone(phoneWithoutPlus);
+        users = await getUsersByPhone(phoneWithoutPlus);
       }
       // Try with +1 if it doesn't have it
-      if (!user && !normalizedPhone.startsWith('+1')) {
-        user = await getUserByPhone('+1' + normalizedPhone);
+      if (users.length === 0 && !normalizedPhone.startsWith('+1')) {
+        users = await getUsersByPhone('+1' + normalizedPhone);
       }
     }
     
     console.log('Phone lookup:', {
       searchedPhone: normalizedPhone,
-      foundUser: user ? { id: user.id, phone: user.phone, username: user.username } : null
+      foundUsers: users.length
     });
     
-    if (!user) {
-      console.log('Creating new user with phone:', normalizedPhone);
-      user = await createUser(normalizedPhone);
+    // Filter users to only those with usernames
+    const usersWithUsernames = users.filter(u => u.username && String(u.username).trim().length > 0);
+    
+    if (usersWithUsernames.length > 0) {
+      // Return list of usernames for selection
+      return res.json({
+        existingUsernames: usersWithUsernames.map(u => ({
+          id: u.id,
+          username: u.username
+        })),
+        phone: normalizedPhone
+      });
     } else {
-      // Refetch user to ensure we have the latest data including username
-      user = await getUserById(user.id);
-      console.log('Found existing user:', { id: user.id, phone: user.phone, username: user.username });
+      // No users with usernames found, create new user or use existing one without username
+      let user;
+      if (users.length > 0) {
+        // Use first user without username
+        user = users[0];
+      } else {
+        // Create new user
+        console.log('Creating new user with phone:', normalizedPhone);
+        user = await createUser(normalizedPhone);
+      }
+      
+      const token = jwt.sign(
+        { id: user.id },
+        JWT_SECRET,
+        { expiresIn: '30d' }
+      );
+      setAuthCookie(res, token);
+      
+      return res.json({
+        user: { 
+          id: user.id, 
+          phone: user.phone, 
+          username: null 
+        },
+        needsUsername: true
+      });
+    }
+  } catch (error) {
+    console.error('Error verifying code:', error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/auth/select-username', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    if (!userId || typeof userId !== 'string') {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
+
+    const user = await getUserById(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    if (!user.username) {
+      return res.status(400).json({ error: 'User does not have a username' });
     }
 
     const token = jwt.sign(
@@ -261,28 +315,38 @@ app.post('/api/auth/verify-code', async (req, res) => {
     );
     setAuthCookie(res, token);
 
-    // Check if user has a username (handle null, undefined, and empty string)
-    // Make sure to check the actual value from the database
-    const usernameValue = user.username;
-    const hasUsername = usernameValue != null && String(usernameValue).trim().length > 0;
-    const needsUsername = !hasUsername;
-    
-    console.log('Username check:', {
-      usernameValue,
-      hasUsername,
-      needsUsername
-    });
-    
     return res.json({
-      user: { 
-        id: user.id, 
-        phone: user.phone, 
-        username: hasUsername ? String(usernameValue).trim() : null 
-      },
-      needsUsername
+      user: { id: user.id, phone: user.phone, username: user.username }
     });
   } catch (error) {
-    console.error('Error verifying code:', error);
+    console.error('Error selecting username:', error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/auth/create-new-user', async (req, res) => {
+  try {
+    const { phone } = req.body;
+    if (!phone || typeof phone !== 'string') {
+      return res.status(400).json({ error: 'Phone is required' });
+    }
+
+    const normalizedPhone = phone.trim();
+    const user = await createUser(normalizedPhone);
+
+    const token = jwt.sign(
+      { id: user.id },
+      JWT_SECRET,
+      { expiresIn: '30d' }
+    );
+    setAuthCookie(res, token);
+
+    return res.json({
+      user: { id: user.id, phone: user.phone, username: null },
+      needsUsername: true
+    });
+  } catch (error) {
+    console.error('Error creating new user:', error);
     return res.status(500).json({ error: error.message });
   }
 });
