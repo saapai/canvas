@@ -154,12 +154,14 @@ This project is configured to use Vercel's automatic preview deployments for fea
    git push origin master
    ```
 
-### New Routes for Testing
+### New Routes for Testing (Preview Deployments Only)
+
+**Important**: These routes are ONLY available on preview deployments (feature branches) and local development. They are automatically disabled in production to keep the main deployment clean.
 
 - `/login` - Explicit login page (redirects to `/home` if already authenticated)
 - `/home` - Authenticated-only route that redirects to your `/{username}` canvas page
 
-These routes make it easy to test the full authentication flow on feature branches.
+These routes make it easy to test the full authentication flow on feature branches without affecting production.
 
 ## Notes
 
