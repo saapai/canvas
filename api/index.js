@@ -663,6 +663,84 @@ app.get('/api/public/:username/path/*', async (req, res) => {
   }
 });
 
+// Login route - show login page (or redirect if already logged in)
+app.get('/login', async (req, res) => {
+  try {
+    // Check if user is already logged in
+    const cookies = parseCookies(req);
+    const token = cookies.auth_token;
+    
+    if (token) {
+      try {
+        const payload = jwt.verify(token, JWT_SECRET);
+        if (payload && payload.id) {
+          const user = await getUserById(payload.id);
+          if (user && user.username) {
+            // Already logged in, redirect to /home
+            return res.redirect('/home');
+          }
+        }
+      } catch {
+        // Invalid token, continue to show login
+      }
+    }
+    
+    // Not logged in - serve app with login page flag
+    try {
+      const indexPath = join(__dirname, '../public/index.html');
+      let html = readFileSync(indexPath, 'utf8');
+      
+      // Add script to automatically show login overlay
+      const loginScript = `
+  <script>
+    window.SHOW_LOGIN_PAGE = true;
+  </script>`;
+      html = html.replace('<script src="app.js"></script>', `${loginScript}\n  <script src="app.js"></script>`);
+      
+      res.send(html);
+    } catch (error) {
+      console.error('Error reading index.html:', error);
+      res.status(500).send('Error loading page');
+    }
+  } catch (error) {
+    console.error('Error handling login route:', error);
+    res.status(500).send('Error loading page');
+  }
+});
+
+// Home route - redirect to user's page (requires auth)
+app.get('/home', async (req, res) => {
+  try {
+    // Check if user is logged in
+    const cookies = parseCookies(req);
+    const token = cookies.auth_token;
+    
+    if (!token) {
+      return res.redirect('/login');
+    }
+    
+    try {
+      const payload = jwt.verify(token, JWT_SECRET);
+      if (payload && payload.id) {
+        const user = await getUserById(payload.id);
+        if (user && user.username) {
+          // Redirect to user's page
+          return res.redirect(`/${user.username}`);
+        }
+      }
+    } catch {
+      // Invalid token, redirect to login
+      return res.redirect('/login');
+    }
+    
+    // No username set, redirect to root (will show username setup)
+    return res.redirect('/');
+  } catch (error) {
+    console.error('Error handling home route:', error);
+    res.status(500).send('Error loading page');
+  }
+});
+
 // Root route - redirect logged-in users to their page
 app.get('/', async (req, res) => {
   try {

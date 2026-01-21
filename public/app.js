@@ -173,11 +173,11 @@ async function handleVerifyCode() {
       }
       authUsernameInput.focus();
     } else {
-      // User already has a username, redirect to their page
+      // User already has a username, redirect to /home
       currentUser = data.user;
       setAnchorGreeting();
       if (currentUser && currentUser.username) {
-        window.location.href = `/${currentUser.username}`;
+        window.location.href = '/home';
       } else {
         hideAuthOverlay();
         await loadEntriesFromServer();
@@ -287,8 +287,8 @@ async function handleContinueUsername() {
       
       currentUser = data.user;
       setAnchorGreeting();
-      // Redirect to user's page
-      window.location.href = `/${currentUser.username}`;
+      // Redirect to /home
+      window.location.href = '/home';
     }
   } catch (error) {
     console.error(error);
@@ -441,6 +441,7 @@ async function bootstrap() {
   const isOwner = window.PAGE_IS_OWNER === true;
   const pathParts = window.location.pathname.split('/').filter(Boolean);
   const isUserPage = !!pageUsername || (pathParts.length > 0 && pathParts[0] !== 'index.html' && pathParts[0] !== '');
+  const isLoginPage = window.SHOW_LOGIN_PAGE === true;
   
   // CRITICAL: Hide auth overlay IMMEDIATELY if on a user page - do this BEFORE initAuthUI
   if (isUserPage && authOverlay) {
@@ -451,6 +452,11 @@ async function bootstrap() {
   // Only initialize auth UI if NOT on a user page
   if (!isUserPage) {
     initAuthUI();
+  }
+  
+  // If on login page, show auth overlay immediately
+  if (isLoginPage && !isUserPage) {
+    showAuthOverlay();
   }
   
   setAnchorGreeting();
@@ -465,9 +471,9 @@ async function bootstrap() {
       setAnchorGreeting();
       isLoggedIn = true;
       
-      // If on root and logged in, redirect to user's page
+      // If on root and logged in, redirect to /home
       if (!isUserPage && user.username) {
-        window.location.href = `/${user.username}`;
+        window.location.href = '/home';
         return;
       }
     }
