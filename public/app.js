@@ -1521,16 +1521,29 @@ async function commitEditor(){
   if(editingEntryId && editingEntryId !== 'anchor'){
     const entryData = entries.get(editingEntryId);
     if(entryData){
-      // If text is empty, delete the entry
+      // If editor text is empty, check stored entry text before deleting
       if(!trimmedRight){
-        entryData.element.classList.remove('editing');
-        entryData.element.remove();
-        entries.delete(editingEntryId);
-        deleteEntryFromServer(editingEntryId);
-        editor.textContent = '';
-        editor.style.display = 'none';
-        editingEntryId = null;
-        return;
+        const storedText = (entryData.text || '').trim();
+        // Only delete if both editor AND stored text are empty
+        // This prevents accidental deletion if editor was somehow cleared
+        if (storedText.length === 0) {
+          entryData.element.classList.remove('editing');
+          entryData.element.remove();
+          entries.delete(editingEntryId);
+          deleteEntryFromServer(editingEntryId);
+          editor.textContent = '';
+          editor.style.display = 'none';
+          editingEntryId = null;
+          return;
+        } else {
+          // Stored text exists - restore it instead of deleting
+          console.log('[COMMIT] Editor empty but entry has stored text - restoring');
+          editor.textContent = storedText;
+          editor.style.display = 'none';
+          entryData.element.classList.remove('editing');
+          editingEntryId = null;
+          return;
+        }
       }
 
       // Extract URLs and process text
@@ -2994,18 +3007,30 @@ editor.addEventListener('blur', (e) => {
       }
     }, 0);
   } else if (trimmed.length === 0 && editingEntryId && editingEntryId !== 'anchor') {
-    // If empty and editing existing entry, delete it
+    // If empty and editing existing entry, only delete if the stored entry text is also empty
+    // This prevents accidental deletion due to race conditions or editor clearing bugs
     setTimeout(() => {
       if (document.activeElement !== editor) {
         const entryData = entries.get(editingEntryId);
         if (entryData) {
-          entryData.element.classList.remove('editing');
-          entryData.element.remove();
-          entries.delete(editingEntryId);
-          deleteEntryFromServer(editingEntryId);
-          editor.textContent = '';
-          editor.style.display = 'none';
-          editingEntryId = null;
+          // Safety check: only delete if the stored entry text is also empty or just whitespace
+          const storedText = (entryData.text || '').trim();
+          if (storedText.length === 0) {
+            // Confirmed empty - safe to delete
+            entryData.element.classList.remove('editing');
+            entryData.element.remove();
+            entries.delete(editingEntryId);
+            deleteEntryFromServer(editingEntryId);
+            editor.textContent = '';
+            editor.style.display = 'none';
+            editingEntryId = null;
+          } else {
+            // Entry has content - just cancel editing without deleting
+            entryData.element.classList.remove('editing');
+            editor.textContent = '';
+            editor.style.display = 'none';
+            editingEntryId = null;
+          }
         }
       }
     }, 0);
