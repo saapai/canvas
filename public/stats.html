@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Duttapad Stats</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0f1115;
+      --card: #161922;
+      --text: #e8ecf2;
+      --muted: #9aa4b5;
+      --accent: #6dd3f7;
+      --accent-2: #a5f59c;
+      --border: #202534;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+      background: radial-gradient(circle at 20% 20%, rgba(109,211,247,0.12), transparent 35%), radial-gradient(circle at 80% 0%, rgba(165,245,156,0.10), transparent 30%), var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    header {
+      padding: 32px 24px 8px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    h1 { margin: 0 0 6px; font-size: 28px; }
+    p { margin: 0; color: var(--muted); }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+      padding: 0 24px 24px;
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.25);
+    }
+    .stat-value { font-size: 28px; font-weight: 700; margin: 8px 0; }
+    .stat-label { color: var(--muted); font-size: 13px; }
+    .charts { max-width: 1200px; margin: 0 auto 24px; padding: 0 24px; display: grid; gap: 16px; }
+    canvas { width: 100%; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 12px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 10px 12px; text-align: left; }
+    th { color: var(--muted); font-weight: 600; }
+    tr:nth-child(even) { background: rgba(255,255,255,0.02); }
+    .leaderboard { max-width: 1200px; margin: 0 auto 40px; padding: 0 24px 40px; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); font-size: 12px; }
+    .error { color: #ffb3b3; }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Duttapad Stats</h1>
+    <p>Live metrics across users and entries.</p>
+  </header>
+
+  <section class="grid" id="stat-cards">
+    <div class="card">
+      <div class="stat-label">Total Users</div>
+      <div class="stat-value" id="total-users">—</div>
+    </div>
+    <div class="card">
+      <div class="stat-label">Total Entries</div>
+      <div class="stat-value" id="total-entries">—</div>
+    </div>
+    <div class="card">
+      <div class="stat-label">Avg Entries per User</div>
+      <div class="stat-value" id="avg-entries">—</div>
+    </div>
+  </section>
+
+  <section class="charts">
+    <canvas id="chart-new-users" height="140"></canvas>
+    <canvas id="chart-new-entries" height="140"></canvas>
+    <canvas id="chart-active-users" height="140"></canvas>
+  </section>
+
+  <section class="leaderboard card">
+    <h3 style="margin:0 0 12px;">Leaderboard</h3>
+    <p class="stat-label" style="margin:0 0 12px;">Sorted by total entries. Includes unique page slugs.</p>
+    <div style="overflow-x:auto;">
+      <table id="leaderboard-table">
+        <thead>
+          <tr>
+            <th>User</th>
+            <th>Entries</th>
+            <th>Unique Pages</th>
+            <th>Joined</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div id="error" class="error"></div>
+  </section>
+
+  <script>
+    const fmt = (n) => Number(n || 0).toLocaleString();
+    const fmtDate = (iso) => iso || '—';
+
+    function renderChart(el, label, labels, data, color) {
+      new Chart(el, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            label,
+            data,
+            fill: true,
+            tension: 0.3,
+            borderColor: color,
+            backgroundColor: color + '33',
+            pointRadius: 0
+          }]
+        },
+        options: {
+          responsive: true,
+          scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+          plugins: { legend: { display: false } }
+        }
+      });
+    }
+
+    function renderLeaderboard(rows) {
+      const tbody = document.querySelector('#leaderboard-table tbody');
+      tbody.innerHTML = '';
+      rows.forEach((r) => {
+        const tr = document.createElement('tr');
+        const username = r.username || '—';
+        const joined = r.created_at ? r.created_at.slice(0, 10) : '—';
+        tr.innerHTML = `
+          <td>${username}</td>
+          <td>${fmt(r.entry_count)}</td>
+          <td>${fmt(r.unique_pages)}</td>
+          <td><span class="pill">${joined}</span></td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    async function loadStats() {
+      const errorEl = document.getElementById('error');
+      try {
+        const res = await fetch('/api/stats');
+        if (!res.ok) throw new Error('Failed to load stats');
+        const data = await res.json();
+
+        document.getElementById('total-users').textContent = fmt(data.totals.users);
+        document.getElementById('total-entries').textContent = fmt(data.totals.entries);
+        document.getElementById('avg-entries').textContent = data.totals.avgEntriesPerUser;
+
+        const newUsersLabels = data.dailyNewUsers.map(d => d.date);
+        const newUsersData = data.dailyNewUsers.map(d => d.count);
+        renderChart(document.getElementById('chart-new-users'), 'New Users per Day', newUsersLabels, newUsersData, '#6dd3f7');
+
+        const newEntriesLabels = data.dailyNewEntries.map(d => d.date);
+        const newEntriesData = data.dailyNewEntries.map(d => d.count);
+        renderChart(document.getElementById('chart-new-entries'), 'New Entries per Day', newEntriesLabels, newEntriesData, '#a5f59c');
+
+        const activeLabels = data.dailyActiveUsers.map(d => d.date);
+        const activeData = data.dailyActiveUsers.map(d => d.count);
+        renderChart(document.getElementById('chart-active-users'), 'Active Users per Day', activeLabels, activeData, '#f7c46d');
+
+        renderLeaderboard(data.leaderboard || []);
+        errorEl.textContent = '';
+      } catch (err) {
+        console.error(err);
+        errorEl.textContent = err.message || 'Error loading stats';
+      }
+    }
+
+    loadStats();
+  </script>
+</body>
+</html>

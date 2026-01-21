@@ -394,6 +394,86 @@ export async function isUsernameTaken(username) {
   }
 }
 
+// Aggregate stats for dashboard
+export async function getStats() {
+  const db = getPool();
+
+  // Common slug expression (mirrors frontend generateEntrySlug roughly)
+  const slugExpr = `
+    regexp_replace(
+      regexp_replace(
+        regexp_replace(lower(text), '[^a-z0-9\\s-]', '', 'g'),
+        '\\\\s+',
+        '-',
+        'g'
+      ),
+      '-+$',
+      '',
+      'g'
+    )
+  `;
+
+  const [
+    totalUsersRes,
+    totalEntriesRes,
+    dailyNewUsersRes,
+    dailyNewEntriesRes,
+    dailyActiveUsersRes,
+    leaderboardRes
+  ] = await Promise.all([
+    db.query(`SELECT COUNT(*)::int AS count FROM users`),
+    db.query(`SELECT COUNT(*)::int AS count FROM entries`),
+    db.query(`
+      SELECT TO_CHAR(DATE(created_at), 'YYYY-MM-DD') AS date, COUNT(*)::int AS count
+      FROM users
+      GROUP BY DATE(created_at)
+      ORDER BY DATE(created_at) ASC
+    `),
+    db.query(`
+      SELECT TO_CHAR(DATE(created_at), 'YYYY-MM-DD') AS date, COUNT(*)::int AS count
+      FROM entries
+      GROUP BY DATE(created_at)
+      ORDER BY DATE(created_at) ASC
+    `),
+    db.query(`
+      SELECT TO_CHAR(DATE(created_at), 'YYYY-MM-DD') AS date, COUNT(DISTINCT user_id)::int AS count
+      FROM entries
+      WHERE user_id IS NOT NULL
+      GROUP BY DATE(created_at)
+      ORDER BY DATE(created_at) ASC
+    `),
+    db.query(`
+      SELECT
+        u.id,
+        u.username,
+        u.created_at,
+        COUNT(e.id)::int AS entry_count,
+        COUNT(DISTINCT ${slugExpr})::int AS unique_pages
+      FROM users u
+      LEFT JOIN entries e ON e.user_id = u.id
+      GROUP BY u.id
+      ORDER BY entry_count DESC, u.created_at ASC
+      LIMIT 50
+    `)
+  ]);
+
+  const totalUsers = totalUsersRes.rows[0]?.count || 0;
+  const totalEntries = totalEntriesRes.rows[0]?.count || 0;
+  const avgEntriesPerUser = totalUsers === 0 ? 0 : +(totalEntries / totalUsers).toFixed(2);
+
+  return {
+    totals: {
+      users: totalUsers,
+      entries: totalEntries,
+      avgEntriesPerUser
+    },
+    dailyNewUsers: dailyNewUsersRes.rows,
+    dailyNewEntries: dailyNewEntriesRes.rows,
+    dailyActiveUsers: dailyActiveUsersRes.rows,
+    leaderboard: leaderboardRes.rows
+  };
+}
+
 export async function createUser(phone) {
   try {
     const db = getPool();

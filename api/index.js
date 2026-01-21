@@ -23,7 +23,8 @@ import {
   getEntryPath,
   createUser,
   isUsernameTaken,
-  setUsername
+  setUsername,
+  getStats
 } from './db.js';
 import jwt from 'jsonwebtoken';
 
@@ -32,6 +33,7 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
+const RESERVED_USERNAMES = new Set(['stats']);
 
 // Optional Twilio client for SMS / Verify (used for sending verification codes)
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || '';
@@ -405,6 +407,9 @@ app.post('/api/auth/set-username', requireAuth, async (req, res) => {
     if (trimmed.length > 40) {
       return res.status(400).json({ error: 'Username too long' });
     }
+    if (RESERVED_USERNAMES.has(trimmed)) {
+      return res.status(400).json({ error: 'Username is reserved' });
+    }
 
     const taken = await isUsernameTaken(trimmed);
     if (taken) {
@@ -425,6 +430,29 @@ app.post('/api/auth/set-username', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('Error setting username:', error);
     return res.status(500).json({ error: error.message });
+  }
+});
+
+// Stats API - aggregate metrics for dashboard
+app.get('/api/stats', async (_req, res) => {
+  try {
+    const stats = await getStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('Error fetching stats:', error);
+    res.status(500).json({ error: 'Failed to load stats' });
+  }
+});
+
+// Stats page (served from API due to Vercel rewrites)
+app.get('/stats', (_req, res) => {
+  try {
+    const statsPath = join(__dirname, '../public/stats.html');
+    const html = readFileSync(statsPath, 'utf8');
+    res.send(html);
+  } catch (error) {
+    console.error('Error serving stats page:', error);
+    res.status(500).send('Error loading stats page');
   }
 });
 
