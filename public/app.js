@@ -173,11 +173,11 @@ async function handleVerifyCode() {
       }
       authUsernameInput.focus();
     } else {
-      // User already has a username, redirect to /home
+      // User already has a username, redirect to their page
       currentUser = data.user;
       setAnchorGreeting();
       if (currentUser && currentUser.username) {
-        window.location.href = '/home';
+        window.location.href = `/${currentUser.username}`;
       } else {
         hideAuthOverlay();
         await loadEntriesFromServer();
@@ -287,8 +287,12 @@ async function handleContinueUsername() {
       
       currentUser = data.user;
       setAnchorGreeting();
-      // Redirect to /home
-      window.location.href = '/home';
+      // Redirect to the user's page
+      if (currentUser && currentUser.username) {
+        window.location.href = `/${currentUser.username}`;
+      } else {
+        window.location.href = '/';
+      }
     }
   } catch (error) {
     console.error(error);
@@ -471,9 +475,9 @@ async function bootstrap() {
       setAnchorGreeting();
       isLoggedIn = true;
       
-      // If on root and logged in, redirect to /home
+      // If on root and logged in, redirect to their page
       if (!isUserPage && user.username) {
-        window.location.href = '/home';
+        window.location.href = `/${user.username}`;
         return;
       }
     }

@@ -691,11 +691,10 @@ app.get('/api/public/:username/path/*', async (req, res) => {
   }
 });
 
-// Login and Home routes - ONLY available on preview deployments (feature branches)
-// These routes are disabled in production to keep the main deployment clean
-const isPreviewOrDev = process.env.VERCEL_ENV !== 'production';
+// Login and Home routes - always available so root can redirect appropriately
+const enableLoginRoutes = true;
 
-if (isPreviewOrDev) {
+if (enableLoginRoutes) {
   // Login route - show login page (or redirect if already logged in)
   app.get('/login', async (req, res) => {
     try {
@@ -709,8 +708,8 @@ if (isPreviewOrDev) {
           if (payload && payload.id) {
             const user = await getUserById(payload.id);
             if (user && user.username) {
-              // Already logged in, redirect to /home
-              return res.redirect('/home');
+              // Already logged in, redirect to their page
+              return res.redirect(`/${user.username}`);
             }
           }
         } catch {
@@ -774,9 +773,7 @@ if (isPreviewOrDev) {
     }
   });
   
-  console.log('Preview/dev mode: /login and /home routes enabled');
-} else {
-  console.log('Production mode: /login and /home routes disabled');
+  console.log('Login and /home routes enabled');
 }
 
 // Root route - redirect logged-in users to their page
@@ -801,15 +798,8 @@ app.get('/', async (req, res) => {
       }
     }
     
-    // Not logged in or no username - serve main app (will show auth)
-    try {
-      const indexPath = join(__dirname, '../public/index.html');
-      const html = readFileSync(indexPath, 'utf8');
-      res.send(html);
-    } catch (error) {
-      console.error('Error reading index.html:', error);
-      res.status(500).send('Error loading page');
-    }
+    // Not logged in or no username - send to login page
+    return res.redirect('/login');
   } catch (error) {
     console.error('Error handling root route:', error);
     res.status(500).send('Error loading page');
