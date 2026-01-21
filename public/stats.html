@@ -129,7 +129,18 @@
         options: {
           responsive: true,
           scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
-          plugins: { legend: { display: false } }
+          plugins: { 
+            legend: { 
+              display: true,
+              position: 'top',
+              align: 'start',
+              labels: {
+                color: '#e8ecf2',
+                font: { size: 13, weight: '600' },
+                padding: 12
+              }
+            }
+          }
         }
       });
     }
