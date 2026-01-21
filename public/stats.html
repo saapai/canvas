@@ -97,6 +97,8 @@
           <tr>
             <th>User</th>
             <th>Entries</th>
+            <th>Total Made</th>
+            <th>Deleted</th>
             <th>Unique Pages</th>
             <th>Joined</th>
           </tr>
@@ -155,6 +157,8 @@
         tr.innerHTML = `
           <td>${username}</td>
           <td>${fmt(r.entry_count)}</td>
+          <td>${fmt(r.total_entries_made)}</td>
+          <td>${fmt(r.entries_deleted)}</td>
           <td>${fmt(r.unique_pages)}</td>
           <td><span class="pill">${joined}</span></td>
         `;

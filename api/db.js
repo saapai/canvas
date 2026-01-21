@@ -43,7 +43,8 @@ export async function initDatabase() {
         user_id TEXT,
         link_cards_data JSONB,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        deleted_at TIMESTAMP
       );
     `);
 
@@ -90,6 +91,17 @@ export async function initDatabase() {
       console.log('Note: link_cards_data column check:', error.message);
     }
 
+    // Add deleted_at column if it doesn't exist (migration for soft deletes)
+    try {
+      await db.query(`
+        ALTER TABLE entries 
+        ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
+      `);
+    } catch (error) {
+      // Column might already exist, ignore error
+      console.log('Note: deleted_at column check:', error.message);
+    }
+
     // Remove UNIQUE constraint from phone column if it exists (migration for multi-username support)
     try {
       // First, check if the constraint exists
@@ -127,7 +139,7 @@ export async function getAllEntries(userId) {
     const result = await db.query(
       `SELECT id, text, position_x, position_y, parent_entry_id, link_cards_data
        FROM entries
-       WHERE user_id = $1
+       WHERE user_id = $1 AND deleted_at IS NULL
        ORDER BY created_at ASC`,
       [userId]
     );
@@ -150,7 +162,7 @@ export async function getEntryById(id, userId) {
     const result = await db.query(
       `SELECT id, text, position_x, position_y, parent_entry_id
        FROM entries
-       WHERE id = $1 AND user_id = $2`,
+       WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
       [id, userId]
     );
     if (result.rows.length === 0) {
@@ -197,8 +209,11 @@ export async function saveEntry(entry) {
 export async function deleteEntry(id, userId) {
   try {
     const db = getPool();
+    // Soft delete: set deleted_at timestamp instead of actually deleting
     await db.query(
-      `DELETE FROM entries WHERE id = $1 AND user_id = $2`,
+      `UPDATE entries 
+       SET deleted_at = CURRENT_TIMESTAMP 
+       WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
       [id, userId]
     );
     return true;
@@ -332,7 +347,7 @@ export async function getEntriesByUsername(username) {
       `SELECT e.id, e.text, e.position_x, e.position_y, e.parent_entry_id, e.created_at
        FROM entries e
        JOIN users u ON e.user_id = u.id
-       WHERE u.username = $1
+       WHERE u.username = $1 AND e.deleted_at IS NULL
        ORDER BY e.created_at ASC`,
       [username]
     );
@@ -422,7 +437,7 @@ export async function getStats() {
     leaderboardRes
   ] = await Promise.all([
     db.query(`SELECT COUNT(*)::int AS count FROM users`),
-    db.query(`SELECT COUNT(*)::int AS count FROM entries`),
+    db.query(`SELECT COUNT(*)::int AS count FROM entries WHERE deleted_at IS NULL`),
     db.query(`
       SELECT TO_CHAR(DATE(created_at), 'YYYY-MM-DD') AS date, COUNT(*)::int AS count
       FROM users
@@ -432,13 +447,14 @@ export async function getStats() {
     db.query(`
       SELECT TO_CHAR(DATE(created_at), 'YYYY-MM-DD') AS date, COUNT(*)::int AS count
       FROM entries
+      WHERE deleted_at IS NULL
       GROUP BY DATE(created_at)
       ORDER BY DATE(created_at) ASC
     `),
     db.query(`
       SELECT TO_CHAR(DATE(created_at), 'YYYY-MM-DD') AS date, COUNT(DISTINCT user_id)::int AS count
       FROM entries
-      WHERE user_id IS NOT NULL
+      WHERE user_id IS NOT NULL AND deleted_at IS NULL
       GROUP BY DATE(created_at)
       ORDER BY DATE(created_at) ASC
     `),
@@ -447,7 +463,9 @@ export async function getStats() {
         u.id,
         u.username,
         u.created_at,
-        COUNT(e.id)::int AS entry_count,
+        COUNT(e.id) FILTER (WHERE e.deleted_at IS NULL)::int AS entry_count,
+        COUNT(e.id)::int AS total_entries_made,
+        COUNT(e.id) FILTER (WHERE e.deleted_at IS NOT NULL)::int AS entries_deleted,
         COUNT(DISTINCT ${slugExpr})::int AS unique_pages
       FROM users u
       LEFT JOIN entries e ON e.user_id = u.id
