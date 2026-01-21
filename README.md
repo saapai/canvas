@@ -115,6 +115,52 @@ POSTGRES_URL=your_vercel_postgres_connection_string
 PORT=3000
 ```
 
+## Feature Branch Development Workflow
+
+This project is configured to use Vercel's automatic preview deployments for feature branches. This allows you to test experimental features in an isolated environment before merging to production.
+
+### How It Works
+
+1. **Create a feature branch**:
+   ```bash
+   git checkout -b feature/my-new-feature
+   ```
+
+2. **Make your changes and commit**:
+   ```bash
+   git add .
+   git commit -m "Add my new feature"
+   ```
+
+3. **Push to GitHub**:
+   ```bash
+   git push origin feature/my-new-feature
+   ```
+
+4. **Vercel automatically deploys**:
+   - Every branch gets a unique preview URL: `canvas-git-feature-my-new-feature-{org}.vercel.app`
+   - Uses the same environment variables as production (same Supabase database)
+   - You can test with real data and experimental features
+
+5. **Test your changes**:
+   - Visit `/login` to test the authentication flow
+   - After login, you're redirected to `/home` which takes you to your canvas
+   - All changes are isolated to the preview deployment
+
+6. **Merge to production when ready**:
+   ```bash
+   git checkout master
+   git merge feature/my-new-feature
+   git push origin master
+   ```
+
+### New Routes for Testing
+
+- `/login` - Explicit login page (redirects to `/home` if already authenticated)
+- `/home` - Authenticated-only route that redirects to your `/{username}` canvas page
+
+These routes make it easy to test the full authentication flow on feature branches.
+
 ## Notes
 
 - The API key is stored server-side for security
