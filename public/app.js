@@ -1614,29 +1614,16 @@ async function commitEditor(){
   if(editingEntryId && editingEntryId !== 'anchor'){
     const entryData = entries.get(editingEntryId);
     if(entryData){
-      // If editor text is empty, check stored entry text before deleting
+      // If editor text is empty, delete the entry
       if(!trimmedRight){
-        const storedText = (entryData.text || '').trim();
-        // Only delete if both editor AND stored text are empty
-        // This prevents accidental deletion if editor was somehow cleared
-        if (storedText.length === 0) {
-          // Use confirmation dialog if entry has children
-          const deleted = await deleteEntryWithConfirmation(editingEntryId);
-          if (deleted) {
-            editor.textContent = '';
-            editor.style.display = 'none';
-            editingEntryId = null;
-          }
-          return;
-        } else {
-          // Stored text exists - restore it instead of deleting
-          console.log('[COMMIT] Editor empty but entry has stored text - restoring');
-          editor.textContent = storedText;
+        // User intentionally cleared text and committed - delete the entry
+        const deleted = await deleteEntryWithConfirmation(editingEntryId);
+        if (deleted) {
+          editor.textContent = '';
           editor.style.display = 'none';
-          entryData.element.classList.remove('editing');
           editingEntryId = null;
-          return;
         }
+        return;
       }
 
       // Extract URLs and process text
