@@ -209,8 +209,8 @@ export async function saveEntry(entry) {
     const mediaCardData = entry.mediaCardData ? JSON.stringify(entry.mediaCardData) : null;
     
     const result = await db.query(
-      `INSERT INTO entries (id, text, position_x, position_y, parent_entry_id, user_id, link_cards_data, media_card_data, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
+      `INSERT INTO entries (id, text, position_x, position_y, parent_entry_id, user_id, link_cards_data, media_card_data, updated_at, deleted_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, NULL)
        ON CONFLICT (id) 
        DO UPDATE SET 
          text = EXCLUDED.text,
@@ -220,6 +220,7 @@ export async function saveEntry(entry) {
          user_id = EXCLUDED.user_id,
          link_cards_data = EXCLUDED.link_cards_data,
          media_card_data = EXCLUDED.media_card_data,
+         deleted_at = NULL,
          updated_at = CURRENT_TIMESTAMP`,
       [entry.id, entry.text, entry.position.x, entry.position.y, entry.parentEntryId || null, entry.userId, linkCardsData, mediaCardData]
     );
@@ -262,8 +263,8 @@ export async function saveAllEntries(entries, userId) {
         const linkCardsData = entry.linkCardsData ? JSON.stringify(entry.linkCardsData) : null;
         const mediaCardData = entry.mediaCardData ? JSON.stringify(entry.mediaCardData) : null;
         await client.query(
-          `INSERT INTO entries (id, text, position_x, position_y, parent_entry_id, user_id, link_cards_data, media_card_data, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
+          `INSERT INTO entries (id, text, position_x, position_y, parent_entry_id, user_id, link_cards_data, media_card_data, updated_at, deleted_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, NULL)
            ON CONFLICT (id) 
            DO UPDATE SET 
              text = EXCLUDED.text,
@@ -273,6 +274,7 @@ export async function saveAllEntries(entries, userId) {
              user_id = EXCLUDED.user_id,
              link_cards_data = EXCLUDED.link_cards_data,
              media_card_data = EXCLUDED.media_card_data,
+             deleted_at = NULL,
              updated_at = CURRENT_TIMESTAMP`,
           [entry.id, entry.text, entry.position.x, entry.position.y, entry.parentEntryId || null, userId, linkCardsData, mediaCardData]
         );
