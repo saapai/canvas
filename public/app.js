@@ -1732,6 +1732,13 @@ async function commitEditor(){
   // If editing an existing entry
   if(editingEntryId && editingEntryId !== 'anchor'){
     const entryData = entries.get(editingEntryId);
+    if(!entryData){
+      console.warn('[COMMIT] Missing entry data for edit. Aborting edit to avoid duplicate:', editingEntryId);
+      editor.textContent = '';
+      editor.style.display = 'none';
+      editingEntryId = null;
+      return;
+    }
     if(entryData){
       // If editor text is empty, delete the entry
       if(!trimmedRight){
@@ -3957,7 +3964,7 @@ function isRelevantMatch(query, result) {
   const combinedText = `${titleLower} ${artistLower}`;
   
   // Extract meaningful words from query (ignore common words)
-  const commonWords = ['the', 'and', 'or', 'for', 'with', 'from', 'this', 'that', 'like', 'there', 'there\'s', 'no', 'tomorrow', 'is', 'are', 'was', 'were', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'must'];
+  const commonWords = ['the', 'and', 'or', 'for', 'with', 'from', 'this', 'that', 'a', 'an', 'to', 'of', 'in', 'on', 'at', 'by', 'is', 'are', 'was', 'were'];
   const queryWords = queryLower.split(/\s+/).filter(word => {
     const cleaned = word.replace(/[^\w]/g, '');
     return cleaned.length > 2 && !commonWords.includes(cleaned);
@@ -4136,6 +4143,13 @@ function selectAutocompleteResult(result) {
   // Check if we're editing an existing entry
   if (editingEntryId && editingEntryId !== 'anchor') {
     const entryData = entries.get(editingEntryId);
+    if (!entryData) {
+      console.warn('[Autocomplete] Missing entry data for edit. Aborting selection to avoid duplicate:', editingEntryId);
+      editor.textContent = '';
+      editor.style.display = 'none';
+      editingEntryId = null;
+      return;
+    }
     if (entryData) {
       // Replace existing entry with media card
       // Remove existing content
