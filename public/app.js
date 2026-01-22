@@ -1320,11 +1320,26 @@ function navigateToEntry(entryId) {
   
   // Update URL if we're on a user page
   if (username && pageUsername) {
-    const slug = generateEntrySlug(entryData.text);
+    let slug = generateEntrySlug(entryData.text);
+    
+    // Check for duplicate slugs at this level and append number if needed
+    const siblings = Array.from(entries.values()).filter(e => 
+      e.parentEntryId === entryData.parentEntryId && e.id !== entryId
+    );
+    
+    const existingSlugs = siblings.map(e => generateEntrySlug(e.text));
+    let counter = 1;
+    let uniqueSlug = slug;
+    
+    while (existingSlugs.includes(uniqueSlug)) {
+      counter++;
+      uniqueSlug = `${slug}-${counter}`;
+    }
+    
     const currentPath = window.location.pathname.split('/').filter(Boolean);
     
     // Build new path: append slug to current path
-    const newPath = `/${currentPath.join('/')}/${slug}`;
+    const newPath = `/${currentPath.join('/')}/${uniqueSlug}`;
     
     // Update URL without reloading
     window.history.pushState({ entryId, navigationStack: [...navigationStack] }, '', newPath);
@@ -1382,13 +1397,31 @@ function navigateBack(level = 1) {
     if (navigationStack.length === 0) {
       window.history.pushState({ navigationStack: [] }, '', `/${pageUsername}`);
     } else {
-      // Build path from navigation stack
+      // Build path from navigation stack with unique slugs
       const pathParts = [pageUsername];
+      let currentParentId = null;
+      
       navigationStack.forEach(entryId => {
         const entryData = entries.get(entryId);
         if (entryData) {
-          const slug = generateEntrySlug(entryData.text);
-          pathParts.push(slug);
+          let slug = generateEntrySlug(entryData.text);
+          
+          // Check for duplicate slugs at this level
+          const siblings = Array.from(entries.values()).filter(e => 
+            e.parentEntryId === currentParentId && e.id !== entryId
+          );
+          
+          const existingSlugs = siblings.map(e => generateEntrySlug(e.text));
+          let counter = 1;
+          let uniqueSlug = slug;
+          
+          while (existingSlugs.includes(uniqueSlug)) {
+            counter++;
+            uniqueSlug = `${slug}-${counter}`;
+          }
+          
+          pathParts.push(uniqueSlug);
+          currentParentId = entryId;
         }
       });
       window.history.pushState({ navigationStack: [...navigationStack] }, '', `/${pathParts.join('/')}`);
@@ -2586,27 +2619,27 @@ viewport.addEventListener('mousemove', (e) => {
         }
       } else {
         // Just move the single entry
-        draggingEntry.style.left = `${newX}px`;
-        draggingEntry.style.top = `${newY}px`;
-        
-        // Update stored position
-        if(entryId === 'anchor') {
-          anchorPos.x = newX;
-          anchorPos.y = newY;
-        } else {
-          const entryData = entries.get(entryId);
-          if(entryData) {
-            entryData.position = { x: newX, y: newY };
-            // Debounce position saves to avoid too many server requests
-            if (entryData.positionSaveTimeout) {
-              clearTimeout(entryData.positionSaveTimeout);
-            }
-            entryData.positionSaveTimeout = setTimeout(() => {
-              updateEntryOnServer(entryData).catch(err => {
-                console.error('Error saving position:', err);
-              });
-              entryData.positionSaveTimeout = null;
-            }, 300); // Wait 300ms after dragging stops before saving
+      draggingEntry.style.left = `${newX}px`;
+      draggingEntry.style.top = `${newY}px`;
+      
+      // Update stored position
+      if(entryId === 'anchor') {
+        anchorPos.x = newX;
+        anchorPos.y = newY;
+      } else {
+        const entryData = entries.get(entryId);
+        if(entryData) {
+          entryData.position = { x: newX, y: newY };
+          // Debounce position saves to avoid too many server requests
+          if (entryData.positionSaveTimeout) {
+            clearTimeout(entryData.positionSaveTimeout);
+          }
+          entryData.positionSaveTimeout = setTimeout(() => {
+            updateEntryOnServer(entryData).catch(err => {
+              console.error('Error saving position:', err);
+            });
+            entryData.positionSaveTimeout = null;
+          }, 300); // Wait 300ms after dragging stops before saving
           }
         }
       }
@@ -3931,10 +3964,13 @@ function selectAutocompleteResult(result) {
 
     world.appendChild(entry);
 
+    // Use media title as entry text for breadcrumb and navigation
+    const entryText = result.title || 'Untitled';
+    
     const entryData = {
       id: entryId,
       element: entry,
-      text: '', // No text, just card
+      text: entryText, // Use title for navigation
       position: { x: worldPos.x, y: worldPos.y },
       parentEntryId: currentViewEntryId,
       mediaCardData: result
@@ -3967,7 +4003,6 @@ function selectAutocompleteResult(result) {
       if (targetEntryId) {
         const entryData = entries.get(targetEntryId);
         if (entryData) {
-          entryData.text = ''; // Entry has no text, just card
           entryData.mediaCardData = result;
           updateEntryOnServer(entryData);
         }
