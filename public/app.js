@@ -3783,8 +3783,8 @@ function handleAutocompleteSearch() {
   if (!autocomplete || editor.style.display === 'none') {
     hideAutocomplete();
     autocompleteIsShowing = false;
-    return;
-  }
+      return;
+    }
 
   const text = editor.innerText || editor.textContent || '';
   const trimmed = text.trim();
@@ -3943,83 +3943,55 @@ function hideAutocomplete() {
 function selectAutocompleteResult(result) {
   hideAutocomplete();
 
-  // Get current entry or create new one
-  let targetEntry = null;
-  let targetEntryId = null;
-
-  if (editingEntryId && editingEntryId !== 'anchor') {
-    // Editing existing entry - replace content with card
-    targetEntry = entries.get(editingEntryId)?.element;
-    targetEntryId = editingEntryId;
-    
-    // Clear existing text content from entry
-    if (targetEntry) {
-      // Remove all text nodes and keep only existing cards
-      const existingCards = Array.from(targetEntry.querySelectorAll('.link-card, .media-card'));
-      targetEntry.innerHTML = '';
-      existingCards.forEach(card => targetEntry.appendChild(card));
-    }
-  } else {
-    // Create a new entry with just the media card (no text)
-    const entryId = `entry-${entryIdCounter++}`;
-    const entry = document.createElement('div');
-    entry.className = 'entry melt';
-    entry.id = entryId;
-
-    const worldPos = editorWorldPos;
-    entry.style.left = `${worldPos.x}px`;
-    entry.style.top = `${worldPos.y}px`;
-
-    world.appendChild(entry);
-
-    // Use media title as entry text for breadcrumb and navigation
-    const entryText = result.title || 'Untitled';
-    
-    const entryData = {
-      id: entryId,
-      element: entry,
-      text: entryText, // Use title for navigation
-      position: { x: worldPos.x, y: worldPos.y },
-      parentEntryId: currentViewEntryId,
-      mediaCardData: result
-    };
-    entries.set(entryId, entryData);
-
-    targetEntry = entry;
-    targetEntryId = entryId;
-
-    // Save to server
-    saveEntryToServer(entryData);
-  }
-
+  // Commit the current editor text as a media card entry
+  // This replaces the normal text commit with a media card
+  const worldPos = editorWorldPos;
+  
+  // Use media title as entry text for breadcrumb and navigation
+  const entryText = result.title || 'Untitled';
+  
+  const entryId = `entry-${entryIdCounter++}`;
+  const entry = document.createElement('div');
+  entry.className = 'entry melt';
+  entry.id = entryId;
+  
+  entry.style.left = `${worldPos.x}px`;
+  entry.style.top = `${worldPos.y}px`;
+  
+  world.appendChild(entry);
+  
+  const entryData = {
+    id: entryId,
+    element: entry,
+    text: entryText, // Use title for navigation
+    position: { x: worldPos.x, y: worldPos.y },
+    parentEntryId: currentViewEntryId,
+    mediaCardData: result
+  };
+  entries.set(entryId, entryData);
+  
+  // Add media card to entry (no text content)
+  const card = createMediaCard(result);
+  entry.appendChild(card);
+  
   // Clear and hide editor
   editor.textContent = '';
   editor.style.display = 'none';
   editingEntryId = null;
-
-  if (targetEntry) {
-    // Don't render any text - media card is the only content
-    targetEntry.innerHTML = '';
+  
+  // Update visibility
+  updateEntryVisibility();
+  
+  // Update entry dimensions and save
+  setTimeout(() => {
+    updateEntryDimensions(entry);
+    saveEntryToServer(entryData);
     
-    // Add media card to entry
-    const card = createMediaCard(result);
-    targetEntry.appendChild(card);
-
-    // Update visibility
-    updateEntryVisibility();
-
-    // Update entry dimensions
-    setTimeout(() => {
-      updateEntryDimensions(targetEntry);
-      if (targetEntryId) {
-        const entryData = entries.get(targetEntryId);
-        if (entryData) {
-          entryData.mediaCardData = result;
-          updateEntryOnServer(entryData);
-        }
-      }
-    }, 50);
-  }
+    // Save undo state
+    saveUndoState('create', {
+      entry: entryData
+    });
+  }, 50);
 }
 
 function createMediaCard(mediaData) {

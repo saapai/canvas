@@ -1028,7 +1028,10 @@ body::before{
 .entry.has-media-card-hover:not(.editing)::before {
   content: '';
   position: absolute;
-  inset: -2px;
+  top: 14px;  /* account for margin-top: 16px minus 2px */
+  left: -2px;
+  right: -2px;
+  bottom: -10px;  /* account for margin-bottom: 8px plus 2px extra */
   background-color: rgba(59, 130, 246, 0.1);
   border-radius: 4px;
   pointer-events: none;
