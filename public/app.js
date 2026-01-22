@@ -1015,6 +1015,11 @@ async function loadEntriesFromServer() {
     });
     entryIdCounter = maxCounter + 1;
     
+    // Clear existing entries
+    entries.clear();
+    const existingEntries = world.querySelectorAll('.entry');
+    existingEntries.forEach(entry => entry.remove());
+    
     // Create entry elements and add to map
     entriesData.forEach(entryData => {
       const entry = document.createElement('div');
