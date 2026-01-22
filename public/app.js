@@ -690,9 +690,8 @@ async function loadUserEntries(username, editable) {
       for (const slug of slugPath) {
         const children = Array.from(entries.values()).filter(e => e.parentEntryId === currentParent);
         const targetEntry = children.find(e => {
-          const entrySlug = e.text && (typeof e.text === 'string') 
-            ? generateEntrySlug(e.text)
-            : '';
+          // Pass full entry data to generateEntrySlug to handle media cards
+          const entrySlug = generateEntrySlug(e.text, e);
           return entrySlug === slug;
         });
         
@@ -1946,7 +1945,7 @@ function updateEntryDimensions(entry) {
     
     // Handle media cards first (they have different padding)
     if (mediaCards.length > 0) {
-      const desiredPadding = 6; // Smaller padding for media cards
+      const desiredPadding = 4; // Smaller padding for media cards
       
       mediaCards.forEach(card => {
         card.style.marginTop = '0';
@@ -2118,7 +2117,7 @@ function updateEntryDimensions(entry) {
           void mediaCard.offsetHeight;
           
           const cardNaturalHeight = mediaCard.offsetHeight;
-          const desiredPadding = 6; // Smaller padding for media cards
+          const desiredPadding = 4; // Smaller padding for media cards
           
           mediaCard.style.marginTop = `${desiredPadding}px`;
           mediaCard.style.marginBottom = `${desiredPadding}px`;
