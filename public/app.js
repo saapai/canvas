@@ -802,6 +802,56 @@ async function updateEntryOnServer(entryData) {
   }
 }
 
+function countChildEntries(entryId) {
+  return Array.from(entries.values()).filter(e => e.parentEntryId === entryId).length;
+}
+
+function showDeleteConfirmation(entryId, childCount) {
+  return new Promise((resolve) => {
+    const modal = document.getElementById('delete-confirm-modal');
+    const message = document.getElementById('delete-confirm-message');
+    const childCountEl = document.getElementById('delete-child-count');
+    const cancelBtn = document.getElementById('delete-confirm-cancel');
+    const deleteBtn = document.getElementById('delete-confirm-delete');
+
+    if (childCount === 0) {
+      message.textContent = 'Are you sure you want to delete this entry?';
+      childCountEl.textContent = '';
+    } else {
+      message.innerHTML = `This entry has <strong id="delete-child-count">${childCount}</strong> child ${childCount === 1 ? 'entry' : 'entries'} that will also be deleted.`;
+      childCountEl.textContent = childCount;
+    }
+
+    modal.classList.remove('hidden');
+
+    const cleanup = () => {
+      modal.classList.add('hidden');
+      cancelBtn.removeEventListener('click', onCancel);
+      deleteBtn.removeEventListener('click', onDelete);
+    };
+
+    const onCancel = () => {
+      cleanup();
+      resolve(false);
+    };
+
+    const onDelete = () => {
+      cleanup();
+      resolve(true);
+    };
+
+    cancelBtn.addEventListener('click', onCancel);
+    deleteBtn.addEventListener('click', onDelete);
+
+    // Close on backdrop click
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) {
+        onCancel();
+      }
+    });
+  });
+}
+
 async function deleteEntryFromServer(entryId) {
   if (isReadOnly) {
     console.warn('Cannot delete entry: read-only mode');
@@ -822,6 +872,49 @@ async function deleteEntryFromServer(entryId) {
     console.error('Error deleting entry from server:', error);
     return false;
   }
+}
+
+async function deleteEntryWithConfirmation(entryId, skipConfirmation = false) {
+  const childCount = countChildEntries(entryId);
+  
+  // If no children, delete immediately
+  if (childCount === 0) {
+    const entryData = entries.get(entryId);
+    if (entryData) {
+      entryData.element.classList.remove('editing');
+      entryData.element.remove();
+      entries.delete(entryId);
+      await deleteEntryFromServer(entryId);
+      return true;
+    }
+    return false;
+  }
+
+  // If has children, show confirmation (unless we're deleting recursively)
+  let confirmed = true;
+  if (!skipConfirmation) {
+    confirmed = await showDeleteConfirmation(entryId, childCount);
+  }
+  
+  if (confirmed) {
+    const entryData = entries.get(entryId);
+    if (entryData) {
+      // Delete all child entries first (recursively, without confirmation)
+      const childEntries = Array.from(entries.values()).filter(e => e.parentEntryId === entryId);
+      for (const child of childEntries) {
+        await deleteEntryWithConfirmation(child.id, true); // Skip confirmation for children
+      }
+      
+      // Then delete the parent entry
+      entryData.element.classList.remove('editing');
+      entryData.element.remove();
+      entries.delete(entryId);
+      await deleteEntryFromServer(entryId);
+      return true;
+    }
+  }
+  
+  return false;
 }
 
 async function loadEntriesFromServer() {
@@ -1527,13 +1620,13 @@ async function commitEditor(){
         // Only delete if both editor AND stored text are empty
         // This prevents accidental deletion if editor was somehow cleared
         if (storedText.length === 0) {
-          entryData.element.classList.remove('editing');
-          entryData.element.remove();
-          entries.delete(editingEntryId);
-          deleteEntryFromServer(editingEntryId);
-          editor.textContent = '';
-          editor.style.display = 'none';
-          editingEntryId = null;
+          // Use confirmation dialog if entry has children
+          const deleted = await deleteEntryWithConfirmation(editingEntryId);
+          if (deleted) {
+            editor.textContent = '';
+            editor.style.display = 'none';
+            editingEntryId = null;
+          }
           return;
         } else {
           // Stored text exists - restore it instead of deleting
@@ -3009,21 +3102,20 @@ editor.addEventListener('blur', (e) => {
   } else if (trimmed.length === 0 && editingEntryId && editingEntryId !== 'anchor') {
     // If empty and editing existing entry, only delete if the stored entry text is also empty
     // This prevents accidental deletion due to race conditions or editor clearing bugs
-    setTimeout(() => {
+    setTimeout(async () => {
       if (document.activeElement !== editor) {
         const entryData = entries.get(editingEntryId);
         if (entryData) {
           // Safety check: only delete if the stored entry text is also empty or just whitespace
           const storedText = (entryData.text || '').trim();
           if (storedText.length === 0) {
-            // Confirmed empty - safe to delete
-            entryData.element.classList.remove('editing');
-            entryData.element.remove();
-            entries.delete(editingEntryId);
-            deleteEntryFromServer(editingEntryId);
-            editor.textContent = '';
-            editor.style.display = 'none';
-            editingEntryId = null;
+            // Confirmed empty - use confirmation dialog if entry has children
+            const deleted = await deleteEntryWithConfirmation(editingEntryId);
+            if (deleted) {
+              editor.textContent = '';
+              editor.style.display = 'none';
+              editingEntryId = null;
+            }
           } else {
             // Entry has content - just cancel editing without deleting
             entryData.element.classList.remove('editing');

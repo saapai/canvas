@@ -133,6 +133,16 @@
       <div id="auth-error" class="auth-error hidden"></div>
     </div>
   </div>
+  <div id="delete-confirm-modal" class="delete-confirm-modal hidden">
+    <div class="delete-confirm-content">
+      <h3>Delete Entry?</h3>
+      <p id="delete-confirm-message">This entry has <strong id="delete-child-count">0</strong> child entries that will also be deleted.</p>
+      <div class="delete-confirm-buttons">
+        <button id="delete-confirm-cancel" class="delete-confirm-button cancel">Cancel</button>
+        <button id="delete-confirm-delete" class="delete-confirm-button delete">Delete</button>
+      </div>
+    </div>
+  </div>
   <div id="viewport">
     <div id="world">
       <div id="editor" contenteditable="true" spellcheck="false"></div>
