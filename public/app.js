@@ -1361,29 +1361,36 @@ function navigateToEntry(entryId) {
   
   // Update URL if we're on a user page
   if (username && pageUsername) {
-    let slug = generateEntrySlug(entryData.text, entryData);
+    // Build path from navigation stack with unique slugs (same as navigateBack)
+    const pathParts = [pageUsername];
+    let currentParentId = null;
     
-    // Check for duplicate slugs at this level and append number if needed
-    const siblings = Array.from(entries.values()).filter(e => 
-      e.parentEntryId === entryData.parentEntryId && e.id !== entryId
-    );
-    
-    const existingSlugs = siblings.map(e => generateEntrySlug(e.text, e));
-    let counter = 1;
-    let uniqueSlug = slug;
-    
-    while (existingSlugs.includes(uniqueSlug)) {
-      counter++;
-      uniqueSlug = `${slug}-${counter}`;
-    }
-    
-    const currentPath = window.location.pathname.split('/').filter(Boolean);
-    
-    // Build new path: append slug to current path
-    const newPath = `/${currentPath.join('/')}/${uniqueSlug}`;
+    navigationStack.forEach(stackEntryId => {
+      const stackEntryData = entries.get(stackEntryId);
+      if (stackEntryData) {
+        let slug = generateEntrySlug(stackEntryData.text, stackEntryData);
+        
+        // Check for duplicate slugs at this level
+        const siblings = Array.from(entries.values()).filter(e => 
+          e.parentEntryId === currentParentId && e.id !== stackEntryId
+        );
+        
+        const existingSlugs = siblings.map(e => generateEntrySlug(e.text, e));
+        let counter = 1;
+        let uniqueSlug = slug;
+        
+        while (existingSlugs.includes(uniqueSlug)) {
+          counter++;
+          uniqueSlug = `${slug}-${counter}`;
+        }
+        
+        pathParts.push(uniqueSlug);
+        currentParentId = stackEntryId;
+      }
+    });
     
     // Update URL without reloading
-    window.history.pushState({ entryId, navigationStack: [...navigationStack] }, '', newPath);
+    window.history.pushState({ entryId, navigationStack: [...navigationStack] }, '', `/${pathParts.join('/')}`);
   }
 }
 
@@ -4017,12 +4024,41 @@ function hideAutocomplete() {
 function selectAutocompleteResult(result) {
   hideAutocomplete();
 
-  // Commit the current editor text as a media card entry
-  // This replaces the normal text commit with a media card
+  // Check if we're editing an existing entry
+  if (editingEntryId && editingEntryId !== 'anchor') {
+    const entryData = entries.get(editingEntryId);
+    if (entryData) {
+      // Replace existing entry with media card
+      // Remove existing content
+      entryData.element.innerHTML = '';
+      entryData.element.classList.remove('editing');
+      
+      // Update entry data
+      entryData.text = ''; // Clear text - title is in mediaCardData
+      entryData.mediaCardData = result;
+      entryData.linkCardsData = null; // Clear any link cards
+      
+      // Add media card
+      const card = createMediaCard(result);
+      entryData.element.appendChild(card);
+      
+      // Clear and hide editor
+      editor.textContent = '';
+      editor.style.display = 'none';
+      editingEntryId = null;
+      
+      // Update entry dimensions and save
+      setTimeout(() => {
+        updateEntryDimensions(entryData.element);
+        saveEntryToServer(entryData);
+      }, 50);
+      
+      return;
+    }
+  }
+
+  // Create new entry with media card
   const worldPos = editorWorldPos;
-  
-  // Use media title as entry text for breadcrumb and navigation
-  const entryText = result.title || 'Untitled';
   
   const entryId = `entry-${entryIdCounter++}`;
   const entry = document.createElement('div');
