@@ -3,6 +3,7 @@ const world = document.getElementById('world');
 const editor = document.getElementById('editor');
 const anchor = document.getElementById('anchor');
 const breadcrumb = document.getElementById('breadcrumb');
+const autocomplete = document.getElementById('autocomplete');
 const authOverlay = document.getElementById('auth-overlay');
 const authStepPhone = document.getElementById('auth-step-phone');
 const authStepCode = document.getElementById('auth-step-code');
@@ -646,6 +647,15 @@ async function loadUserEntries(username, editable) {
             });
           }
         });
+      }
+      
+      // Restore media cards if they exist
+      if (entryData.mediaCardData) {
+        const card = createMediaCard(entryData.mediaCardData);
+        entry.appendChild(card);
+        setTimeout(() => {
+          updateEntryDimensions(entry);
+        }, 100);
       }
     });
     
@@ -2697,6 +2707,32 @@ viewport.addEventListener('wheel', (e) => {
 }, { passive: false });
 
 editor.addEventListener('keydown', (e) => {
+  // Handle autocomplete keyboard navigation
+  if (autocomplete && !autocomplete.classList.contains('hidden')) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      autocompleteSelectedIndex = Math.min(autocompleteSelectedIndex + 1, autocompleteResults.length - 1);
+      updateAutocompleteSelection();
+      const selectedItem = autocomplete.querySelector(`[data-index="${autocompleteSelectedIndex}"]`);
+      if (selectedItem) {
+        selectedItem.scrollIntoView({ block: 'nearest' });
+      }
+      return;
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      autocompleteSelectedIndex = Math.max(autocompleteSelectedIndex - 1, -1);
+      updateAutocompleteSelection();
+      return;
+    } else if (e.key === 'Enter' && autocompleteSelectedIndex >= 0 && !e.shiftKey) {
+      e.preventDefault();
+      selectAutocompleteResult(autocompleteResults[autocompleteSelectedIndex]);
+      return;
+    } else if (e.key === 'Escape') {
+      hideAutocomplete();
+      return;
+    }
+  }
+
   // Allow Command/Ctrl+Shift+1 to navigate home even when editor is focused
   const isOneKey = e.key === '1' || e.key === 'Digit1' || e.code === 'Digit1';
   if ((e.metaKey || e.ctrlKey) && e.shiftKey && isOneKey) {
@@ -3049,6 +3085,11 @@ function getWidestLineWidth(element) {
   return Math.max(maxWidth, oneCharWidth);
 }
 
+// Autocomplete state
+let autocompleteSearchTimeout = null;
+let autocompleteSelectedIndex = -1;
+let autocompleteResults = [];
+
 // Update editor width and entry border dimensions as content changes
 editor.addEventListener('input', () => {
   // Calculate width based on widest line (preserves line structure)
@@ -3062,6 +3103,9 @@ editor.addEventListener('input', () => {
       updateEditingBorderDimensions(entryData.element);
     }
   }
+  
+  // Trigger autocomplete search
+  handleAutocompleteSearch();
 });
 
 editor.addEventListener('blur', (e) => {
@@ -3583,6 +3627,287 @@ if (helpModal) {
     }
   });
 }
+
+// Autocomplete functions
+function handleAutocompleteSearch() {
+  if (!autocomplete || editor.style.display === 'none' || !document.activeElement || document.activeElement !== editor) {
+    hideAutocomplete();
+    return;
+  }
+
+  const text = editor.innerText || editor.textContent || '';
+  const trimmed = text.trim();
+  
+  // Only search if we have at least 3 characters
+  if (trimmed.length < 3) {
+    hideAutocomplete();
+      return;
+    }
+
+  // Debounce search
+  clearTimeout(autocompleteSearchTimeout);
+  autocompleteSearchTimeout = setTimeout(() => {
+    searchMedia(trimmed);
+  }, 300);
+}
+
+async function searchMedia(query) {
+  if (!autocomplete) return;
+
+  try {
+    // Search both movies and songs in parallel
+    const [moviesRes, songsRes] = await Promise.all([
+      fetch(`/api/search/movies?q=${encodeURIComponent(query)}`).catch(() => ({ json: () => ({ results: [] }) })),
+      fetch(`/api/search/songs?q=${encodeURIComponent(query)}`).catch(() => ({ json: () => ({ results: [] }) }))
+    ]);
+
+    const moviesData = await moviesRes.json().catch(() => ({ results: [] }));
+    const songsData = await songsRes.json().catch(() => ({ results: [] }));
+
+    const allResults = [
+      ...(moviesData.results || []),
+      ...(songsData.results || [])
+    ];
+
+    if (allResults.length > 0) {
+      autocompleteResults = allResults;
+      showAutocomplete(allResults);
+    } else {
+      hideAutocomplete();
+    }
+  } catch (error) {
+    console.error('Error searching media:', error);
+    hideAutocomplete();
+  }
+}
+
+function showAutocomplete(results) {
+  if (!autocomplete) return;
+
+  autocomplete.innerHTML = '';
+  autocompleteSelectedIndex = -1;
+
+  results.forEach((result, index) => {
+    const item = document.createElement('div');
+    item.className = 'autocomplete-item';
+    item.dataset.index = index;
+
+    const imageHtml = result.image || result.poster
+      ? `<div class="autocomplete-item-image" style="background-image: url('${result.image || result.poster}')"></div>`
+      : '<div class="autocomplete-item-image"></div>';
+
+    const subtitle = result.type === 'song'
+      ? result.artist
+      : result.type === 'movie'
+      ? result.year ? `(${result.year})` : ''
+      : '';
+
+    item.innerHTML = `
+      ${imageHtml}
+      <div class="autocomplete-item-content">
+        <div class="autocomplete-item-title">${escapeHtml(result.title)}</div>
+        ${subtitle ? `<div class="autocomplete-item-subtitle">${escapeHtml(subtitle)}</div>` : ''}
+        <div class="autocomplete-item-type">${result.type === 'song' ? '🎵 Song' : '🎬 Movie'}</div>
+      </div>
+    `;
+
+    item.addEventListener('click', () => {
+      selectAutocompleteResult(result);
+    });
+
+    item.addEventListener('mouseenter', () => {
+      autocompleteSelectedIndex = index;
+      updateAutocompleteSelection();
+    });
+
+    autocomplete.appendChild(item);
+  });
+
+  // Position autocomplete below editor
+  updateAutocompletePosition();
+  autocomplete.classList.remove('hidden');
+}
+
+function updateAutocompletePosition() {
+  if (!autocomplete || !editor || editor.style.display === 'none') return;
+
+  const editorRect = editor.getBoundingClientRect();
+  const viewportRect = viewport.getBoundingClientRect();
+
+  // Position below editor, relative to viewport
+  const top = editorRect.bottom - viewportRect.top + 8;
+  const left = editorRect.left - viewportRect.left;
+
+  autocomplete.style.top = `${top}px`;
+  autocomplete.style.left = `${left}px`;
+  autocomplete.style.maxWidth = `${Math.min(400, viewportRect.width - left - 16)}px`;
+}
+
+function updateAutocompleteSelection() {
+  if (!autocomplete) return;
+
+  const items = autocomplete.querySelectorAll('.autocomplete-item');
+  items.forEach((item, index) => {
+    if (index === autocompleteSelectedIndex) {
+      item.classList.add('selected');
+    } else {
+      item.classList.remove('selected');
+    }
+  });
+}
+
+function hideAutocomplete() {
+  if (!autocomplete) return;
+  autocomplete.classList.add('hidden');
+  autocomplete.innerHTML = '';
+  autocompleteResults = [];
+  autocompleteSelectedIndex = -1;
+}
+
+function selectAutocompleteResult(result) {
+  hideAutocomplete();
+
+  // Get current entry or create new one
+  let targetEntry = null;
+  let targetEntryId = null;
+
+  if (editingEntryId && editingEntryId !== 'anchor') {
+    targetEntry = entries.get(editingEntryId)?.element;
+    targetEntryId = editingEntryId;
+  } else {
+    // Create a new entry with the media card
+    const entryId = `entry-${entryIdCounter++}`;
+    const entry = document.createElement('div');
+    entry.className = 'entry melt';
+    entry.id = entryId;
+
+    const worldPos = editorWorldPos;
+    entry.style.left = `${worldPos.x}px`;
+    entry.style.top = `${worldPos.y}px`;
+
+    world.appendChild(entry);
+
+    const entryData = {
+      id: entryId,
+      element: entry,
+      text: result.title,
+      position: { x: worldPos.x, y: worldPos.y },
+      parentEntryId: currentViewEntryId
+    };
+    entries.set(entryId, entryData);
+
+    targetEntry = entry;
+    targetEntryId = entryId;
+
+    // Clear editor
+    editor.textContent = '';
+    editor.style.display = 'none';
+    editingEntryId = null;
+
+    // Update visibility
+    updateEntryVisibility();
+
+    // Save to server
+    saveEntryToServer(entryData);
+  }
+
+  if (targetEntry) {
+    // Add media card to entry
+    const card = createMediaCard(result);
+    targetEntry.appendChild(card);
+
+    // Update entry dimensions
+    setTimeout(() => {
+      updateEntryDimensions(targetEntry);
+      if (targetEntryId) {
+        const entryData = entries.get(targetEntryId);
+        if (entryData) {
+          entryData.mediaCardData = result;
+          updateEntryOnServer(entryData);
+        }
+      }
+    }, 50);
+  }
+}
+
+function createMediaCard(mediaData) {
+  const card = document.createElement('div');
+  card.className = mediaData.image || mediaData.poster ? 'media-card' : 'media-card media-card-no-image';
+  card.dataset.mediaId = mediaData.id;
+  card.dataset.type = mediaData.type;
+
+  const imageUrl = mediaData.image || mediaData.poster;
+  const typeLabel = mediaData.type === 'song' ? 'Song' : 'Movie';
+  const subtitle = mediaData.type === 'song'
+    ? mediaData.artist
+    : mediaData.type === 'movie'
+    ? mediaData.year ? `${mediaData.year}` : ''
+    : '';
+
+  const cardContent = `
+    ${imageUrl ? `<div class="media-card-image" style="background-image: url('${imageUrl}')"></div>` : ''}
+    <div class="media-card-content">
+      <div class="media-card-type">${typeLabel}</div>
+      <div class="media-card-title">${escapeHtml(mediaData.title)}</div>
+      ${subtitle ? `<div class="media-card-subtitle">${escapeHtml(subtitle)}</div>` : ''}
+    </div>
+  `;
+
+  card.innerHTML = cardContent;
+
+  // Handle click to open external link
+  card.addEventListener('click', (e) => {
+    if (e.shiftKey || justFinishedDragging) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+
+    e.stopPropagation();
+
+    if (mediaData.type === 'song' && mediaData.spotifyUrl) {
+      window.open(mediaData.spotifyUrl, '_blank');
+    } else if (mediaData.type === 'movie') {
+      // Could open TMDB page or search
+      window.open(`https://www.themoviedb.org/movie/${mediaData.id}`, '_blank');
+    }
+  });
+
+  // Hover effects similar to link cards
+  card.addEventListener('mouseenter', () => {
+    const entry = card.closest('.entry');
+    if (entry) {
+      entry.classList.add('has-link-card-hover');
+    }
+  });
+
+  card.addEventListener('mouseleave', () => {
+    const entry = card.closest('.entry');
+    if (entry) {
+      entry.classList.remove('has-link-card-hover');
+    }
+  });
+
+  return card;
+}
+
+// Hide autocomplete when clicking outside
+document.addEventListener('click', (e) => {
+  if (autocomplete && !autocomplete.contains(e.target) && e.target !== editor && !editor.contains(e.target)) {
+    hideAutocomplete();
+  }
+});
+
+// Update autocomplete position when editor moves or viewport changes
+const updateAutocompleteOnMove = () => {
+  if (autocomplete && !autocomplete.classList.contains('hidden')) {
+    updateAutocompletePosition();
+  }
+};
+
+editor.addEventListener('input', updateAutocompleteOnMove);
+window.addEventListener('scroll', updateAutocompleteOnMove);
+window.addEventListener('resize', updateAutocompleteOnMove);
 
 // Keyboard shortcut: Command/Ctrl+Shift+1 to navigate to home page
 window.addEventListener('keydown', (e) => {
