@@ -3630,7 +3630,7 @@ if (helpModal) {
 
 // Autocomplete functions
 function handleAutocompleteSearch() {
-  if (!autocomplete || editor.style.display === 'none' || !document.activeElement || document.activeElement !== editor) {
+  if (!autocomplete || editor.style.display === 'none') {
     hideAutocomplete();
     return;
   }
@@ -3654,15 +3654,23 @@ function handleAutocompleteSearch() {
 async function searchMedia(query) {
   if (!autocomplete) return;
 
+  console.log('[Autocomplete] Searching for:', query);
+
   try {
     // Search both movies and songs in parallel
     const [moviesRes, songsRes] = await Promise.all([
-      fetch(`/api/search/movies?q=${encodeURIComponent(query)}`).catch(() => ({ json: () => ({ results: [] }) })),
-      fetch(`/api/search/songs?q=${encodeURIComponent(query)}`).catch(() => ({ json: () => ({ results: [] }) }))
+      fetch(`/api/search/movies?q=${encodeURIComponent(query)}`),
+      fetch(`/api/search/songs?q=${encodeURIComponent(query)}`)
     ]);
 
-    const moviesData = await moviesRes.json().catch(() => ({ results: [] }));
-    const songsData = await songsRes.json().catch(() => ({ results: [] }));
+    console.log('[Autocomplete] Movies response:', moviesRes.ok, moviesRes.status);
+    console.log('[Autocomplete] Songs response:', songsRes.ok, songsRes.status);
+
+    const moviesData = moviesRes.ok ? await moviesRes.json() : { results: [] };
+    const songsData = songsRes.ok ? await songsRes.json() : { results: [] };
+
+    console.log('[Autocomplete] Movies results:', moviesData.results?.length || 0);
+    console.log('[Autocomplete] Songs results:', songsData.results?.length || 0);
 
     const allResults = [
       ...(moviesData.results || []),
@@ -3670,19 +3678,26 @@ async function searchMedia(query) {
     ];
 
     if (allResults.length > 0) {
+      console.log('[Autocomplete] Showing', allResults.length, 'results');
       autocompleteResults = allResults;
       showAutocomplete(allResults);
     } else {
+      console.log('[Autocomplete] No results found');
       hideAutocomplete();
     }
   } catch (error) {
-    console.error('Error searching media:', error);
+    console.error('[Autocomplete] Error searching media:', error);
     hideAutocomplete();
   }
 }
 
 function showAutocomplete(results) {
-  if (!autocomplete) return;
+  if (!autocomplete) {
+    console.error('[Autocomplete] Autocomplete element not found!');
+    return;
+  }
+
+  console.log('[Autocomplete] Showing autocomplete with', results.length, 'results');
 
   autocomplete.innerHTML = '';
   autocompleteSelectedIndex = -1;
@@ -3726,6 +3741,8 @@ function showAutocomplete(results) {
   // Position autocomplete below editor
   updateAutocompletePosition();
   autocomplete.classList.remove('hidden');
+  
+  console.log('[Autocomplete] Autocomplete displayed at', autocomplete.style.top, autocomplete.style.left);
 }
 
 function updateAutocompletePosition() {

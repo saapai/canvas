@@ -25,7 +25,18 @@ Create a `.env` file in the root directory:
 OPENAI_API_KEY=your_openai_api_key_here
 JWT_SECRET=your_jwt_secret_here
 PORT=3000
+TMDB_API_KEY=your_tmdb_api_key_here
+SPOTIFY_CLIENT_ID=your_spotify_client_id
+SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
+TWILIO_ACCOUNT_SID=your_twilio_sid
+TWILIO_AUTH_TOKEN=your_twilio_token
+TWILIO_VERIFY_SERVICE_SID=your_verify_service_sid
 ```
+
+**API Keys:**
+- **TMDB_API_KEY**: Get a free API key from [themoviedb.org](https://www.themoviedb.org/settings/api) for movie search
+- **Spotify credentials**: Get from [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) for song search (optional)
+- **Twilio**: Required for phone-based authentication
 
 3. Start the server:
 ```bash
