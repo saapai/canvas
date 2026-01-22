@@ -3387,78 +3387,118 @@ async function organizeEntriesIntoHubs() {
     // Perpendicular direction
     const perpDir = [-dominantDir[1], dominantDir[0]];
 
-    // Step 3: Axis-constrained spacing refinement
-    const MAX_PARALLEL_SHIFT = 100; // Average of 80-120px
-    const MAX_PERPENDICULAR_CORRECTION = 16; // Average of 12-20px
-    const ITERATIONS = 5;
-    const REPULSION_STRENGTH = 0.15;
+    // POST-PROCESSING: Local Hub Decluttering & Alignment (MANDATORY)
+    
+    // Step A: Choose dominant layout axis per hub
+    // Compute bounding box for group
+    const xs = group.map(e => (e.position || { x: 0 }).x);
+    const ys = group.map(e => (e.position || { y: 0 }).y);
+    const bboxWidth = Math.max(...xs) - Math.min(...xs);
+    const bboxHeight = Math.max(...ys) - Math.min(...ys);
+    
+    // Determine if horizontal or vertical alignment
+    const isHorizontal = bboxWidth > bboxHeight;
+    const layoutAxis = isHorizontal ? dominantDir : perpDir;
+    const layoutPerp = isHorizontal ? perpDir : dominantDir;
 
-    // Create working copies of positions
-    const workingPositions = group.map(e => {
+    // Step B: Text-aware sizing
+    const CHAR_WIDTH = 9; // Approximate character width in pixels
+    const LINE_HEIGHT = 24; // Approximate line height
+    
+    const entryBboxes = group.map(e => {
+      const text = e.text || '';
+      const lines = text.split('\n');
+      const maxLineLength = Math.max(...lines.map(l => l.length), 0);
+      
+      // Estimate dimensions
+      const width = Math.max(maxLineLength * CHAR_WIDTH, 60);
+      const height = lines.length * LINE_HEIGHT;
+      
       const pos = e.position || { x: 0, y: 0 };
-      return { x: pos.x, y: pos.y, id: e.id, original: { x: pos.x, y: pos.y } };
+      
+      return {
+        id: e.id,
+        x: pos.x,
+        y: pos.y,
+        width,
+        height,
+        text,
+        original: { x: pos.x, y: pos.y }
+      };
     });
 
-    // Step 4: Visual rhythm bias (shared across group)
-    const biasAngle = Math.random() * Math.PI * 2;
-    const biasX = Math.cos(biasAngle) * 6;
-    const biasY = Math.sin(biasAngle) * 6;
+    // Step C: Order entries along the axis
+    // Project onto layout axis and sort
+    const projected = entryBboxes.map(bbox => ({
+      ...bbox,
+      projection: bbox.x * layoutAxis[0] + bbox.y * layoutAxis[1]
+    }));
+    
+    projected.sort((a, b) => a.projection - b.projection);
 
-    for (let iter = 0; iter < ITERATIONS; iter++) {
-      workingPositions.forEach((pos, i) => {
-        let forceX = 0;
-        let forceY = 0;
-
-        // Repulsion from neighbors along dominant axis
-        workingPositions.forEach((other, j) => {
-          if (i === j) return;
-
-          const dx = other.x - pos.x;
-          const dy = other.y - pos.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-
-          if (dist < 200 && dist > 0.1) {
-            // Project force onto dominant axis
-            const parallelForce = (dx * dominantDir[0] + dy * dominantDir[1]) * REPULSION_STRENGTH;
-            const perpForce = (dx * perpDir[0] + dy * perpDir[1]) * REPULSION_STRENGTH * 0.2; // Much weaker perpendicular
-
-            forceX += parallelForce * dominantDir[0] + perpForce * perpDir[0];
-            forceY += parallelForce * dominantDir[1] + perpForce * perpDir[1];
-          }
-        });
-
-        // Apply force with constraints
-        const newX = pos.x + forceX;
-        const newY = pos.y + forceY;
-
-        // Project movement onto axes
-        const origDx = newX - pos.original.x;
-        const origDy = newY - pos.original.y;
-        const parallelShift = origDx * dominantDir[0] + origDy * dominantDir[1];
-        const perpShift = origDx * perpDir[0] + origDy * perpDir[1];
-
-        // Clamp to max shifts
-        const clampedParallel = Math.max(-MAX_PARALLEL_SHIFT, Math.min(MAX_PARALLEL_SHIFT, parallelShift));
-        const clampedPerp = Math.max(-MAX_PERPENDICULAR_CORRECTION, Math.min(MAX_PERPENDICULAR_CORRECTION, perpShift));
-
-        // Reconstruct position
-        pos.x = pos.original.x + clampedParallel * dominantDir[0] + clampedPerp * perpDir[0] + biasX;
-        pos.y = pos.original.y + clampedParallel * dominantDir[1] + clampedPerp * perpDir[1] + biasY;
-      });
-    }
-
-    // Step 5: Apply movement caps and preserve relative ordering
-    workingPositions.forEach(pos => {
-      const totalDx = pos.x - pos.original.x;
-      const totalDy = pos.y - pos.original.y;
-      const totalDist = Math.sqrt(totalDx * totalDx + totalDy * totalDy);
-
-      if (totalDist > 140) {
-        const scale = 140 / totalDist;
-        pos.x = pos.original.x + totalDx * scale;
-        pos.y = pos.original.y + totalDy * scale;
+    // Step D: Enforce minimum spacing (no overlap allowed)
+    const MIN_GAP = 22; // Average of 18-28px
+    const workingPositions = [];
+    
+    // Position first entry at its projected location
+    let prevEnd = projected[0].projection;
+    
+    projected.forEach((bbox, index) => {
+      let currentPos;
+      
+      if (index === 0) {
+        // Keep first entry at original projection
+        currentPos = bbox.projection;
+      } else {
+        // Ensure minimum spacing from previous entry
+        const entrySize = isHorizontal ? bbox.width : bbox.height;
+        const desiredPos = bbox.projection;
+        const minPos = prevEnd + MIN_GAP;
+        
+        currentPos = Math.max(desiredPos, minPos);
       }
+      
+      // Calculate new world coordinates
+      const entrySize = isHorizontal ? bbox.width : bbox.height;
+      const newX = currentPos * layoutAxis[0] + (bbox.x - bbox.projection * layoutAxis[0]);
+      const newY = currentPos * layoutAxis[1] + (bbox.y - bbox.projection * layoutAxis[1]);
+      
+      workingPositions.push({
+        id: bbox.id,
+        x: newX,
+        y: newY,
+        width: bbox.width,
+        height: bbox.height,
+        original: bbox.original
+      });
+      
+      prevEnd = currentPos + entrySize;
+    });
 
+    // Step E: Organic variation (small perpendicular jitter)
+    const perpJitter = (Math.random() - 0.5) * 20; // 10-14px range, shared direction
+    const perpJitterDir = Math.random() > 0.5 ? 1 : -1;
+    
+    workingPositions.forEach(pos => {
+      const jitterAmount = (Math.random() * 6 + 8) * perpJitterDir; // 8-14px in same direction
+      pos.x += layoutPerp[0] * jitterAmount;
+      pos.y += layoutPerp[1] * jitterAmount;
+    });
+
+    // Step F: Movement caps
+    const MAX_MOVEMENT = 120;
+    
+    workingPositions.forEach(pos => {
+      const dx = pos.x - pos.original.x;
+      const dy = pos.y - pos.original.y;
+      const totalDist = Math.sqrt(dx * dx + dy * dy);
+      
+      if (totalDist > MAX_MOVEMENT) {
+        const scale = MAX_MOVEMENT / totalDist;
+        pos.x = pos.original.x + dx * scale;
+        pos.y = pos.original.y + dy * scale;
+      }
+      
       alignedEntries.push({
         id: pos.id,
         position: { x: pos.x, y: pos.y },
@@ -3480,8 +3520,8 @@ async function organizeEntriesIntoHubs() {
     const endX = position.x;
     const endY = position.y;
 
-    // Animate over 800ms with ease-out
-    const duration = 800;
+    // Step G: Animate over 700-900ms with ease-out
+    const duration = 700 + Math.random() * 200;
     const startTime = performance.now();
 
     function animate(currentTime) {
@@ -3529,7 +3569,7 @@ async function organizeEntriesIntoHubs() {
     } catch (error) {
       console.error('Error saving aligned positions:', error);
     }
-  }, 850); // Slightly after animation completes
+  }, 950); // Slightly after animation completes (max 900ms + buffer)
 }
 
 // Help modal functionality
