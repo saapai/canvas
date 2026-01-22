@@ -3030,6 +3030,7 @@ editor.addEventListener('keydown', (e) => {
   if (autocomplete && !autocomplete.classList.contains('hidden')) {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
+      autocompleteKeyboardNavigation = true; // User is using keyboard to navigate
       autocompleteSelectedIndex = Math.min(autocompleteSelectedIndex + 1, autocompleteResults.length - 1);
       updateAutocompleteSelection();
       const selectedItem = autocomplete.querySelector(`[data-index="${autocompleteSelectedIndex}"]`);
@@ -3039,10 +3040,12 @@ editor.addEventListener('keydown', (e) => {
       return;
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
+      autocompleteKeyboardNavigation = true; // User is using keyboard to navigate
       autocompleteSelectedIndex = Math.max(autocompleteSelectedIndex - 1, -1);
       updateAutocompleteSelection();
       return;
-    } else if (e.key === 'Enter' && autocompleteSelectedIndex >= 0 && !e.shiftKey) {
+    } else if (e.key === 'Enter' && autocompleteSelectedIndex >= 0 && !e.shiftKey && autocompleteKeyboardNavigation) {
+      // Only select on Enter if user explicitly navigated with keyboard (not just hover)
       e.preventDefault();
       selectAutocompleteResult(autocompleteResults[autocompleteSelectedIndex]);
       return;
@@ -3191,8 +3194,8 @@ editor.addEventListener('keydown', (e) => {
   
   // Handle Enter key
   if(e.key === 'Enter'){
-    // If autocomplete is showing and something is selected, let it handle Enter
-    if (autocomplete && !autocomplete.classList.contains('hidden') && autocompleteSelectedIndex >= 0) {
+    // If autocomplete is showing and something is selected via keyboard navigation, let it handle Enter
+    if (autocomplete && !autocomplete.classList.contains('hidden') && autocompleteSelectedIndex >= 0 && autocompleteKeyboardNavigation) {
       // Autocomplete will handle this
       return;
     }
@@ -3419,6 +3422,7 @@ function getWidestLineWidth(element) {
 let autocompleteSearchTimeout = null;
 let autocompleteSelectedIndex = -1;
 let autocompleteResults = [];
+let autocompleteKeyboardNavigation = false; // Track if user used arrow keys to navigate
 
 // Update editor width and entry border dimensions as content changes
 editor.addEventListener('input', () => {
@@ -4089,6 +4093,7 @@ function showAutocomplete(results) {
 
   autocomplete.innerHTML = '';
   autocompleteSelectedIndex = -1;
+  autocompleteKeyboardNavigation = false; // Reset keyboard navigation flag
 
   results.forEach((result, index) => {
     const item = document.createElement('div');
@@ -4128,6 +4133,7 @@ function showAutocomplete(results) {
 
     item.addEventListener('mouseenter', () => {
       autocompleteSelectedIndex = index;
+      autocompleteKeyboardNavigation = false; // Mouse hover doesn't count as keyboard navigation
       updateAutocompleteSelection();
     });
 
@@ -4175,6 +4181,7 @@ function hideAutocomplete() {
   autocomplete.innerHTML = '';
   autocompleteResults = [];
   autocompleteSelectedIndex = -1;
+  autocompleteKeyboardNavigation = false; // Reset keyboard navigation flag
   autocompleteIsShowing = false;
 }
 
