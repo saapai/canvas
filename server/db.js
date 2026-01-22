@@ -17,8 +17,6 @@ function getPool() {
     }
 
     // Always enable SSL but do not reject self-signed certificates.
-    // This matches the working pattern:
-    // new Pool({ connectionString, ssl: { rejectUnauthorized: false } })
     pool = new Pool({
       connectionString,
       ssl: { rejectUnauthorized: false }
@@ -33,9 +31,10 @@ export async function initDatabase() {
   try {
     const db = getPool();
     
+    // MATCHES PRODUCTION SCHEMA - DO NOT CHANGE
     await db.query(`
       CREATE TABLE IF NOT EXISTS users (
-        id SERIAL PRIMARY KEY,
+        id TEXT PRIMARY KEY,
         phone TEXT NOT NULL,
         username TEXT UNIQUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -49,9 +48,12 @@ export async function initDatabase() {
         position_x REAL NOT NULL,
         position_y REAL NOT NULL,
         parent_entry_id TEXT,
-        user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        user_id TEXT,
+        link_cards_data JSONB,
+        media_card_data JSONB,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        deleted_at TIMESTAMP
       );
     `);
 
@@ -62,6 +64,11 @@ export async function initDatabase() {
         expires_at TIMESTAMP NOT NULL
       );
     `);
+    
+    // Create index on phone for lookups (since we removed UNIQUE constraint)
+    await db.query(`
+      CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone);
+    `);
 
     await db.query(`
       CREATE INDEX IF NOT EXISTS idx_parent_entry_id ON entries(parent_entry_id);
@@ -70,42 +77,41 @@ export async function initDatabase() {
       CREATE INDEX IF NOT EXISTS idx_entries_user_id ON entries(user_id);
     `);
     await db.query(`
-      CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
-    `);
-    await db.query(`
-      CREATE INDEX IF NOT EXISTS idx_users_phone ON users(phone);
-    `);
-    await db.query(`
       CREATE INDEX IF NOT EXISTS idx_phone_verification_phone ON phone_verification_codes(phone);
     `);
 
-    // Remove UNIQUE constraint from phone column if it exists (migration for multi-username support)
+    // Add columns if they don't exist (migration for existing databases)
     try {
-      // First, check if the constraint exists
-      const constraintCheck = await db.query(`
-        SELECT constraint_name 
-        FROM information_schema.table_constraints 
-        WHERE table_name = 'users' 
-          AND constraint_type = 'UNIQUE' 
-          AND constraint_name LIKE '%phone%';
+      await db.query(`
+        ALTER TABLE entries 
+        ADD COLUMN IF NOT EXISTS link_cards_data JSONB;
       `);
-      
-      if (constraintCheck.rows.length > 0) {
-        for (const row of constraintCheck.rows) {
-          await db.query(`ALTER TABLE users DROP CONSTRAINT IF EXISTS ${row.constraint_name};`);
-          console.log(`Dropped constraint: ${row.constraint_name}`);
-        }
-      }
     } catch (error) {
-      // Constraint might not exist, ignore error
-      console.log('Note: phone unique constraint migration:', error.message);
+      console.log('Note: link_cards_data column check:', error.message);
+    }
+
+    try {
+      await db.query(`
+        ALTER TABLE entries 
+        ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP;
+      `);
+    } catch (error) {
+      console.log('Note: deleted_at column check:', error.message);
+    }
+
+    try {
+      await db.query(`
+        ALTER TABLE entries 
+        ADD COLUMN IF NOT EXISTS media_card_data JSONB;
+      `);
+    } catch (error) {
+      console.log('Note: media_card_data column check:', error.message);
     }
 
     dbInitialized = true;
     console.log('Database initialized successfully');
   } catch (error) {
     console.error('Error initializing database:', error);
-    // Don't throw - allow app to continue (database might already exist)
     dbInitialized = true;
   }
 }
@@ -114,9 +120,9 @@ export async function getAllEntries(userId) {
   try {
     const db = getPool();
     const result = await db.query(
-      `SELECT id, text, position_x, position_y, parent_entry_id
+      `SELECT id, text, position_x, position_y, parent_entry_id, link_cards_data, media_card_data
        FROM entries
-       WHERE user_id = $1
+       WHERE user_id = $1 AND deleted_at IS NULL
        ORDER BY created_at ASC`,
       [userId]
     );
@@ -125,7 +131,8 @@ export async function getAllEntries(userId) {
       text: row.text,
       position: { x: row.position_x, y: row.position_y },
       parentEntryId: row.parent_entry_id || null,
-      cardData: null
+      linkCardsData: row.link_cards_data || null,
+      mediaCardData: row.media_card_data || null
     }));
   } catch (error) {
     console.error('Error fetching entries:', error);
@@ -139,7 +146,7 @@ export async function getEntryById(id, userId) {
     const result = await db.query(
       `SELECT id, text, position_x, position_y, parent_entry_id
        FROM entries
-       WHERE id = $1 AND user_id = $2`,
+       WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
       [id, userId]
     );
     if (result.rows.length === 0) {
@@ -160,10 +167,21 @@ export async function getEntryById(id, userId) {
 
 export async function saveEntry(entry) {
   try {
+    console.log('[DB] saveEntry called:', {
+      id: entry.id,
+      text: entry.text?.substring(0, 50),
+      userId: entry.userId,
+      hasMedia: !!entry.mediaCardData,
+      hasLink: !!entry.linkCardsData
+    });
+    
     const db = getPool();
-    await db.query(
-      `INSERT INTO entries (id, text, position_x, position_y, parent_entry_id, user_id, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+    const linkCardsData = entry.linkCardsData ? JSON.stringify(entry.linkCardsData) : null;
+    const mediaCardData = entry.mediaCardData ? JSON.stringify(entry.mediaCardData) : null;
+    
+    const result = await db.query(
+      `INSERT INTO entries (id, text, position_x, position_y, parent_entry_id, user_id, link_cards_data, media_card_data, updated_at, deleted_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, NULL)
        ON CONFLICT (id) 
        DO UPDATE SET 
          text = EXCLUDED.text,
@@ -171,23 +189,42 @@ export async function saveEntry(entry) {
          position_y = EXCLUDED.position_y,
          parent_entry_id = EXCLUDED.parent_entry_id,
          user_id = EXCLUDED.user_id,
+         link_cards_data = EXCLUDED.link_cards_data,
+         media_card_data = EXCLUDED.media_card_data,
+         deleted_at = NULL,
          updated_at = CURRENT_TIMESTAMP`,
-      [entry.id, entry.text, entry.position.x, entry.position.y, entry.parentEntryId || null, entry.userId]
+      [entry.id, entry.text, entry.position.x, entry.position.y, entry.parentEntryId || null, entry.userId, linkCardsData, mediaCardData]
     );
+    
+    console.log('[DB] saveEntry successful:', entry.id, 'rowCount:', result.rowCount);
     return entry;
   } catch (error) {
-    console.error('Error saving entry:', error);
+    console.error('[DB] Error saving entry:', entry.id, error);
     throw error;
   }
 }
 
+// CRITICAL: SOFT DELETE ONLY - NEVER HARD DELETE
 export async function deleteEntry(id, userId) {
   try {
     const db = getPool();
-    await db.query(
-      `DELETE FROM entries WHERE id = $1 AND user_id = $2`,
+    console.log('[DB] SOFT DELETING entry:', id, 'for user:', userId);
+    
+    // Soft delete: set deleted_at timestamp instead of actually deleting
+    const result = await db.query(
+      `UPDATE entries 
+       SET deleted_at = CURRENT_TIMESTAMP 
+       WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+       RETURNING id, text`,
       [id, userId]
     );
+    
+    if (result.rows.length > 0) {
+      console.log('[DB] Successfully soft-deleted:', result.rows[0]);
+    } else {
+      console.log('[DB] Entry not found or already deleted:', id);
+    }
+    
     return true;
   } catch (error) {
     console.error('Error deleting entry:', error);
@@ -205,9 +242,11 @@ export async function saveAllEntries(entries, userId) {
       await client.query('BEGIN');
       
       for (const entry of entries) {
+        const linkCardsData = entry.linkCardsData ? JSON.stringify(entry.linkCardsData) : null;
+        const mediaCardData = entry.mediaCardData ? JSON.stringify(entry.mediaCardData) : null;
         await client.query(
-          `INSERT INTO entries (id, text, position_x, position_y, parent_entry_id, user_id, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, CURRENT_TIMESTAMP)
+          `INSERT INTO entries (id, text, position_x, position_y, parent_entry_id, user_id, link_cards_data, media_card_data, updated_at, deleted_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, NULL)
            ON CONFLICT (id) 
            DO UPDATE SET 
              text = EXCLUDED.text,
@@ -215,8 +254,11 @@ export async function saveAllEntries(entries, userId) {
              position_y = EXCLUDED.position_y,
              parent_entry_id = EXCLUDED.parent_entry_id,
              user_id = EXCLUDED.user_id,
+             link_cards_data = EXCLUDED.link_cards_data,
+             media_card_data = EXCLUDED.media_card_data,
+             deleted_at = NULL,
              updated_at = CURRENT_TIMESTAMP`,
-          [entry.id, entry.text, entry.position.x, entry.position.y, entry.parentEntryId || null, userId]
+          [entry.id, entry.text, entry.position.x, entry.position.y, entry.parentEntryId || null, userId, linkCardsData, mediaCardData]
         );
       }
       
@@ -255,7 +297,6 @@ export async function getUserById(id) {
 export async function getUserByPhone(phone) {
   try {
     const db = getPool();
-    // Normalize phone by removing spaces
     const normalizedPhone = phone.replace(/\s/g, '');
     
     const result = await db.query(
@@ -275,10 +316,8 @@ export async function getUserByPhone(phone) {
 export async function getUsersByPhone(phone) {
   try {
     const db = getPool();
-    // Normalize phone by removing spaces and other non-digit characters except +
     const normalizedPhone = phone.replace(/\s/g, '');
     
-    // Search for phone numbers that match when normalized (spaces removed)
     const result = await db.query(
       `SELECT id, phone, username
        FROM users
@@ -314,19 +353,21 @@ export async function getEntriesByUsername(username) {
   try {
     const db = getPool();
     const result = await db.query(
-      `SELECT e.id, e.text, e.position_x, e.position_y, e.parent_entry_id, e.created_at
+      `SELECT e.id, e.text, e.position_x, e.position_y, e.parent_entry_id, e.link_cards_data, e.media_card_data, e.created_at
        FROM entries e
        JOIN users u ON e.user_id = u.id
-       WHERE u.username = $1
+       WHERE u.username = $1 AND e.deleted_at IS NULL
        ORDER BY e.created_at ASC`,
       [username]
     );
+    console.log(`[DB] getEntriesByUsername(${username}) found ${result.rows.length} entries`);
     return result.rows.map(row => ({
       id: row.id,
       text: row.text,
       position: { x: row.position_x, y: row.position_y },
       parentEntryId: row.parent_entry_id || null,
-      cardData: null,
+      linkCardsData: row.link_cards_data || null,
+      mediaCardData: row.media_card_data || null,
       createdAt: row.created_at
     }));
   } catch (error) {
@@ -447,4 +488,86 @@ export async function verifyPhoneCode(phone, code) {
     console.error('Error verifying phone code:', error);
     throw error;
   }
+}
+
+// Aggregate stats for dashboard
+export async function getStats() {
+  const db = getPool();
+
+  const slugExpr = `
+    regexp_replace(
+      regexp_replace(
+        regexp_replace(lower(text), '[^a-z0-9\\s-]', '', 'g'),
+        '\\\\s+',
+        '-',
+        'g'
+      ),
+      '-+$',
+      '',
+      'g'
+    )
+  `;
+
+  const [
+    totalUsersRes,
+    totalEntriesRes,
+    dailyNewUsersRes,
+    dailyNewEntriesRes,
+    dailyActiveUsersRes,
+    leaderboardRes
+  ] = await Promise.all([
+    db.query(`SELECT COUNT(*)::int AS count FROM users`),
+    db.query(`SELECT COUNT(*)::int AS count FROM entries WHERE deleted_at IS NULL`),
+    db.query(`
+      SELECT TO_CHAR(DATE(created_at), 'YYYY-MM-DD') AS date, COUNT(*)::int AS count
+      FROM users
+      GROUP BY DATE(created_at)
+      ORDER BY DATE(created_at) ASC
+    `),
+    db.query(`
+      SELECT TO_CHAR(DATE(created_at), 'YYYY-MM-DD') AS date, COUNT(*)::int AS count
+      FROM entries
+      WHERE deleted_at IS NULL
+      GROUP BY DATE(created_at)
+      ORDER BY DATE(created_at) ASC
+    `),
+    db.query(`
+      SELECT TO_CHAR(DATE(created_at), 'YYYY-MM-DD') AS date, COUNT(DISTINCT user_id)::int AS count
+      FROM entries
+      WHERE user_id IS NOT NULL AND deleted_at IS NULL
+      GROUP BY DATE(created_at)
+      ORDER BY DATE(created_at) ASC
+    `),
+    db.query(`
+      SELECT
+        u.id,
+        u.username,
+        u.created_at,
+        COUNT(e.id) FILTER (WHERE e.deleted_at IS NULL)::int AS entry_count,
+        COUNT(e.id)::int AS total_entries_made,
+        COUNT(e.id) FILTER (WHERE e.deleted_at IS NOT NULL)::int AS entries_deleted,
+        COUNT(DISTINCT ${slugExpr})::int AS unique_pages
+      FROM users u
+      LEFT JOIN entries e ON e.user_id = u.id
+      GROUP BY u.id
+      ORDER BY entry_count DESC, u.created_at ASC
+      LIMIT 50
+    `)
+  ]);
+
+  const totalUsers = totalUsersRes.rows[0]?.count || 0;
+  const totalEntries = totalEntriesRes.rows[0]?.count || 0;
+  const avgEntriesPerUser = totalUsers === 0 ? 0 : +(totalEntries / totalUsers).toFixed(2);
+
+  return {
+    totals: {
+      users: totalUsers,
+      entries: totalEntries,
+      avgEntriesPerUser
+    },
+    dailyNewUsers: dailyNewUsersRes.rows,
+    dailyNewEntries: dailyNewEntriesRes.rows,
+    dailyActiveUsers: dailyActiveUsersRes.rows,
+    leaderboard: leaderboardRes.rows
+  };
 }

@@ -236,13 +236,32 @@ export async function saveEntry(entry) {
 export async function deleteEntry(id, userId) {
   try {
     const db = getPool();
-    // Soft delete: set deleted_at timestamp instead of actually deleting
-    await db.query(
-      `UPDATE entries 
-       SET deleted_at = CURRENT_TIMESTAMP 
-       WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
+    
+    // Get entry data before deletion for audit log
+    const entryResult = await db.query(
+      `SELECT id, text, user_id FROM entries WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL`,
       [id, userId]
     );
+    
+    // Soft delete: set deleted_at timestamp instead of actually deleting
+    const result = await db.query(
+      `UPDATE entries 
+       SET deleted_at = CURRENT_TIMESTAMP 
+       WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+       RETURNING id, text`,
+      [id, userId]
+    );
+    
+    if (result.rows.length > 0) {
+      console.log('[DELETION LOG]', {
+        timestamp: new Date().toISOString(),
+        action: 'SOFT_DELETE',
+        entry_id: id,
+        user_id: userId,
+        entry_text: result.rows[0].text?.substring(0, 100)
+      });
+    }
+    
     return true;
   } catch (error) {
     console.error('Error deleting entry:', error);

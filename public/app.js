@@ -42,6 +42,17 @@ const anchorPos = { x: 0, y: 0 };
 const entries = new Map();
 let entryIdCounter = 0;
 
+// Generate user-specific entry ID to prevent overwrites
+function generateEntryId() {
+  if (!currentUser || !currentUser.id) {
+    // Fallback to old format if no user (shouldn't happen in normal flow)
+    return `entry-${entryIdCounter++}`;
+  }
+  // Use first 8 chars of user ID + entry counter
+  const userPrefix = currentUser.id.substring(0, 8);
+  return `${userPrefix}-entry-${entryIdCounter++}`;
+}
+
 // Selection state
 let selectedEntries = new Set();
 let isSelecting = false;
@@ -1827,7 +1838,7 @@ async function commitEditor(){
     return;
   }
 
-  const entryId = `entry-${entryIdCounter++}`;
+  const entryId = generateEntryId();
   const entry = document.createElement('div');
   entry.className = 'entry melt';
   entry.id = entryId;
@@ -4098,7 +4109,7 @@ function selectSearchResult(result) {
   // Convert viewport coordinates to world coordinates
   const worldPos = screenToWorld(viewportCenterX, viewportCenterY);
   
-  const entryId = `entry-${entryIdCounter++}`;
+  const entryId = generateEntryId();
   const entry = document.createElement('div');
   entry.className = 'entry melt';
   entry.id = entryId;
@@ -4349,7 +4360,7 @@ function selectAutocompleteResult(result) {
   // Create new entry with media card
   const worldPos = editorWorldPos;
   
-  const entryId = `entry-${entryIdCounter++}`;
+  const entryId = generateEntryId();
   const entry = document.createElement('div');
   entry.className = 'entry melt';
   entry.id = entryId;
