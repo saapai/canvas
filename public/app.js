@@ -116,6 +116,7 @@ async function handleSendCode() {
   try {
     const res = await fetch('/api/auth/send-code', {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ phone })
     });
@@ -157,6 +158,7 @@ async function handleVerifyCode() {
   try {
     const res = await fetch('/api/auth/verify-code', {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ phone, code })
     });
@@ -265,6 +267,7 @@ async function handleContinueUsername() {
       // User wants to create a new username
       const res = await fetch('/api/auth/create-new-user', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone: verifiedPhone })
       });
@@ -288,6 +291,7 @@ async function handleContinueUsername() {
       // User selected an existing username
       const res = await fetch('/api/auth/select-username', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: selectedValue })
       });
@@ -324,6 +328,7 @@ async function handleSaveUsername() {
   try {
     const res = await fetch('/api/auth/set-username', {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username })
     });
@@ -477,7 +482,7 @@ async function bootstrap() {
   setAnchorGreeting();
   
   try {
-    const res = await fetch('/api/auth/me');
+    const res = await fetch('/api/auth/me', { credentials: 'include' });
     let isLoggedIn = false;
     
     if (res.ok) {
@@ -758,6 +763,16 @@ async function loadUserEntries(username, editable) {
 }
 
 // Persistence functions
+function handleAuthFailure(response) {
+  if (response.status === 401) {
+    console.error('[Auth] Authentication required - edits will not persist.');
+    isReadOnly = true;
+    if (typeof showAuthOverlay === 'function') {
+      showAuthOverlay();
+    }
+  }
+}
+
 async function saveEntryToServer(entryData) {
   if (isReadOnly) {
     console.warn('Cannot save entry: read-only mode');
@@ -767,6 +782,7 @@ async function saveEntryToServer(entryData) {
   try {
     const response = await fetch('/api/entries', {
       method: 'POST',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json'
       },
@@ -781,6 +797,9 @@ async function saveEntryToServer(entryData) {
     });
     
     if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      console.error('Failed to save entry:', response.status, errorText);
+      handleAuthFailure(response);
       throw new Error('Failed to save entry');
     }
     
@@ -801,6 +820,7 @@ async function updateEntryOnServer(entryData) {
   try {
     const response = await fetch(`/api/entries/${entryData.id}`, {
       method: 'PUT',
+      credentials: 'include',
       headers: {
         'Content-Type': 'application/json'
       },
@@ -814,6 +834,9 @@ async function updateEntryOnServer(entryData) {
     });
     
     if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      console.error('Failed to update entry:', response.status, errorText);
+      handleAuthFailure(response);
       throw new Error('Failed to update entry');
     }
     
@@ -882,10 +905,14 @@ async function deleteEntryFromServer(entryId) {
   
   try {
     const response = await fetch(`/api/entries/${entryId}`, {
-      method: 'DELETE'
+      method: 'DELETE',
+      credentials: 'include'
     });
     
     if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      console.error('Failed to delete entry:', response.status, errorText);
+      handleAuthFailure(response);
       throw new Error('Failed to delete entry');
     }
     
@@ -941,7 +968,7 @@ async function deleteEntryWithConfirmation(entryId, skipConfirmation = false) {
 
 async function loadEntriesFromServer() {
   try {
-    const response = await fetch('/api/entries');
+    const response = await fetch('/api/entries', { credentials: 'include' });
     
     if (!response.ok) {
       throw new Error('Failed to load entries');
@@ -3748,6 +3775,7 @@ async function organizeEntriesIntoHubs() {
     try {
       await fetch('/api/entries/batch', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ entries: entriesToSave })
       });
