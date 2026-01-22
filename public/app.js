@@ -775,7 +775,8 @@ async function saveEntryToServer(entryData) {
         text: entryData.text,
         position: entryData.position,
         parentEntryId: entryData.parentEntryId,
-        linkCardsData: entryData.linkCardsData || null
+        linkCardsData: entryData.linkCardsData || null,
+        mediaCardData: entryData.mediaCardData || null
       })
     });
     
@@ -807,7 +808,8 @@ async function updateEntryOnServer(entryData) {
         text: entryData.text,
         position: entryData.position,
         parentEntryId: entryData.parentEntryId,
-        linkCardsData: entryData.linkCardsData || null
+        linkCardsData: entryData.linkCardsData || null,
+        mediaCardData: entryData.mediaCardData || null
       })
     });
     
@@ -2450,8 +2452,9 @@ viewport.addEventListener('mousedown', (e) => {
   }
   
   if(entryEl) {
-    // Only prepare for drag if Shift is held (for shift+drag to move)
-    if(e.shiftKey) {
+    // Prepare for drag if Shift is held OR if entry is in selection
+    const isEntrySelected = selectedEntries.has(entryEl.id);
+    if(e.shiftKey || isEntrySelected) {
       e.preventDefault();
       e.stopPropagation(); // Stop event from being handled elsewhere
       draggingEntry = entryEl;
@@ -2558,28 +2561,53 @@ viewport.addEventListener('mousemove', (e) => {
       const newX = mouseWorldPos.x - dragOffset.x;
       const newY = mouseWorldPos.y - dragOffset.y;
       
-      draggingEntry.style.left = `${newX}px`;
-      draggingEntry.style.top = `${newY}px`;
-      
-      // Update stored position
+      // If dragging a selected entry, move all selected entries
       const entryId = draggingEntry.id;
-      if(entryId === 'anchor') {
-        anchorPos.x = newX;
-        anchorPos.y = newY;
-      } else {
+      const isDraggingSelected = selectedEntries.has(entryId);
+      
+      if(isDraggingSelected && selectedEntries.size > 1) {
+        // Calculate drag delta
         const entryData = entries.get(entryId);
         if(entryData) {
-          entryData.position = { x: newX, y: newY };
-          // Debounce position saves to avoid too many server requests
-          if (entryData.positionSaveTimeout) {
-            clearTimeout(entryData.positionSaveTimeout);
+          const deltaX = newX - entryData.position.x;
+          const deltaY = newY - entryData.position.y;
+          
+          // Move all selected entries by the same delta
+          selectedEntries.forEach(selectedId => {
+            const selectedData = entries.get(selectedId);
+            if(selectedData && selectedData.element) {
+              const selectedNewX = selectedData.position.x + deltaX;
+              const selectedNewY = selectedData.position.y + deltaY;
+              selectedData.element.style.left = `${selectedNewX}px`;
+              selectedData.element.style.top = `${selectedNewY}px`;
+              selectedData.position = { x: selectedNewX, y: selectedNewY };
+            }
+          });
+        }
+      } else {
+        // Just move the single entry
+        draggingEntry.style.left = `${newX}px`;
+        draggingEntry.style.top = `${newY}px`;
+        
+        // Update stored position
+        if(entryId === 'anchor') {
+          anchorPos.x = newX;
+          anchorPos.y = newY;
+        } else {
+          const entryData = entries.get(entryId);
+          if(entryData) {
+            entryData.position = { x: newX, y: newY };
+            // Debounce position saves to avoid too many server requests
+            if (entryData.positionSaveTimeout) {
+              clearTimeout(entryData.positionSaveTimeout);
+            }
+            entryData.positionSaveTimeout = setTimeout(() => {
+              updateEntryOnServer(entryData).catch(err => {
+                console.error('Error saving position:', err);
+              });
+              entryData.positionSaveTimeout = null;
+            }, 300); // Wait 300ms after dragging stops before saving
           }
-          entryData.positionSaveTimeout = setTimeout(() => {
-            updateEntryOnServer(entryData).catch(err => {
-              console.error('Error saving position:', err);
-            });
-            entryData.positionSaveTimeout = null;
-          }, 300); // Wait 300ms after dragging stops before saving
         }
       }
     }
@@ -2718,6 +2746,11 @@ window.addEventListener('mouseup', (e) => {
       const dist = Math.hypot(e.clientX - clickStart.x, e.clientY - clickStart.y);
       const dt = performance.now() - clickStart.t;
       if(dist < 6 && dt < 350 && !isClick){
+        // Clear selection if clicking on empty space (no shift key)
+        if (!e.shiftKey && selectedEntries.size > 0) {
+          clearSelection();
+        }
+        
         const w = screenToWorld(e.clientX, e.clientY);
         placeEditorAtWorld(w.x, w.y);
       }
@@ -2942,6 +2975,15 @@ editor.addEventListener('keydown', (e) => {
   
   // Handle Enter key
   if(e.key === 'Enter'){
+    // If autocomplete is showing and something is selected, let it handle Enter
+    if (autocomplete && !autocomplete.classList.contains('hidden') && autocompleteSelectedIndex >= 0) {
+      // Autocomplete will handle this
+      return;
+    }
+    
+    // Hide autocomplete when Enter is pressed to commit
+    hideAutocomplete();
+    
     // Command/Ctrl+Enter always saves, regardless of bullets
     if(e.metaKey || e.ctrlKey) {
       e.preventDefault();
@@ -4052,7 +4094,7 @@ function selectEntriesInBox(minX, minY, maxX, maxY) {
   // Clear previous selection
   clearSelection();
   
-  // Check each entry to see if it's within the box
+  // Check each entry to see if it touches the box (not just fully contained)
   entries.forEach((entryData, entryId) => {
     if (entryId === 'anchor') return;
     
@@ -4060,10 +4102,15 @@ function selectEntriesInBox(minX, minY, maxX, maxY) {
     if (!entry || entry.style.display === 'none') return;
     
     const rect = entry.getBoundingClientRect();
-    const entryWorld = screenToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    // Convert entry corners to world coordinates
+    const entryTopLeft = screenToWorld(rect.left, rect.top);
+    const entryBottomRight = screenToWorld(rect.right, rect.bottom);
     
-    if (entryWorld.x >= minX && entryWorld.x <= maxX && 
-        entryWorld.y >= minY && entryWorld.y <= maxY) {
+    // Check if entry overlaps with selection box (AABB collision)
+    const overlaps = !(entryBottomRight.x < minX || entryTopLeft.x > maxX || 
+                       entryBottomRight.y < minY || entryTopLeft.y > maxY);
+    
+    if (overlaps) {
       selectedEntries.add(entryId);
       entry.classList.add('selected');
     }
