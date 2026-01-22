@@ -1277,10 +1277,11 @@ function zoomToFitEntries() {
 }
 
 // Check if a duplicate entry exists at the current directory level
-function findDuplicateEntry(text, parentEntryId) {
+function findDuplicateEntry(text, parentEntryId, excludeEntryId = null) {
   const normalizedText = text.trim().toLowerCase();
   for (const [entryId, entryData] of entries.entries()) {
     if (entryId === 'anchor') continue;
+    if (entryId === excludeEntryId) continue; // Exclude the entry being edited
     if (!entryData || !entryData.text) continue;
     
     // Check if same parent directory level
@@ -1802,8 +1803,16 @@ async function commitEditor(){
         }
       }, 150);
       
-      // Save to server
-      updateEntryOnServer(entryData);
+      // Save to server - ensure update completes before clearing editing state
+      // This prevents duplicates if page reloads before update completes
+      try {
+        await updateEntryOnServer(entryData);
+        console.log('[COMMIT] Entry updated successfully:', entryData.id);
+      } catch (error) {
+        console.error('[COMMIT] Failed to update entry:', error);
+        // Don't clear editing state on error - let user retry
+        return;
+      }
       
       editor.textContent = '';
       editor.style.display = 'none';
@@ -1825,7 +1834,8 @@ async function commitEditor(){
   }
 
   // Check for duplicate entry at the same directory level
-  const duplicateId = findDuplicateEntry(trimmedRight, currentViewEntryId);
+  // BUT: If we're editing an existing entry, exclude it from duplicate check
+  const duplicateId = findDuplicateEntry(trimmedRight, currentViewEntryId, editingEntryId);
   if (duplicateId) {
     // Don't create duplicate - just clear editor
     editor.textContent = '';
@@ -2436,7 +2446,7 @@ function createLinkCard(cardData) {
     const entryText = cardData.url;
     
     // Check for duplicate entry at the same directory level
-    const duplicateId = findDuplicateEntry(entryText, currentViewEntryId);
+    const duplicateId = findDuplicateEntry(entryText, currentViewEntryId, null);
     if (duplicateId) {
       // Navigate to existing entry instead of creating duplicate
       navigateToEntry(duplicateId);
@@ -3937,32 +3947,38 @@ function handleAutocompleteSearch() {
 }
 
 // Check if a result is relevant to the query
+// Returns true only if ALL meaningful words from query match the result
 function isRelevantMatch(query, result) {
   const queryLower = query.toLowerCase().trim();
   const titleLower = (result.title || '').toLowerCase();
   const artistLower = (result.artist || '').toLowerCase();
   
+  // Combine title and artist for matching
+  const combinedText = `${titleLower} ${artistLower}`;
+  
   // Extract meaningful words from query (ignore common words)
-  const queryWords = queryLower.split(/\s+/).filter(word => 
-    word.length > 2 && 
-    !['the', 'and', 'or', 'for', 'with', 'from', 'this', 'that'].includes(word)
-  );
+  const commonWords = ['the', 'and', 'or', 'for', 'with', 'from', 'this', 'that', 'like', 'there', 'there\'s', 'no', 'tomorrow', 'is', 'are', 'was', 'were', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'must'];
+  const queryWords = queryLower.split(/\s+/).filter(word => {
+    const cleaned = word.replace(/[^\w]/g, '');
+    return cleaned.length > 2 && !commonWords.includes(cleaned);
+  });
   
   // If query is very short or has no meaningful words, require exact match
   if (queryWords.length === 0) {
     return titleLower.includes(queryLower) || artistLower.includes(queryLower);
   }
   
-  // Check if at least one meaningful word from query appears in title or artist
-  const hasRelevantWord = queryWords.some(word => 
+  // STRICT: ALL meaningful words must appear in title OR artist
+  // This prevents showing results when there's extra unrelated text
+  const allWordsMatch = queryWords.every(word => 
     titleLower.includes(word) || artistLower.includes(word)
   );
   
-  // Also check if the query is a substring of title or artist (for exact matches)
+  // Also allow if the query is a substring of title or artist (for exact matches)
   const hasSubstringMatch = titleLower.includes(queryLower) || artistLower.includes(queryLower);
   
-  // Only show if there's a meaningful match
-  return hasRelevantWord || hasSubstringMatch;
+  // Only show if ALL words match OR it's a substring match
+  return allWordsMatch || hasSubstringMatch;
 }
 
 async function searchMedia(query) {
