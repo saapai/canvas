@@ -567,7 +567,8 @@ async function loadUserEntries(username, editable) {
     // Find the highest entry ID counter
     let maxCounter = 0;
     entriesData.forEach(entry => {
-      const match = entry.id.match(/^entry-(\d+)$/);
+      // Match both formats: "entry-N" and "xxxxxxxx-entry-N"
+      const match = entry.id.match(/entry-(\d+)$/);
       if (match) {
         const counter = parseInt(match[1], 10);
         if (counter > maxCounter) {
@@ -1005,7 +1006,8 @@ async function loadEntriesFromServer() {
     // Find the highest entry ID counter
     let maxCounter = 0;
     entriesData.forEach(entry => {
-      const match = entry.id.match(/^entry-(\d+)$/);
+      // Match both formats: "entry-N" and "xxxxxxxx-entry-N"
+      const match = entry.id.match(/entry-(\d+)$/);
       if (match) {
         const counter = parseInt(match[1], 10);
         if (counter > maxCounter) {
@@ -1670,6 +1672,8 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null){
     return;
   }
   
+  console.log('[EDITOR] placeEditorAtWorld called with entryId:', entryId, 'type:', typeof entryId);
+  
   editorWorldPos = { x: wx, y: wy };
   editingEntryId = entryId;
   
@@ -1745,9 +1749,11 @@ async function commitEditor(){
   // If editing an existing entry
   if(editingEntryId && editingEntryId !== 'anchor'){
     console.log('[COMMIT] Editing existing entry:', editingEntryId);
+    console.log('[COMMIT] Available entry IDs in Map:', Array.from(entries.keys()));
     const entryData = entries.get(editingEntryId);
     if(!entryData){
       console.warn('[COMMIT] Missing entry data for edit. Aborting edit to avoid duplicate:', editingEntryId);
+      console.warn('[COMMIT] Entry not found in Map. Available entries:', Array.from(entries.keys()).filter(id => id.includes('83')));
       editor.textContent = '';
       editor.style.display = 'none';
       editingEntryId = null;
