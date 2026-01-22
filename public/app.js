@@ -3249,7 +3249,7 @@ window.addEventListener('popstate', (event) => {
   }
 });
 
-// Hub-based organization algorithm
+// Gentle alignment algorithm - local, visual-only refinement
 async function organizeEntriesIntoHubs() {
   // Get all visible entries (current view level)
   const visibleEntries = Array.from(entries.values()).filter(e => {
@@ -3260,136 +3260,276 @@ async function organizeEntriesIntoHubs() {
 
   if (visibleEntries.length === 0) return;
 
-  // Calculate similarity scores between entries using text comparison
-  function calculateSimilarity(text1, text2) {
-    const words1 = text1.toLowerCase().split(/\s+/);
-    const words2 = text2.toLowerCase().split(/\s+/);
-    const set1 = new Set(words1);
-    const set2 = new Set(words2);
-    const intersection = new Set([...set1].filter(x => set2.has(x)));
-    const union = new Set([...set1, ...set2]);
-    return union.size > 0 ? intersection.size / union.size : 0;
-  }
-
-  // Count children for each entry
-  function countChildren(entryId) {
-    return Array.from(entries.values()).filter(e => e.parentEntryId === entryId).length;
-  }
-
-  // Build similarity matrix and calculate hub scores
-  const entryData = visibleEntries.map(e => {
-    const childCount = countChildren(e.id);
-    return {
-      id: e.id,
-      text: e.text || '',
-      element: e.element,
-      childCount,
-      hubScore: childCount * 2 + (e.text?.length || 0) / 10 // Favor entries with children and longer text
-    };
+  // Get viewport bounds in world coordinates
+  const viewportRect = viewport.getBoundingClientRect();
+  const margin = 0.2; // 20% margin
+  const marginX = viewportRect.width * margin;
+  const marginY = viewportRect.height * margin;
+  
+  // Convert viewport bounds to world coordinates
+  // Viewport screen coordinates (0,0) to (width, height) map to world coordinates
+  const topLeft = screenToWorld(-marginX, -marginY);
+  const bottomRight = screenToWorld(viewportRect.width + marginX, viewportRect.height + marginY);
+  
+  // Filter entries to only those in viewport + margin
+  const localEntries = visibleEntries.filter(e => {
+    const pos = e.position || { x: 0, y: 0 };
+    return pos.x >= topLeft.x && pos.x <= bottomRight.x &&
+           pos.y >= topLeft.y && pos.y <= bottomRight.y;
   });
 
-  // Sort by hub score to identify main hubs
-  entryData.sort((a, b) => b.hubScore - a.hubScore);
+  if (localEntries.length < 4) return; // Need at least 4 entries to form a group
 
-  // Identify hubs (top entries with high scores)
-  const numHubs = Math.min(Math.max(2, Math.ceil(entryData.length / 5)), 8);
-  const hubs = entryData.slice(0, numHubs);
-  const nonHubs = entryData.slice(numHubs);
+  // Step 1: Detect local neighborhoods (purely spatial)
+  const NEIGHBOR_RADIUS = 400;
+  const groups = [];
+  const processed = new Set();
 
-  // Assign non-hub entries to nearest hub based on similarity
-  const hubClusters = hubs.map(hub => ({
-    hub,
-    members: []
-  }));
+  localEntries.forEach(entry => {
+    if (processed.has(entry.id)) return;
 
-  nonHubs.forEach(entry => {
-    let bestHub = 0;
-    let bestSimilarity = -1;
-
-    hubs.forEach((hub, idx) => {
-      const similarity = calculateSimilarity(entry.text, hub.text);
-      if (similarity > bestSimilarity) {
-        bestSimilarity = similarity;
-        bestHub = idx;
-      }
+    const entryPos = entry.position || { x: 0, y: 0 };
+    const neighbors = localEntries.filter(other => {
+      if (other.id === entry.id || processed.has(other.id)) return false;
+      const otherPos = other.position || { x: 0, y: 0 };
+      const dx = otherPos.x - entryPos.x;
+      const dy = otherPos.y - entryPos.y;
+      return Math.sqrt(dx * dx + dy * dy) <= NEIGHBOR_RADIUS;
     });
 
-    hubClusters[bestHub].members.push(entry);
-  });
-
-  // Layout parameters
-  const viewportWidth = viewport.offsetWidth;
-  const viewportHeight = viewport.offsetHeight;
-  const centerX = viewportWidth / 2;
-  const centerY = viewportHeight / 2;
-
-  // Arrange hubs in a circular pattern with variance
-  const hubRadius = Math.min(viewportWidth, viewportHeight) * 0.3;
-  const angleStep = (Math.PI * 2) / hubs.length;
-
-  hubClusters.forEach((cluster, idx) => {
-    // Position hub with some variance
-    const angle = angleStep * idx + (Math.random() - 0.5) * 0.3;
-    const radiusVariance = hubRadius * (0.8 + Math.random() * 0.4);
-    const hubX = centerX + Math.cos(angle) * radiusVariance;
-    const hubY = centerY + Math.sin(angle) * radiusVariance;
-
-    // Update hub position
-    cluster.hub.element.style.left = `${hubX}px`;
-    cluster.hub.element.style.top = `${hubY}px`;
-    cluster.hub.position = { x: hubX, y: hubY };
-
-    // Arrange members around hub in circular pattern with variance
-    const memberCount = cluster.members.length;
-    if (memberCount > 0) {
-      const memberRadius = 150 + Math.random() * 100;
-      const memberAngleStep = (Math.PI * 2) / memberCount;
-
-      cluster.members.forEach((member, memberIdx) => {
-        // Create varied circular arrangement
-        const memberAngle = memberAngleStep * memberIdx + (Math.random() - 0.5) * 0.5;
-        const memberRadiusVariance = memberRadius * (0.7 + Math.random() * 0.6);
-        const memberX = hubX + Math.cos(memberAngle) * memberRadiusVariance;
-        const memberY = hubY + Math.sin(memberAngle) * memberRadiusVariance;
-
-        member.element.style.left = `${memberX}px`;
-        member.element.style.top = `${memberY}px`;
-        member.position = { x: memberX, y: memberY };
-      });
+    if (neighbors.length >= 4) {
+      const group = [entry, ...neighbors];
+      groups.push(group);
+      group.forEach(e => processed.add(e.id));
     }
   });
 
-  // Save all updated positions to server
-  const entriesToSave = [...hubs, ...nonHubs].map(e => ({
-    id: e.id,
-    text: e.text,
-    position: e.position,
-    parentEntryId: entries.get(e.id).parentEntryId || null
-  }));
+  if (groups.length === 0) return;
 
-  // Batch save
-  try {
-    await fetch('/api/entries/batch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ entries: entriesToSave })
+  // Step 2: Infer natural alignment axis using PCA for each group
+  const alignedEntries = [];
+
+  groups.forEach(group => {
+    if (group.length < 4) return;
+
+    // Get positions
+    const positions = group.map(e => {
+      const pos = e.position || { x: 0, y: 0 };
+      return [pos.x, pos.y];
     });
 
-    // Update stored entry data
-    entriesToSave.forEach(e => {
-      const entryData = entries.get(e.id);
-      if (entryData) {
-        entryData.position = e.position;
+    // Compute centroid
+    const centroid = [
+      positions.reduce((sum, p) => sum + p[0], 0) / positions.length,
+      positions.reduce((sum, p) => sum + p[1], 0) / positions.length
+    ];
+
+    // Center positions
+    const centered = positions.map(p => [p[0] - centroid[0], p[1] - centroid[1]]);
+
+    // Compute covariance matrix
+    const cov = [
+      [0, 0],
+      [0, 0]
+    ];
+
+    centered.forEach(p => {
+      cov[0][0] += p[0] * p[0];
+      cov[0][1] += p[0] * p[1];
+      cov[1][0] += p[1] * p[0];
+      cov[1][1] += p[1] * p[1];
+    });
+
+    const n = centered.length;
+    cov[0][0] /= n;
+    cov[0][1] /= n;
+    cov[1][0] /= n;
+    cov[1][1] /= n;
+
+    // Compute eigenvalues and eigenvectors (simplified 2x2 PCA)
+    const trace = cov[0][0] + cov[1][1];
+    const det = cov[0][0] * cov[1][1] - cov[0][1] * cov[1][0];
+    const discriminant = trace * trace - 4 * det;
+    
+    if (discriminant < 0) return; // Skip if degenerate
+
+    const sqrtDisc = Math.sqrt(discriminant);
+    const eigenval1 = (trace + sqrtDisc) / 2;
+    const eigenval2 = (trace - sqrtDisc) / 2;
+
+    // Get dominant eigenvector (larger eigenvalue)
+    let dominantDir;
+    if (Math.abs(eigenval1) > Math.abs(eigenval2)) {
+      // Solve (cov - eigenval1 * I) * v = 0
+      const a = cov[0][0] - eigenval1;
+      const b = cov[0][1];
+      if (Math.abs(b) > 0.001) {
+        dominantDir = [1, -a / b];
+      } else {
+        dominantDir = [0, 1];
       }
+    } else {
+      const a = cov[0][0] - eigenval2;
+      const b = cov[0][1];
+      if (Math.abs(b) > 0.001) {
+        dominantDir = [1, -a / b];
+      } else {
+        dominantDir = [0, 1];
+      }
+    }
+
+    // Normalize direction vector
+    const dirLen = Math.sqrt(dominantDir[0] * dominantDir[0] + dominantDir[1] * dominantDir[1]);
+    if (dirLen < 0.001) return;
+    dominantDir[0] /= dirLen;
+    dominantDir[1] /= dirLen;
+
+    // Perpendicular direction
+    const perpDir = [-dominantDir[1], dominantDir[0]];
+
+    // Step 3: Axis-constrained spacing refinement
+    const MAX_PARALLEL_SHIFT = 100; // Average of 80-120px
+    const MAX_PERPENDICULAR_CORRECTION = 16; // Average of 12-20px
+    const ITERATIONS = 5;
+    const REPULSION_STRENGTH = 0.15;
+
+    // Create working copies of positions
+    const workingPositions = group.map(e => {
+      const pos = e.position || { x: 0, y: 0 };
+      return { x: pos.x, y: pos.y, id: e.id, original: { x: pos.x, y: pos.y } };
     });
 
-    // Animate to fit view
-    setTimeout(() => {
-      zoomToFitEntries();
-    }, 100);
-  } catch (error) {
-    console.error('Error saving organized layout:', error);
-  }
+    // Step 4: Visual rhythm bias (shared across group)
+    const biasAngle = Math.random() * Math.PI * 2;
+    const biasX = Math.cos(biasAngle) * 6;
+    const biasY = Math.sin(biasAngle) * 6;
+
+    for (let iter = 0; iter < ITERATIONS; iter++) {
+      workingPositions.forEach((pos, i) => {
+        let forceX = 0;
+        let forceY = 0;
+
+        // Repulsion from neighbors along dominant axis
+        workingPositions.forEach((other, j) => {
+          if (i === j) return;
+
+          const dx = other.x - pos.x;
+          const dy = other.y - pos.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+
+          if (dist < 200 && dist > 0.1) {
+            // Project force onto dominant axis
+            const parallelForce = (dx * dominantDir[0] + dy * dominantDir[1]) * REPULSION_STRENGTH;
+            const perpForce = (dx * perpDir[0] + dy * perpDir[1]) * REPULSION_STRENGTH * 0.2; // Much weaker perpendicular
+
+            forceX += parallelForce * dominantDir[0] + perpForce * perpDir[0];
+            forceY += parallelForce * dominantDir[1] + perpForce * perpDir[1];
+          }
+        });
+
+        // Apply force with constraints
+        const newX = pos.x + forceX;
+        const newY = pos.y + forceY;
+
+        // Project movement onto axes
+        const origDx = newX - pos.original.x;
+        const origDy = newY - pos.original.y;
+        const parallelShift = origDx * dominantDir[0] + origDy * dominantDir[1];
+        const perpShift = origDx * perpDir[0] + origDy * perpDir[1];
+
+        // Clamp to max shifts
+        const clampedParallel = Math.max(-MAX_PARALLEL_SHIFT, Math.min(MAX_PARALLEL_SHIFT, parallelShift));
+        const clampedPerp = Math.max(-MAX_PERPENDICULAR_CORRECTION, Math.min(MAX_PERPENDICULAR_CORRECTION, perpShift));
+
+        // Reconstruct position
+        pos.x = pos.original.x + clampedParallel * dominantDir[0] + clampedPerp * perpDir[0] + biasX;
+        pos.y = pos.original.y + clampedParallel * dominantDir[1] + clampedPerp * perpDir[1] + biasY;
+      });
+    }
+
+    // Step 5: Apply movement caps and preserve relative ordering
+    workingPositions.forEach(pos => {
+      const totalDx = pos.x - pos.original.x;
+      const totalDy = pos.y - pos.original.y;
+      const totalDist = Math.sqrt(totalDx * totalDx + totalDy * totalDy);
+
+      if (totalDist > 140) {
+        const scale = 140 / totalDist;
+        pos.x = pos.original.x + totalDx * scale;
+        pos.y = pos.original.y + totalDy * scale;
+      }
+
+      alignedEntries.push({
+        id: pos.id,
+        position: { x: pos.x, y: pos.y },
+        original: pos.original
+      });
+    });
+  });
+
+  if (alignedEntries.length === 0) return;
+
+  // Animate position changes
+  alignedEntries.forEach(({ id, position, original }) => {
+    const entryData = entries.get(id);
+    if (!entryData) return;
+
+    const element = entryData.element;
+    const startX = original.x;
+    const startY = original.y;
+    const endX = position.x;
+    const endY = position.y;
+
+    // Animate over 800ms with ease-out
+    const duration = 800;
+    const startTime = performance.now();
+
+    function animate(currentTime) {
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      
+      // Ease-out curve
+      const eased = 1 - Math.pow(1 - progress, 3);
+
+      const currentX = startX + (endX - startX) * eased;
+      const currentY = startY + (endY - startY) * eased;
+
+      element.style.left = `${currentX}px`;
+      element.style.top = `${currentY}px`;
+
+      if (progress < 1) {
+        requestAnimationFrame(animate);
+      } else {
+        // Update stored position
+        entryData.position = { x: endX, y: endY };
+      }
+    }
+
+    requestAnimationFrame(animate);
+  });
+
+  // Save updated positions after animation completes
+  setTimeout(async () => {
+    const entriesToSave = alignedEntries.map(e => {
+      const entryData = entries.get(e.id);
+      return {
+        id: e.id,
+        text: entryData.text,
+        position: e.position,
+        parentEntryId: entryData.parentEntryId || null
+      };
+    });
+
+    try {
+      await fetch('/api/entries/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entries: entriesToSave })
+      });
+    } catch (error) {
+      console.error('Error saving aligned positions:', error);
+    }
+  }, 850); // Slightly after animation completes
 }
 
 // Help modal functionality
