@@ -1206,8 +1206,8 @@ function zoomToFitEntries() {
   const scaleX = viewportWidth / contentWidth;
   const scaleY = viewportHeight / contentHeight;
   const newZoom = Math.min(scaleX, scaleY, 2.0); // Cap zoom at 2x to avoid too much zoom in
-  // Zoom out more to add breathing room - 1.56x (1.25 * 1.25) for extra spacing
-  const zoomWithPadding = newZoom / 1.56;
+  // Zoom out to add breathing room - 1.25x for spacing (0.8x of previous 1.56x)
+  const zoomWithPadding = newZoom / 1.25;
   const clampedZoom = clamp(zoomWithPadding, 0.12, 2.0);
   
   // Never zoom in - only zoom out or stay at current zoom
