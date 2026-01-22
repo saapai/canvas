@@ -125,6 +125,8 @@ async function attachUser(req, _res, next) {
       return next();
     }
     const user = await getUserById(payload.id);
+    console.log('[AUTH] getUserById result:', user ? { id: user.id, username: user.username, phone: user.phone } : 'null');
+    
     if (!user) {
       req.user = null;
       return next();
@@ -133,7 +135,10 @@ async function attachUser(req, _res, next) {
     // IMPORTANT: If there's a username, verify the user ID matches the database record
     // This handles cases where JWT has a stale/incorrect user ID
     if (user.username) {
+      console.log('[AUTH] User has username:', user.username, '- checking for correct user ID');
       const correctUser = await getUserByUsername(user.username);
+      console.log('[AUTH] getUserByUsername result:', correctUser ? { id: correctUser.id, username: correctUser.username } : 'null');
+      
       if (correctUser && correctUser.id !== user.id) {
         console.warn('[AUTH] USER ID MISMATCH DETECTED for username:', user.username);
         console.warn('[AUTH] JWT user ID:', user.id);
@@ -142,11 +147,14 @@ async function attachUser(req, _res, next) {
         req.user = correctUser;
         return next();
       }
+    } else {
+      console.log('[AUTH] User has NO username - cannot verify correct user ID');
     }
     
     req.user = user;
     return next();
-  } catch {
+  } catch (error) {
+    console.error('[AUTH] Error in attachUser:', error);
     req.user = null;
     return next();
   }
@@ -484,6 +492,45 @@ app.get('/api/auth/me', async (req, res) => {
     phone: req.user.phone,
     username: req.user.username
   });
+});
+
+// Diagnostic endpoint to debug user ID issues
+app.get('/api/debug/user-info', async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    // Get all users with the same phone number
+    const usersWithSamePhone = await getUsersByPhone(req.user.phone);
+    
+    // Get user by username if they have one
+    let userByUsername = null;
+    if (req.user.username) {
+      userByUsername = await getUserByUsername(req.user.username);
+    }
+    
+    return res.json({
+      currentUser: {
+        id: req.user.id,
+        phone: req.user.phone,
+        username: req.user.username
+      },
+      usersWithSamePhone: usersWithSamePhone.map(u => ({
+        id: u.id,
+        phone: u.phone,
+        username: u.username
+      })),
+      userByUsername: userByUsername ? {
+        id: userByUsername.id,
+        phone: userByUsername.phone,
+        username: userByUsername.username
+      } : null
+    });
+  } catch (error) {
+    console.error('Error in debug endpoint:', error);
+    return res.status(500).json({ error: error.message });
+  }
 });
 
 app.post('/api/process-text', async (req, res) => {
