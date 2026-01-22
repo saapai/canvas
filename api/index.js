@@ -632,7 +632,7 @@ app.post('/api/entries', async (req, res) => {
     }
     const { id, text, position, parentEntryId, linkCardsData, mediaCardData } = req.body;
     
-    if (!id || !text || !position) {
+    if (!id || text === undefined || !position) {
       return res.status(400).json({ error: 'id, text, and position are required' });
     }
 
@@ -662,7 +662,7 @@ app.put('/api/entries/:id', async (req, res) => {
     const { id } = req.params;
     const { text, position, parentEntryId, linkCardsData, mediaCardData } = req.body;
     
-    if (!text || !position) {
+    if (text === undefined || !position) {
       return res.status(400).json({ error: 'text and position are required' });
     }
 
