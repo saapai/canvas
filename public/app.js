@@ -1777,9 +1777,13 @@ async function commitEditor(){
       // Extract URLs and process text
       const { processedText, urls } = processTextWithLinks(trimmedRight);
 
-      // Remove existing cards and placeholders
-      const existingCards = entryData.element.querySelectorAll('.link-card, .link-card-placeholder');
+      // Remove existing cards and placeholders (INCLUDING media cards)
+      const existingCards = entryData.element.querySelectorAll('.link-card, .link-card-placeholder, .media-card');
       existingCards.forEach(card => card.remove());
+      
+      // Clear media card data when editing entry
+      // The user is editing the text, so we remove any existing media card
+      entryData.mediaCardData = null;
 
       // Update entry text FIRST before any DOM changes
       entryData.text = trimmedRight;
