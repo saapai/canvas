@@ -3263,6 +3263,12 @@ editor.addEventListener('blur', (e) => {
     return;
   }
   
+  // Don't commit if user is selecting an autocomplete result
+  if (isSelectingAutocomplete) {
+    isSelectingAutocomplete = false;
+    return;
+  }
+  
   // Check if editor has content
   const raw = editor.innerText || editor.textContent || '';
   const trimmed = raw.trim();
@@ -3778,6 +3784,7 @@ if (helpModal) {
 
 // Autocomplete functions
 let autocompleteIsShowing = false;
+let isSelectingAutocomplete = false;
 
 function handleAutocompleteSearch() {
   if (!autocomplete || editor.style.display === 'none') {
@@ -3884,7 +3891,15 @@ function showAutocomplete(results) {
       </div>
     `;
 
-    item.addEventListener('click', () => {
+    item.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      isSelectingAutocomplete = true;
+    });
+
+    item.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
       selectAutocompleteResult(result);
     });
 

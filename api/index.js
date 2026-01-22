@@ -630,7 +630,7 @@ app.post('/api/entries', async (req, res) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });
     }
-    const { id, text, position, parentEntryId } = req.body;
+    const { id, text, position, parentEntryId, linkCardsData, mediaCardData } = req.body;
     
     if (!id || !text || !position) {
       return res.status(400).json({ error: 'id, text, and position are required' });
@@ -641,6 +641,8 @@ app.post('/api/entries', async (req, res) => {
       text,
       position: { x: position.x, y: position.y },
       parentEntryId: parentEntryId || null,
+      linkCardsData: linkCardsData || null,
+      mediaCardData: mediaCardData || null,
       userId: req.user.id
     };
 
@@ -658,7 +660,7 @@ app.put('/api/entries/:id', async (req, res) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
     const { id } = req.params;
-    const { text, position, parentEntryId } = req.body;
+    const { text, position, parentEntryId, linkCardsData, mediaCardData } = req.body;
     
     if (!text || !position) {
       return res.status(400).json({ error: 'text and position are required' });
@@ -669,6 +671,8 @@ app.put('/api/entries/:id', async (req, res) => {
       text,
       position: { x: position.x, y: position.y },
       parentEntryId: parentEntryId || null,
+      linkCardsData: linkCardsData || null,
+      mediaCardData: mediaCardData || null,
       userId: req.user.id
     };
 

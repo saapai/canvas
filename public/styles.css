@@ -997,8 +997,8 @@ body::before{
 }
 
 .media-card {
-  margin-top: 16px;
-  margin-bottom: 8px;
+  margin-top: 4px;
+  margin-bottom: 4px;
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 8px;
   overflow: hidden;
@@ -1028,12 +1028,12 @@ body::before{
 .entry.has-media-card-hover:not(.editing)::before {
   content: '';
   position: absolute;
-  top: 14px;  /* account for margin-top: 16px minus 2px */
+  top: 2px;  /* account for margin-top: 4px minus 2px */
   left: -2px;
   right: -2px;
-  bottom: -10px;  /* account for margin-bottom: 8px plus 2px extra */
+  bottom: 2px;  /* account for margin-bottom: 4px minus 2px */
   background-color: rgba(59, 130, 246, 0.1);
-  border-radius: 4px;
+  border-radius: 10px;
   pointer-events: none;
   z-index: -1;
 }
