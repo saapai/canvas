@@ -1098,6 +1098,7 @@ let justFinishedDragging = false;
 // Where the editor is placed in WORLD coordinates
 let editorWorldPos = { x: 80, y: 80 };
 let editingEntryId = null;
+let isCommitting = false;
 
 function applyTransform(){
   world.style.transform = `translate3d(${cam.x}px, ${cam.y}px, 0) scale(${cam.z})`;
@@ -1724,19 +1725,28 @@ async function commitEditor(){
     return;
   }
   
-  console.log('[COMMIT] Processing entry...');
+  // Prevent double commits
+  if (isCommitting) {
+    console.log('[COMMIT] Already committing, skipping duplicate commit');
+    return;
+  }
+  
+  isCommitting = true;
+  console.log('[COMMIT] Processing entry, editingEntryId:', editingEntryId);
   
   const raw = editor.innerText;
   const trimmedRight = raw.replace(/\s+$/g,'');
 
   // If editing an existing entry
   if(editingEntryId && editingEntryId !== 'anchor'){
+    console.log('[COMMIT] Editing existing entry:', editingEntryId);
     const entryData = entries.get(editingEntryId);
     if(!entryData){
       console.warn('[COMMIT] Missing entry data for edit. Aborting edit to avoid duplicate:', editingEntryId);
       editor.textContent = '';
       editor.style.display = 'none';
       editingEntryId = null;
+      isCommitting = false;
       return;
     }
     if(entryData){
@@ -1749,6 +1759,7 @@ async function commitEditor(){
           editor.style.display = 'none';
           editingEntryId = null;
         }
+        isCommitting = false;
         return;
       }
 
@@ -1818,17 +1829,29 @@ async function commitEditor(){
       } catch (error) {
         console.error('[COMMIT] Failed to update entry:', error);
         // Don't clear editing state on error - let user retry
+        isCommitting = false;
         return;
       }
       
       editor.textContent = '';
       editor.style.display = 'none';
       editingEntryId = null;
+      isCommitting = false;
       return;
     }
   }
 
   // Create new entry
+  // Safety check: if we somehow got here while editing, abort
+  if (editingEntryId && editingEntryId !== 'anchor') {
+    console.error('[COMMIT] ERROR: Attempted to create new entry while editingEntryId is set:', editingEntryId);
+    editor.textContent = '';
+    editor.style.display = 'none';
+    editingEntryId = null;
+    isCommitting = false;
+    return;
+  }
+  
   // Extract URLs and process text
   const { processedText, urls } = processTextWithLinks(trimmedRight);
 
@@ -1837,6 +1860,7 @@ async function commitEditor(){
     editor.textContent = '';
     editor.style.display = 'none';
     editingEntryId = null;
+    isCommitting = false;
     return;
   }
 
@@ -1848,6 +1872,7 @@ async function commitEditor(){
     editor.textContent = '';
     editor.style.display = 'none';
     editingEntryId = null;
+    isCommitting = false;
     return;
   }
 
@@ -1960,6 +1985,7 @@ async function commitEditor(){
   editor.textContent = '';
   editor.style.display = 'none';
   editingEntryId = null;
+  isCommitting = false;
 }
 
 function updateEntryDimensions(entry) {
