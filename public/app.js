@@ -1856,6 +1856,7 @@ async function commitEditor(){
   updateEntryVisibility();
   
   // Save to server (await to ensure it completes)
+  console.log('[COMMIT] Saving new text entry:', entryData.id, entryData.text.substring(0, 50));
   await saveEntryToServer(entryData);
 
   // Generate and add cards for URLs (async, after text is rendered)
