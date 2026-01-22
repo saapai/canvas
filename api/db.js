@@ -372,18 +372,21 @@ export async function getEntriesByUsername(username) {
   try {
     const db = getPool();
     const result = await db.query(
-      `SELECT e.id, e.text, e.position_x, e.position_y, e.parent_entry_id, e.created_at
+      `SELECT e.id, e.text, e.position_x, e.position_y, e.parent_entry_id, e.link_cards_data, e.media_card_data, e.created_at
        FROM entries e
        JOIN users u ON e.user_id = u.id
        WHERE u.username = $1 AND e.deleted_at IS NULL
        ORDER BY e.created_at ASC`,
       [username]
     );
+    console.log(`[DB] getEntriesByUsername(${username}) found ${result.rows.length} entries`);
     return result.rows.map(row => ({
       id: row.id,
       text: row.text,
       position: { x: row.position_x, y: row.position_y },
       parentEntryId: row.parent_entry_id || null,
+      linkCardsData: row.link_cards_data || null,
+      mediaCardData: row.media_card_data || null,
       createdAt: row.created_at
     }));
   } catch (error) {

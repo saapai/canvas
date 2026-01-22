@@ -609,7 +609,8 @@ async function loadUserEntries(username, editable) {
         text: entryData.text,
         position: entryData.position,
         parentEntryId: entryData.parentEntryId,
-        linkCardsData: entryData.linkCardsData || []
+        linkCardsData: entryData.linkCardsData || [],
+        mediaCardData: entryData.mediaCardData || null
       };
       entries.set(entryData.id, storedEntryData);
       
