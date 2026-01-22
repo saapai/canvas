@@ -736,7 +736,7 @@ async function loadUserEntries(username, editable) {
     // Recalculate dimensions for all existing entries to fix old fixed-width entries
     setTimeout(() => {
       entriesData.forEach(entryData => {
-        const entry = document.querySelector(`#${entryData.id}`);
+        const entry = document.getElementById(entryData.id);
         if (entry) {
           updateEntryDimensions(entry);
         }
@@ -761,7 +761,7 @@ async function loadUserEntries(username, editable) {
       
       // Disable all entry interactions except navigation
       entriesData.forEach(entryData => {
-        const entry = document.querySelector(`#${entryData.id}`);
+        const entry = document.getElementById(entryData.id);
         if (entry) {
           entry.style.pointerEvents = 'auto'; // Allow clicks for navigation
           entry.style.cursor = 'pointer'; // Show pointer for clickable entries
@@ -2797,6 +2797,7 @@ viewport.addEventListener('mousemove', (e) => {
       } else {
         const entryData = entries.get(entryId);
         if(entryData) {
+          console.log('[DRAG] Updating position for entry:', entryId, 'from', entryData.position, 'to', { x: newX, y: newY });
           entryData.position = { x: newX, y: newY };
           // Debounce position saves to avoid too many server requests
           if (entryData.positionSaveTimeout) {
@@ -2922,6 +2923,7 @@ window.addEventListener('mouseup', (e) => {
     if (draggingEntry && draggingEntry.id !== 'anchor') {
       const entryData = entries.get(draggingEntry.id);
       if (entryData) {
+        console.log('[DRAG END] Saving final position for entry:', draggingEntry.id, 'position:', entryData.position);
         // Clear any pending debounced save
         if (entryData.positionSaveTimeout) {
           clearTimeout(entryData.positionSaveTimeout);
@@ -2931,6 +2933,8 @@ window.addEventListener('mouseup', (e) => {
         updateEntryOnServer(entryData).catch(err => {
           console.error('Error saving final position:', err);
         });
+      } else {
+        console.error('[DRAG END] ERROR: Could not find entry data for:', draggingEntry.id, 'Available entries:', Array.from(entries.keys()));
       }
     }
     
