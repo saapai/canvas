@@ -1945,7 +1945,7 @@ function updateEntryDimensions(entry) {
     
     // Handle media cards first (they have different padding)
     if (mediaCards.length > 0) {
-      const desiredPadding = 4; // Smaller padding for media cards
+      const desiredPadding = 2; // Minimal padding for media cards
       
       mediaCards.forEach(card => {
         card.style.marginTop = '0';
@@ -2117,7 +2117,7 @@ function updateEntryDimensions(entry) {
           void mediaCard.offsetHeight;
           
           const cardNaturalHeight = mediaCard.offsetHeight;
-          const desiredPadding = 4; // Smaller padding for media cards
+          const desiredPadding = 2; // Minimal padding for media cards
           
           mediaCard.style.marginTop = `${desiredPadding}px`;
           mediaCard.style.marginBottom = `${desiredPadding}px`;
