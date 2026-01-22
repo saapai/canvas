@@ -1004,7 +1004,7 @@ body::before{
   overflow: hidden;
   background: rgba(255, 255, 255, 0.6);
   transition: all 0.2s ease;
-  display: block;
+  display: flex;
   width: fit-content;
   min-width: 280px;
   max-width: 420px;
@@ -1012,6 +1012,7 @@ body::before{
   position: relative;
   z-index: 10;
   height: 56px;
+  align-items: stretch;
 }
 
 .media-card-inner {
