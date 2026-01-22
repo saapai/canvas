@@ -997,8 +997,8 @@ body::before{
 }
 
 .media-card {
-  margin-top: 4px;
-  margin-bottom: 4px;
+  margin-top: 2px;
+  margin-bottom: 2px;
   border: 1px solid rgba(0, 0, 0, 0.08);
   border-radius: 8px;
   overflow: hidden;
@@ -1006,8 +1006,8 @@ body::before{
   transition: all 0.2s ease;
   display: block;
   width: fit-content;
-  min-width: 320px;
-  max-width: 480px;
+  min-width: 280px;
+  max-width: 420px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
   position: relative;
   z-index: 10;
@@ -1028,10 +1028,10 @@ body::before{
 .entry.has-media-card-hover:not(.editing)::before {
   content: '';
   position: absolute;
-  top: 2px;  /* account for margin-top: 4px minus 2px */
+  top: 0;
   left: -2px;
   right: -2px;
-  bottom: 2px;  /* account for margin-bottom: 4px minus 2px */
+  bottom: 0;
   background-color: rgba(59, 130, 246, 0.1);
   border-radius: 10px;
   pointer-events: none;
@@ -1039,9 +1039,9 @@ body::before{
 }
 
 .media-card-image {
-  width: 80px;
-  min-width: 80px;
-  height: 80px;
+  width: 64px;
+  min-width: 64px;
+  height: 64px;
   background-size: cover;
   background-position: center;
   background-color: rgba(0, 0, 0, 0.03);
@@ -1050,7 +1050,7 @@ body::before{
 
 .media-card-content {
   flex: 1;
-  padding: 8px 12px;
+  padding: 6px 10px;
   display: flex;
   flex-direction: column;
   justify-content: center;

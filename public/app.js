@@ -1192,8 +1192,8 @@ function zoomToFitEntries() {
   const scaleX = viewportWidth / contentWidth;
   const scaleY = viewportHeight / contentHeight;
   const newZoom = Math.min(scaleX, scaleY, 2.0); // Cap zoom at 2x to avoid too much zoom in
-  // Zoom out 1.25x more to add breathing room (equal in all directions)
-  const zoomWithPadding = newZoom / 1.25;
+  // Zoom out more to add breathing room - 1.56x (1.25 * 1.25) for extra spacing
+  const zoomWithPadding = newZoom / 1.56;
   const clampedZoom = clamp(zoomWithPadding, 0.12, 2.0);
   
   // Never zoom in - only zoom out or stay at current zoom
@@ -1347,14 +1347,14 @@ function navigateToEntry(entryId) {
   
   // Update URL if we're on a user page
   if (username && pageUsername) {
-    let slug = generateEntrySlug(entryData.text);
+    let slug = generateEntrySlug(entryData.text, entryData);
     
     // Check for duplicate slugs at this level and append number if needed
     const siblings = Array.from(entries.values()).filter(e => 
       e.parentEntryId === entryData.parentEntryId && e.id !== entryId
     );
     
-    const existingSlugs = siblings.map(e => generateEntrySlug(e.text));
+    const existingSlugs = siblings.map(e => generateEntrySlug(e.text, e));
     let counter = 1;
     let uniqueSlug = slug;
     
@@ -1431,14 +1431,14 @@ function navigateBack(level = 1) {
       navigationStack.forEach(entryId => {
         const entryData = entries.get(entryId);
         if (entryData) {
-          let slug = generateEntrySlug(entryData.text);
+          let slug = generateEntrySlug(entryData.text, entryData);
           
           // Check for duplicate slugs at this level
           const siblings = Array.from(entries.values()).filter(e => 
             e.parentEntryId === currentParentId && e.id !== entryId
           );
           
-          const existingSlugs = siblings.map(e => generateEntrySlug(e.text));
+          const existingSlugs = siblings.map(e => generateEntrySlug(e.text, e));
           let counter = 1;
           let uniqueSlug = slug;
           
@@ -1597,7 +1597,10 @@ function updateBreadcrumb() {
     
     const item = document.createElement('span');
     item.className = 'breadcrumb-item';
-    const displayText = entryData.text.split('\n')[0].trim().substring(0, 50) || 'Untitled';
+    // Use media card title if available, otherwise use entry text
+    const displayText = entryData.mediaCardData && entryData.mediaCardData.title
+      ? entryData.mediaCardData.title.substring(0, 50)
+      : (entryData.text.split('\n')[0].trim().substring(0, 50) || 'Untitled');
     item.textContent = displayText;
     item.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -2160,7 +2163,20 @@ function extractUrls(text) {
 }
 
 // Generate slug from entry text (limit to 17 characters)
-function generateEntrySlug(text) {
+function generateEntrySlug(text, entryData = null) {
+  // If entry has media card data, use the media title
+  if (entryData && entryData.mediaCardData && entryData.mediaCardData.title) {
+    const slug = entryData.mediaCardData.title
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, '') // Remove special chars
+      .replace(/\s+/g, '-') // Replace spaces with hyphens
+      .replace(/-+/g, '-') // Replace multiple hyphens with one
+      .trim()
+      .substring(0, 17)
+      .replace(/-+$/, ''); // Remove trailing hyphens
+    return slug || 'media';
+  }
+  
   if (!text) return '';
   
   // Remove URLs first
@@ -4006,7 +4022,7 @@ function selectAutocompleteResult(result) {
   const entryData = {
     id: entryId,
     element: entry,
-    text: entryText, // Use title for navigation
+    text: '', // Keep text empty for media cards - title is in mediaCardData
     position: { x: worldPos.x, y: worldPos.y },
     parentEntryId: currentViewEntryId,
     mediaCardData: result
