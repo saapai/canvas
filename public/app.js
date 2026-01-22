@@ -1948,27 +1948,21 @@ function updateEntryDimensions(entry) {
       const desiredPadding = 2; // Minimal padding for media cards
       
       mediaCards.forEach(card => {
-        card.style.marginTop = '0';
-        card.style.marginBottom = '0';
-        card.style.marginLeft = '0';
-        card.style.marginRight = '0';
-        card.style.width = 'auto';
-        card.style.maxWidth = 'none';
-        
-        void card.offsetWidth;
-        
+        // Don't reset styles for media cards - they have fixed dimensions from CSS
+        // Just measure their natural width including any existing margins
         const cardStyles = window.getComputedStyle(card);
-        const cardMinWidth = parseFloat(cardStyles.minWidth) || 280;
-        const cardNaturalWidth = Math.max(card.offsetWidth, cardMinWidth);
+        const cardWidth = card.offsetWidth;
+        const currentMarginLeft = parseFloat(cardStyles.marginLeft) || 0;
+        const currentMarginRight = parseFloat(cardStyles.marginRight) || 0;
         
+        // Set consistent margins
         card.style.marginTop = `${desiredPadding}px`;
         card.style.marginBottom = `${desiredPadding}px`;
         card.style.marginLeft = `${desiredPadding}px`;
         card.style.marginRight = `${desiredPadding}px`;
         
-        card.style.width = `${cardNaturalWidth}px`;
-        
-        const entryWidth = cardNaturalWidth + (desiredPadding * 2);
+        // Calculate entry width based on card width plus padding
+        const entryWidth = cardWidth + (desiredPadding * 2);
         contentWidth = Math.max(contentWidth, entryWidth);
       });
       
