@@ -125,7 +125,26 @@ async function attachUser(req, _res, next) {
       return next();
     }
     const user = await getUserById(payload.id);
-    req.user = user || null;
+    if (!user) {
+      req.user = null;
+      return next();
+    }
+    
+    // IMPORTANT: If there's a username, verify the user ID matches the database record
+    // This handles cases where JWT has a stale/incorrect user ID
+    if (user.username) {
+      const correctUser = await getUserByUsername(user.username);
+      if (correctUser && correctUser.id !== user.id) {
+        console.warn('[AUTH] USER ID MISMATCH DETECTED for username:', user.username);
+        console.warn('[AUTH] JWT user ID:', user.id);
+        console.warn('[AUTH] DB user ID:', correctUser.id);
+        console.warn('[AUTH] Using correct DB user record');
+        req.user = correctUser;
+        return next();
+      }
+    }
+    
+    req.user = user;
     return next();
   } catch {
     req.user = null;
