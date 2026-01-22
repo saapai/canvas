@@ -4142,6 +4142,7 @@ function createMediaCard(mediaData) {
       return;
     }
     
+    e.preventDefault();
     e.stopPropagation();
     
     // Command/Ctrl+click opens in new tab
@@ -4158,6 +4159,13 @@ function createMediaCard(mediaData) {
     const entryEl = card.closest('.entry');
     if (entryEl && entryEl.id) {
       navigateToEntry(entryEl.id);
+    }
+  });
+  
+  // Also prevent mousedown from bubbling to prevent entry click detection
+  card.addEventListener('mousedown', (e) => {
+    if (!e.shiftKey) {
+      e.stopPropagation();
     }
   });
 
