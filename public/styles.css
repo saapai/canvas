@@ -702,9 +702,8 @@ body::before{
   border-color: rgba(148, 163, 184, 0.9);
 }
 
-/* Help button and cleanup button */
-.help-button,
-.cleanup-button {
+/* Help button */
+.help-button {
   position: static;
   width: 34px;
   height: 34px;
@@ -722,28 +721,14 @@ body::before{
   font-family: 'Inter', sans-serif;
   flex-shrink: 0;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-}
-
-.cleanup-button {
-  margin-left: auto;
-  margin-right: 8px;
-  font-size: 16px;
-}
-
-.help-button {
   margin-left: 0;
 }
 
-.help-button:hover,
-.cleanup-button:hover {
+.help-button:hover {
   background: rgba(0, 0, 0, 0.05);
   border-color: rgba(0, 0, 0, 0.2);
   transform: scale(1.05);
   box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
-}
-
-.cleanup-button:active {
-  transform: scale(0.95);
 }
 
 /* Help modal */
@@ -843,7 +828,7 @@ body::before{
   height: 100%;
   background: rgba(0, 0, 0, 0.3);
   z-index: 10001;
-  display: none;
+  display: none; /* Hidden by default */
   align-items: center;
   justify-content: center;
   backdrop-filter: blur(2px);

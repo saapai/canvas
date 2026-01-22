@@ -3584,19 +3584,6 @@ if (helpModal) {
   });
 }
 
-// Cleanup/organize button functionality
-const cleanupButton = document.getElementById('cleanup-button');
-
-if (cleanupButton) {
-  cleanupButton.addEventListener('click', async () => {
-    if (isReadOnly) {
-      console.log('Cannot organize in read-only mode');
-      return;
-    }
-    await organizeEntriesIntoHubs();
-  });
-}
-
 // Keyboard shortcut: Command/Ctrl+Shift+1 to navigate to home page
 window.addEventListener('keydown', (e) => {
   // Command+Shift+1 (Mac) or Ctrl+Shift+1 (Windows/Linux)
