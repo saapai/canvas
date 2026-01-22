@@ -1939,11 +1939,44 @@ function updateEntryDimensions(entry) {
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
       // Calculate actual content dimensions
-      // Width: use widest line or link card width
+      // Width: use widest line or card width (link or media cards)
       let contentWidth = 0;
       const linkCards = entry.querySelectorAll('.link-card, .link-card-placeholder');
+      const mediaCards = entry.querySelectorAll('.media-card');
     
-    if (linkCards.length > 0) {
+    // Handle media cards first (they have different padding)
+    if (mediaCards.length > 0) {
+      const desiredPadding = 8; // Smaller padding for media cards
+      
+      mediaCards.forEach(card => {
+        card.style.marginTop = '0';
+        card.style.marginBottom = '0';
+        card.style.marginLeft = '0';
+        card.style.marginRight = '0';
+        card.style.width = 'auto';
+        card.style.maxWidth = 'none';
+        
+        void card.offsetWidth;
+        
+        const cardStyles = window.getComputedStyle(card);
+        const cardMinWidth = parseFloat(cardStyles.minWidth) || 280;
+        const cardNaturalWidth = Math.max(card.offsetWidth, cardMinWidth);
+        
+        card.style.marginTop = `${desiredPadding}px`;
+        card.style.marginBottom = `${desiredPadding}px`;
+        card.style.marginLeft = `${desiredPadding}px`;
+        card.style.marginRight = `${desiredPadding}px`;
+        
+        card.style.width = `${cardNaturalWidth}px`;
+        
+        const entryWidth = cardNaturalWidth + (desiredPadding * 2);
+        contentWidth = Math.max(contentWidth, entryWidth);
+      });
+      
+      const minCardWidth = 280;
+      const minWidthWithPadding = minCardWidth + (desiredPadding * 2);
+      contentWidth = Math.max(contentWidth, minWidthWithPadding);
+    } else if (linkCards.length > 0) {
       // If there are link cards, calculate width with symmetric padding
       // Use consistent padding for all link cards (same as height calculation)
       const desiredPadding = 12; // Fixed 12px padding for symmetry
@@ -2070,10 +2103,30 @@ function updateEntryDimensions(entry) {
         
         const calculatedHeight = relativeLastBottom - relativeFirstTop;
         
-        // For link cards, ensure symmetric visual padding
-        // If we have only a link card, adjust entry height to provide equal padding
+        // For media cards or link cards, ensure symmetric visual padding
+        // If we have only a card, adjust entry height to provide equal padding
+        const mediaCard = entry.querySelector('.media-card');
         const linkCard = entry.querySelector('.link-card, .link-card-placeholder');
-        if (linkCard && entry.children.length === 1) {
+        
+        if (mediaCard && entry.children.length === 1) {
+          // Single media card - calculate height with equal top/bottom margins
+          mediaCard.style.marginTop = '0';
+          mediaCard.style.marginBottom = '0';
+          mediaCard.style.marginLeft = '0';
+          mediaCard.style.marginRight = '0';
+          
+          void mediaCard.offsetHeight;
+          
+          const cardNaturalHeight = mediaCard.offsetHeight;
+          const desiredPadding = 8; // Smaller padding for media cards
+          
+          mediaCard.style.marginTop = `${desiredPadding}px`;
+          mediaCard.style.marginBottom = `${desiredPadding}px`;
+          mediaCard.style.marginLeft = `${desiredPadding}px`;
+          mediaCard.style.marginRight = `${desiredPadding}px`;
+          
+          contentHeight = cardNaturalHeight + (desiredPadding * 2);
+        } else if (linkCard && entry.children.length === 1) {
           // Single link card - calculate height with equal top/bottom margins
           // First, reset any existing margins to get the card's natural height
           linkCard.style.marginTop = '0';
@@ -4142,11 +4195,11 @@ function createMediaCard(mediaData) {
       return;
     }
     
-    e.preventDefault();
     e.stopPropagation();
     
     // Command/Ctrl+click opens in new tab
     if (e.metaKey || e.ctrlKey) {
+      e.preventDefault();
       if (mediaData.type === 'song' && mediaData.spotifyUrl) {
         window.open(mediaData.spotifyUrl, '_blank');
       } else if (mediaData.type === 'movie') {
@@ -4158,6 +4211,7 @@ function createMediaCard(mediaData) {
     // Regular click navigates into the card (like link cards)
     const entryEl = card.closest('.entry');
     if (entryEl && entryEl.id) {
+      e.preventDefault();
       navigateToEntry(entryEl.id);
     }
   });
