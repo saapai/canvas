@@ -3363,8 +3363,8 @@ editor.addEventListener('input', () => {
     }
   }
   
-  // Trigger autocomplete search
-  handleAutocompleteSearch();
+  // Autocomplete disabled for normal text input - use search button instead
+  // handleAutocompleteSearch();
 });
 
 editor.addEventListener('blur', (e) => {
@@ -3891,6 +3891,236 @@ if (helpModal) {
       helpModal.classList.add('hidden');
     }
   });
+}
+
+// Search modal
+const searchButton = document.getElementById('search-button');
+const searchModal = document.getElementById('search-modal');
+const searchClose = document.getElementById('search-close');
+const searchInput = document.getElementById('search-input');
+const searchResults = document.getElementById('search-results');
+let searchTimeout = null;
+let searchSelectedIndex = -1;
+let searchResultsData = [];
+
+if (searchButton) {
+  searchButton.addEventListener('click', () => {
+    searchModal.classList.remove('hidden');
+    // Focus input after a short delay to ensure modal is visible
+    setTimeout(() => {
+      if (searchInput) {
+        searchInput.focus();
+      }
+    }, 100);
+  });
+}
+
+if (searchClose) {
+  searchClose.addEventListener('click', () => {
+    closeSearchModal();
+  });
+}
+
+if (searchModal) {
+  searchModal.addEventListener('click', (e) => {
+    if (e.target === searchModal) {
+      closeSearchModal();
+    }
+  });
+}
+
+function closeSearchModal() {
+  if (!searchModal || !searchInput || !searchResults) return;
+  searchModal.classList.add('hidden');
+  searchInput.value = '';
+  searchResults.innerHTML = '';
+  searchResultsData = [];
+  searchSelectedIndex = -1;
+}
+
+if (searchInput) {
+  searchInput.addEventListener('input', () => {
+    const query = searchInput.value.trim();
+    
+    if (query.length < 3) {
+      searchResults.innerHTML = '';
+      searchResultsData = [];
+      searchSelectedIndex = -1;
+      return;
+    }
+    
+    // Debounce search
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(() => {
+      performSearch(query);
+    }, 300);
+  });
+  
+  searchInput.addEventListener('keydown', (e) => {
+    // Handle keyboard navigation
+    if (!searchResultsData.length) return;
+    
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      searchSelectedIndex = Math.min(searchSelectedIndex + 1, searchResultsData.length - 1);
+      updateSearchSelection();
+      const selectedItem = searchResults.querySelector(`[data-index="${searchSelectedIndex}"]`);
+      if (selectedItem) {
+        selectedItem.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+      }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      searchSelectedIndex = Math.max(searchSelectedIndex - 1, -1);
+      updateSearchSelection();
+    } else if (e.key === 'Enter' && searchSelectedIndex >= 0 && !e.shiftKey) {
+      e.preventDefault();
+      selectSearchResult(searchResultsData[searchSelectedIndex]);
+    } else if (e.key === 'Escape') {
+      closeSearchModal();
+    }
+  });
+}
+
+async function performSearch(query) {
+  try {
+    // Search both movies and songs in parallel
+    const [moviesRes, songsRes] = await Promise.all([
+      fetch(`/api/search/movies?q=${encodeURIComponent(query)}`),
+      fetch(`/api/search/songs?q=${encodeURIComponent(query)}`)
+    ]);
+
+    const moviesData = moviesRes.ok ? await moviesRes.json() : { results: [] };
+    const songsData = songsRes.ok ? await songsRes.json() : { results: [] };
+
+    // Interleave movies and songs for equal weighting
+    const movies = moviesData.results || [];
+    const songs = songsData.results || [];
+    const allResults = [];
+    const maxLength = Math.max(movies.length, songs.length);
+    
+    for (let i = 0; i < maxLength; i++) {
+      if (i < movies.length) allResults.push(movies[i]);
+      if (i < songs.length) allResults.push(songs[i]);
+    }
+
+    searchResultsData = allResults;
+    searchSelectedIndex = -1;
+    displaySearchResults(allResults);
+  } catch (error) {
+    console.error('[Search] Error searching media:', error);
+    if (searchResults) {
+      searchResults.innerHTML = '<div style="color: rgba(232, 230, 223, 0.6); padding: 20px; text-align: center;">Error searching. Please try again.</div>';
+    }
+  }
+}
+
+function displaySearchResults(results) {
+  if (!searchResults) return;
+  searchResults.innerHTML = '';
+  
+  if (!results.length) {
+    searchResults.innerHTML = '<div style="color: rgba(232, 230, 223, 0.6); padding: 20px; text-align: center;">No results found.</div>';
+    return;
+  }
+
+  results.forEach((result, index) => {
+    const item = document.createElement('div');
+    item.className = 'search-result-item';
+    item.dataset.index = index;
+
+    const imageHtml = result.image || result.poster
+      ? `<div class="search-result-item-image" style="background-image: url('${result.image || result.poster}')"></div>`
+      : '<div class="search-result-item-image"></div>';
+
+    const subtitle = result.type === 'song'
+      ? result.artist
+      : result.type === 'movie'
+      ? result.year ? `(${result.year})` : ''
+      : '';
+
+    item.innerHTML = `
+      ${imageHtml}
+      <div class="search-result-item-content">
+        <div class="search-result-item-title">${escapeHtml(result.title)}</div>
+        ${subtitle ? `<div class="search-result-item-subtitle">${escapeHtml(subtitle)}</div>` : ''}
+        <div class="search-result-item-type">${result.type === 'song' ? '🎵 Song' : '🎬 Movie'}</div>
+      </div>
+    `;
+
+    item.addEventListener('click', () => {
+      selectSearchResult(result);
+    });
+
+    item.addEventListener('mouseenter', () => {
+      searchSelectedIndex = index;
+      updateSearchSelection();
+    });
+
+    searchResults.appendChild(item);
+  });
+}
+
+function updateSearchSelection() {
+  if (!searchResults) return;
+  const items = searchResults.querySelectorAll('.search-result-item');
+  items.forEach((item, index) => {
+    if (index === searchSelectedIndex) {
+      item.classList.add('selected');
+    } else {
+      item.classList.remove('selected');
+    }
+  });
+}
+
+function selectSearchResult(result) {
+  // Close search modal
+  closeSearchModal();
+  
+  // Create new entry with media card at the center of the current view
+  const viewportRect = viewport.getBoundingClientRect();
+  const viewportCenterX = viewportRect.width / 2;
+  const viewportCenterY = viewportRect.height / 2;
+  
+  // Convert viewport coordinates to world coordinates
+  const worldPos = screenToWorld(viewportCenterX, viewportCenterY);
+  
+  const entryId = `entry-${entryIdCounter++}`;
+  const entry = document.createElement('div');
+  entry.className = 'entry melt';
+  entry.id = entryId;
+  
+  entry.style.left = `${worldPos.x}px`;
+  entry.style.top = `${worldPos.y}px`;
+  
+  world.appendChild(entry);
+  
+  const entryData = {
+    id: entryId,
+    element: entry,
+    text: '', // Keep text empty for media cards - title is in mediaCardData
+    position: { x: worldPos.x, y: worldPos.y },
+    parentEntryId: currentViewEntryId,
+    mediaCardData: result
+  };
+  entries.set(entryId, entryData);
+  
+  // Add media card to entry (no text content)
+  const card = createMediaCard(result);
+  entry.appendChild(card);
+  
+  // Update visibility
+  updateEntryVisibility();
+  
+  // Update entry dimensions and save
+  setTimeout(() => {
+    updateEntryDimensions(entry);
+    saveEntryToServer(entryData);
+    
+    // Save undo state
+    saveUndoState('create', {
+      entry: entryData
+    });
+  }, 50);
 }
 
 // Autocomplete functions

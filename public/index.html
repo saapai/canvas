@@ -13,7 +13,18 @@
 <body>
   <div id="topbar">
     <div id="breadcrumb"></div>
+    <button id="search-button" class="search-button" title="Search movies and songs">🔍</button>
     <button id="help-button" class="help-button" title="Show help">?</button>
+  </div>
+  <div id="search-modal" class="search-modal hidden">
+    <div class="search-content">
+      <button id="search-close" class="search-close">×</button>
+      <h2>Search Movies & Songs</h2>
+      <div class="search-input-wrapper">
+        <input type="text" id="search-input" class="search-input" placeholder="Search for a movie or song..." autocomplete="off" />
+      </div>
+      <div id="search-results" class="search-results"></div>
+    </div>
   </div>
   <div id="help-modal" class="help-modal hidden">
     <div class="help-content">

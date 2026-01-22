@@ -480,6 +480,110 @@ app.post('/api/generate-link-card', async (req, res) => {
   }
 });
 
+// Search for movies using TMDB API
+app.get('/api/search/movies', async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q || typeof q !== 'string' || q.trim().length < 2) {
+      return res.status(400).json({ error: 'Query must be at least 2 characters' });
+    }
+
+    const TMDB_API_KEY = process.env.TMDB_API_KEY;
+    if (!TMDB_API_KEY) {
+      return res.status(500).json({ error: 'TMDB API key not configured' });
+    }
+
+    const response = await fetch(
+      `https://api.themoviedb.org/3/search/movie?api_key=${TMDB_API_KEY}&query=${encodeURIComponent(q.trim())}&page=1`
+    );
+
+    if (!response.ok) {
+      throw new Error(`TMDB API error: ${response.status}`);
+    }
+
+    const data = await response.json();
+    const results = (data.results || []).slice(0, 5).map(movie => ({
+      id: movie.id,
+      title: movie.title,
+      year: movie.release_date ? new Date(movie.release_date).getFullYear() : null,
+      poster: movie.poster_path ? `https://image.tmdb.org/t/p/w200${movie.poster_path}` : null,
+      overview: movie.overview || '',
+      type: 'movie'
+    }));
+
+    res.json({ results });
+  } catch (error) {
+    console.error('Error searching movies:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Search for songs using Spotify API (requires client credentials)
+app.get('/api/search/songs', async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q || typeof q !== 'string' || q.trim().length < 2) {
+      return res.status(400).json({ error: 'Query must be at least 2 characters' });
+    }
+
+    const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID;
+    const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
+
+    if (!SPOTIFY_CLIENT_ID || !SPOTIFY_CLIENT_SECRET) {
+      // Fallback: return empty results if Spotify not configured
+      return res.json({ results: [] });
+    }
+
+    // Get access token using client credentials
+    const tokenResponse = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'Authorization': `Basic ${Buffer.from(`${SPOTIFY_CLIENT_ID}:${SPOTIFY_CLIENT_SECRET}`).toString('base64')}`
+      },
+      body: 'grant_type=client_credentials'
+    });
+
+    if (!tokenResponse.ok) {
+      throw new Error('Failed to get Spotify access token');
+    }
+
+    const tokenData = await tokenResponse.json();
+    const accessToken = tokenData.access_token;
+
+    // Search for tracks
+    const searchResponse = await fetch(
+      `https://api.spotify.com/v1/search?q=${encodeURIComponent(q.trim())}&type=track&limit=5`,
+      {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`
+        }
+      }
+    );
+
+    if (!searchResponse.ok) {
+      throw new Error(`Spotify API error: ${searchResponse.status}`);
+    }
+
+    const searchData = await searchResponse.json();
+    const results = (searchData.tracks?.items || []).map(track => ({
+      id: track.id,
+      title: track.name,
+      artist: track.artists.map(a => a.name).join(', '),
+      album: track.album.name,
+      image: track.album.images && track.album.images.length > 0 ? track.album.images[0].url : null,
+      previewUrl: track.preview_url,
+      spotifyUrl: track.external_urls.spotify,
+      type: 'song'
+    }));
+
+    res.json({ results });
+  } catch (error) {
+    console.error('Error searching songs:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.get('/api/entries', async (req, res) => {
   try {
     if (!req.user) {
