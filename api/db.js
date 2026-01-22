@@ -196,10 +196,19 @@ export async function getEntryById(id, userId) {
 
 export async function saveEntry(entry) {
   try {
+    console.log('[DB] saveEntry called:', {
+      id: entry.id,
+      text: entry.text?.substring(0, 50),
+      userId: entry.userId,
+      hasMedia: !!entry.mediaCardData,
+      hasLink: !!entry.linkCardsData
+    });
+    
     const db = getPool();
     const linkCardsData = entry.linkCardsData ? JSON.stringify(entry.linkCardsData) : null;
     const mediaCardData = entry.mediaCardData ? JSON.stringify(entry.mediaCardData) : null;
-    await db.query(
+    
+    const result = await db.query(
       `INSERT INTO entries (id, text, position_x, position_y, parent_entry_id, user_id, link_cards_data, media_card_data, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
        ON CONFLICT (id) 
@@ -214,9 +223,11 @@ export async function saveEntry(entry) {
          updated_at = CURRENT_TIMESTAMP`,
       [entry.id, entry.text, entry.position.x, entry.position.y, entry.parentEntryId || null, entry.userId, linkCardsData, mediaCardData]
     );
+    
+    console.log('[DB] saveEntry successful:', entry.id, 'rowCount:', result.rowCount);
     return entry;
   } catch (error) {
-    console.error('Error saving entry:', error);
+    console.error('[DB] Error saving entry:', entry.id, error);
     throw error;
   }
 }

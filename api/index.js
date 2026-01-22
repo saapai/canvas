@@ -627,12 +627,25 @@ app.get('/api/entries', async (req, res) => {
 
 app.post('/api/entries', async (req, res) => {
   try {
+    console.log('[API] POST /api/entries - User:', req.user ? req.user.id : 'none');
+    
     if (!req.user) {
+      console.log('[API] POST /api/entries - No user, returning 401');
       return res.status(401).json({ error: 'Authentication required' });
     }
+    
     const { id, text, position, parentEntryId, linkCardsData, mediaCardData } = req.body;
+    console.log('[API] POST /api/entries - Entry data:', {
+      id,
+      text: text?.substring(0, 50),
+      hasPosition: !!position,
+      hasMedia: !!mediaCardData,
+      hasLink: !!linkCardsData,
+      userId: req.user.id
+    });
     
     if (!id || text === undefined || !position) {
+      console.log('[API] POST /api/entries - Missing required fields');
       return res.status(400).json({ error: 'id, text, and position are required' });
     }
 
@@ -646,10 +659,12 @@ app.post('/api/entries', async (req, res) => {
       userId: req.user.id
     };
 
+    console.log('[API] POST /api/entries - Calling saveEntry for:', entry.id);
     const savedEntry = await saveEntry(entry);
+    console.log('[API] POST /api/entries - Save successful:', savedEntry.id);
     res.json(savedEntry);
   } catch (error) {
-    console.error('Error saving entry:', error);
+    console.error('[API] POST /api/entries - Error:', error);
     res.status(500).json({ error: error.message });
   }
 });
