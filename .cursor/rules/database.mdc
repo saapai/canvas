@@ -1,0 +1,8 @@
+---
+name: database usage
+description: if the database usage changes in the codebase, make sure to check specs on how the database is organized specifically. if any changes are made to the database, document them comprehensively. create a directory for just that and organize it however you want to make it best accessible by future cursor prompts. if you notice the database docs are outdated or inconsistent, reconcile to best ensure funcitonality
+---
+
+# Overview
+
+Insert overview text here. The agent will only see this should they choose to apply the rule.

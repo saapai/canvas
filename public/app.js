@@ -3157,6 +3157,149 @@ window.addEventListener('popstate', (event) => {
   }
 });
 
+// Hub-based organization algorithm
+async function organizeEntriesIntoHubs() {
+  // Get all visible entries (current view level)
+  const visibleEntries = Array.from(entries.values()).filter(e => {
+    if (e.id === 'anchor') return false;
+    const entry = e.element;
+    return entry && entry.style.display !== 'none';
+  });
+
+  if (visibleEntries.length === 0) return;
+
+  // Calculate similarity scores between entries using text comparison
+  function calculateSimilarity(text1, text2) {
+    const words1 = text1.toLowerCase().split(/\s+/);
+    const words2 = text2.toLowerCase().split(/\s+/);
+    const set1 = new Set(words1);
+    const set2 = new Set(words2);
+    const intersection = new Set([...set1].filter(x => set2.has(x)));
+    const union = new Set([...set1, ...set2]);
+    return union.size > 0 ? intersection.size / union.size : 0;
+  }
+
+  // Count children for each entry
+  function countChildren(entryId) {
+    return Array.from(entries.values()).filter(e => e.parentEntryId === entryId).length;
+  }
+
+  // Build similarity matrix and calculate hub scores
+  const entryData = visibleEntries.map(e => {
+    const childCount = countChildren(e.id);
+    return {
+      id: e.id,
+      text: e.text || '',
+      element: e.element,
+      childCount,
+      hubScore: childCount * 2 + (e.text?.length || 0) / 10 // Favor entries with children and longer text
+    };
+  });
+
+  // Sort by hub score to identify main hubs
+  entryData.sort((a, b) => b.hubScore - a.hubScore);
+
+  // Identify hubs (top entries with high scores)
+  const numHubs = Math.min(Math.max(2, Math.ceil(entryData.length / 5)), 8);
+  const hubs = entryData.slice(0, numHubs);
+  const nonHubs = entryData.slice(numHubs);
+
+  // Assign non-hub entries to nearest hub based on similarity
+  const hubClusters = hubs.map(hub => ({
+    hub,
+    members: []
+  }));
+
+  nonHubs.forEach(entry => {
+    let bestHub = 0;
+    let bestSimilarity = -1;
+
+    hubs.forEach((hub, idx) => {
+      const similarity = calculateSimilarity(entry.text, hub.text);
+      if (similarity > bestSimilarity) {
+        bestSimilarity = similarity;
+        bestHub = idx;
+      }
+    });
+
+    hubClusters[bestHub].members.push(entry);
+  });
+
+  // Layout parameters
+  const viewportWidth = viewport.offsetWidth;
+  const viewportHeight = viewport.offsetHeight;
+  const centerX = viewportWidth / 2;
+  const centerY = viewportHeight / 2;
+
+  // Arrange hubs in a circular pattern with variance
+  const hubRadius = Math.min(viewportWidth, viewportHeight) * 0.3;
+  const angleStep = (Math.PI * 2) / hubs.length;
+
+  hubClusters.forEach((cluster, idx) => {
+    // Position hub with some variance
+    const angle = angleStep * idx + (Math.random() - 0.5) * 0.3;
+    const radiusVariance = hubRadius * (0.8 + Math.random() * 0.4);
+    const hubX = centerX + Math.cos(angle) * radiusVariance;
+    const hubY = centerY + Math.sin(angle) * radiusVariance;
+
+    // Update hub position
+    cluster.hub.element.style.left = `${hubX}px`;
+    cluster.hub.element.style.top = `${hubY}px`;
+    cluster.hub.position = { x: hubX, y: hubY };
+
+    // Arrange members around hub in circular pattern with variance
+    const memberCount = cluster.members.length;
+    if (memberCount > 0) {
+      const memberRadius = 150 + Math.random() * 100;
+      const memberAngleStep = (Math.PI * 2) / memberCount;
+
+      cluster.members.forEach((member, memberIdx) => {
+        // Create varied circular arrangement
+        const memberAngle = memberAngleStep * memberIdx + (Math.random() - 0.5) * 0.5;
+        const memberRadiusVariance = memberRadius * (0.7 + Math.random() * 0.6);
+        const memberX = hubX + Math.cos(memberAngle) * memberRadiusVariance;
+        const memberY = hubY + Math.sin(memberAngle) * memberRadiusVariance;
+
+        member.element.style.left = `${memberX}px`;
+        member.element.style.top = `${memberY}px`;
+        member.position = { x: memberX, y: memberY };
+      });
+    }
+  });
+
+  // Save all updated positions to server
+  const entriesToSave = [...hubs, ...nonHubs].map(e => ({
+    id: e.id,
+    text: e.text,
+    position: e.position,
+    parentEntryId: entries.get(e.id).parentEntryId || null
+  }));
+
+  // Batch save
+  try {
+    await fetch('/api/entries/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entries: entriesToSave })
+    });
+
+    // Update stored entry data
+    entriesToSave.forEach(e => {
+      const entryData = entries.get(e.id);
+      if (entryData) {
+        entryData.position = e.position;
+      }
+    });
+
+    // Animate to fit view
+    setTimeout(() => {
+      zoomToFitEntries();
+    }, 100);
+  } catch (error) {
+    console.error('Error saving organized layout:', error);
+  }
+}
+
 // Help modal functionality
 const helpButton = document.getElementById('help-button');
 const helpModal = document.getElementById('help-modal');
@@ -3179,6 +3322,19 @@ if (helpModal) {
     if (e.target === helpModal) {
       helpModal.classList.add('hidden');
     }
+  });
+}
+
+// Cleanup/organize button functionality
+const cleanupButton = document.getElementById('cleanup-button');
+
+if (cleanupButton) {
+  cleanupButton.addEventListener('click', async () => {
+    if (isReadOnly) {
+      console.log('Cannot organize in read-only mode');
+      return;
+    }
+    await organizeEntriesIntoHubs();
   });
 }
 
