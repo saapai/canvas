@@ -775,9 +775,25 @@ function handleAuthFailure(response) {
 
 async function saveEntryToServer(entryData) {
   if (isReadOnly) {
-    console.warn('Cannot save entry: read-only mode');
+    console.warn('[SAVE] Cannot save entry: read-only mode');
     return null;
   }
+  
+  const payload = {
+    id: entryData.id,
+    text: entryData.text,
+    position: entryData.position,
+    parentEntryId: entryData.parentEntryId,
+    linkCardsData: entryData.linkCardsData || null,
+    mediaCardData: entryData.mediaCardData || null
+  };
+  
+  console.log('[SAVE] Saving entry to server:', {
+    id: payload.id,
+    text: payload.text?.substring(0, 50),
+    hasMedia: !!payload.mediaCardData,
+    hasLink: !!payload.linkCardsData
+  });
   
   try {
     const response = await fetch('/api/entries', {
@@ -786,26 +802,23 @@ async function saveEntryToServer(entryData) {
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        id: entryData.id,
-        text: entryData.text,
-        position: entryData.position,
-        parentEntryId: entryData.parentEntryId,
-        linkCardsData: entryData.linkCardsData || null,
-        mediaCardData: entryData.mediaCardData || null
-      })
+      body: JSON.stringify(payload)
     });
     
+    console.log('[SAVE] Response status:', response.status, response.statusText);
+    
     if (!response.ok) {
-      const errorText = await response.text().catch(() => '');
-      console.error('Failed to save entry:', response.status, errorText);
+      const errorData = await response.json().catch(() => ({}));
+      console.error('[SAVE] Save failed:', response.status, errorData);
       handleAuthFailure(response);
-      throw new Error('Failed to save entry');
+      throw new Error(errorData.error || 'Failed to save entry');
     }
     
-    return await response.json();
+    const result = await response.json();
+    console.log('[SAVE] Save successful:', result.id);
+    return result;
   } catch (error) {
-    console.error('Error saving entry to server:', error);
+    console.error('[SAVE] Error saving entry to server:', error);
     // Don't throw - allow app to continue working offline
     return null;
   }
