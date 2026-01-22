@@ -42,6 +42,7 @@ export async function initDatabase() {
         parent_entry_id TEXT,
         user_id TEXT,
         link_cards_data JSONB,
+        media_card_data JSONB,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         deleted_at TIMESTAMP
@@ -102,6 +103,17 @@ export async function initDatabase() {
       console.log('Note: deleted_at column check:', error.message);
     }
 
+    // Add media_card_data column if it doesn't exist (migration for media cards)
+    try {
+      await db.query(`
+        ALTER TABLE entries 
+        ADD COLUMN IF NOT EXISTS media_card_data JSONB;
+      `);
+    } catch (error) {
+      // Column might already exist, ignore error
+      console.log('Note: media_card_data column check:', error.message);
+    }
+
     // Remove UNIQUE constraint from phone column if it exists (migration for multi-username support)
     try {
       // First, check if the constraint exists
@@ -137,7 +149,7 @@ export async function getAllEntries(userId) {
   try {
     const db = getPool();
     const result = await db.query(
-      `SELECT id, text, position_x, position_y, parent_entry_id, link_cards_data
+      `SELECT id, text, position_x, position_y, parent_entry_id, link_cards_data, media_card_data
        FROM entries
        WHERE user_id = $1 AND deleted_at IS NULL
        ORDER BY created_at ASC`,
@@ -148,7 +160,8 @@ export async function getAllEntries(userId) {
       text: row.text,
       position: { x: row.position_x, y: row.position_y },
       parentEntryId: row.parent_entry_id || null,
-      linkCardsData: row.link_cards_data || null
+      linkCardsData: row.link_cards_data || null,
+      mediaCardData: row.media_card_data || null
     }));
   } catch (error) {
     console.error('Error fetching entries:', error);
@@ -185,9 +198,10 @@ export async function saveEntry(entry) {
   try {
     const db = getPool();
     const linkCardsData = entry.linkCardsData ? JSON.stringify(entry.linkCardsData) : null;
+    const mediaCardData = entry.mediaCardData ? JSON.stringify(entry.mediaCardData) : null;
     await db.query(
-      `INSERT INTO entries (id, text, position_x, position_y, parent_entry_id, user_id, link_cards_data, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+      `INSERT INTO entries (id, text, position_x, position_y, parent_entry_id, user_id, link_cards_data, media_card_data, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
        ON CONFLICT (id) 
        DO UPDATE SET 
          text = EXCLUDED.text,
@@ -196,8 +210,9 @@ export async function saveEntry(entry) {
          parent_entry_id = EXCLUDED.parent_entry_id,
          user_id = EXCLUDED.user_id,
          link_cards_data = EXCLUDED.link_cards_data,
+         media_card_data = EXCLUDED.media_card_data,
          updated_at = CURRENT_TIMESTAMP`,
-      [entry.id, entry.text, entry.position.x, entry.position.y, entry.parentEntryId || null, entry.userId, linkCardsData]
+      [entry.id, entry.text, entry.position.x, entry.position.y, entry.parentEntryId || null, entry.userId, linkCardsData, mediaCardData]
     );
     return entry;
   } catch (error) {
@@ -234,9 +249,10 @@ export async function saveAllEntries(entries, userId) {
       
       for (const entry of entries) {
         const linkCardsData = entry.linkCardsData ? JSON.stringify(entry.linkCardsData) : null;
+        const mediaCardData = entry.mediaCardData ? JSON.stringify(entry.mediaCardData) : null;
         await client.query(
-          `INSERT INTO entries (id, text, position_x, position_y, parent_entry_id, user_id, link_cards_data, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, CURRENT_TIMESTAMP)
+          `INSERT INTO entries (id, text, position_x, position_y, parent_entry_id, user_id, link_cards_data, media_card_data, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP)
            ON CONFLICT (id) 
            DO UPDATE SET 
              text = EXCLUDED.text,
@@ -245,8 +261,9 @@ export async function saveAllEntries(entries, userId) {
              parent_entry_id = EXCLUDED.parent_entry_id,
              user_id = EXCLUDED.user_id,
              link_cards_data = EXCLUDED.link_cards_data,
+             media_card_data = EXCLUDED.media_card_data,
              updated_at = CURRENT_TIMESTAMP`,
-          [entry.id, entry.text, entry.position.x, entry.position.y, entry.parentEntryId || null, userId, linkCardsData]
+          [entry.id, entry.text, entry.position.x, entry.position.y, entry.parentEntryId || null, userId, linkCardsData, mediaCardData]
         );
       }
       

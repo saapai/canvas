@@ -2566,11 +2566,12 @@ viewport.addEventListener('mousemove', (e) => {
   
   // Normal mode: allow entry dragging
   if(draggingEntry) {
-    // Only allow dragging if Shift is still held
-    if(!e.shiftKey) {
-      // Shift was released, cancel drag and reset cursor
+    // Allow dragging if Shift is held OR if entry is selected
+    const isEntrySelected = selectedEntries.has(draggingEntry.id);
+    if(!e.shiftKey && !isEntrySelected) {
+      // Shift was released and entry not selected, cancel drag and reset cursor
       draggingEntry.style.cursor = '';
-      const linkCards = draggingEntry.querySelectorAll('.link-card, .link-card-placeholder');
+      const linkCards = draggingEntry.querySelectorAll('.link-card, .link-card-placeholder, .media-card');
       linkCards.forEach(card => {
         card.style.cursor = '';
       });
@@ -3014,8 +3015,10 @@ editor.addEventListener('keydown', (e) => {
       return;
     }
     
-    // Hide autocomplete when Enter is pressed to commit
+    // Hide autocomplete when Enter is pressed to commit (cancel any pending search)
+    clearTimeout(autocompleteSearchTimeout);
     hideAutocomplete();
+    autocompleteIsShowing = false;
     
     // Command/Ctrl+Enter always saves, regardless of bullets
     if(e.metaKey || e.ctrlKey) {
@@ -3774,9 +3777,12 @@ if (helpModal) {
 }
 
 // Autocomplete functions
+let autocompleteIsShowing = false;
+
 function handleAutocompleteSearch() {
   if (!autocomplete || editor.style.display === 'none') {
     hideAutocomplete();
+    autocompleteIsShowing = false;
     return;
   }
 
@@ -3786,6 +3792,7 @@ function handleAutocompleteSearch() {
   // Only search if we have at least 3 characters
   if (trimmed.length < 3) {
     hideAutocomplete();
+    autocompleteIsShowing = false;
       return;
     }
 
@@ -3930,6 +3937,7 @@ function hideAutocomplete() {
   autocomplete.innerHTML = '';
   autocompleteResults = [];
   autocompleteSelectedIndex = -1;
+  autocompleteIsShowing = false;
 }
 
 function selectAutocompleteResult(result) {
@@ -3990,6 +3998,9 @@ function selectAutocompleteResult(result) {
   editingEntryId = null;
 
   if (targetEntry) {
+    // Don't render any text - media card is the only content
+    targetEntry.innerHTML = '';
+    
     // Add media card to entry
     const card = createMediaCard(result);
     targetEntry.appendChild(card);
@@ -4027,11 +4038,13 @@ function createMediaCard(mediaData) {
     : '';
 
   const cardContent = `
-    ${imageUrl ? `<div class="media-card-image" style="background-image: url('${imageUrl}')"></div>` : ''}
-    <div class="media-card-content">
-      <div class="media-card-type">${typeLabel}</div>
-      <div class="media-card-title">${escapeHtml(mediaData.title)}</div>
-      ${subtitle ? `<div class="media-card-subtitle">${escapeHtml(subtitle)}</div>` : ''}
+    <div class="media-card-inner">
+      ${imageUrl ? `<div class="media-card-image" style="background-image: url('${imageUrl}')"></div>` : ''}
+      <div class="media-card-content">
+        <div class="media-card-type">${typeLabel}</div>
+        <div class="media-card-title">${escapeHtml(mediaData.title)}</div>
+        ${subtitle ? `<div class="media-card-subtitle">${escapeHtml(subtitle)}</div>` : ''}
+      </div>
     </div>
   `;
 
@@ -4066,15 +4079,29 @@ function createMediaCard(mediaData) {
     }
   });
 
-  // Right-click to open in new tab (context menu)
+  // Right-click to edit the media card's link (similar to link cards)
   card.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     e.stopPropagation();
     
-    if (mediaData.type === 'song' && mediaData.spotifyUrl) {
-      window.open(mediaData.spotifyUrl, '_blank');
-    } else if (mediaData.type === 'movie') {
-      window.open(`https://www.themoviedb.org/movie/${mediaData.id}`, '_blank');
+    // Get the entry this card belongs to
+    const entryEl = card.closest('.entry');
+    if (entryEl && entryEl.id) {
+      const entryData = entries.get(entryEl.id);
+      if (entryData) {
+        const rect = entryEl.getBoundingClientRect();
+        const worldPos = screenToWorld(rect.left, rect.top);
+        
+        // Get the URL to edit
+        let urlToEdit = '';
+        if (mediaData.type === 'song' && mediaData.spotifyUrl) {
+          urlToEdit = mediaData.spotifyUrl;
+        } else if (mediaData.type === 'movie') {
+          urlToEdit = `https://www.themoviedb.org/movie/${mediaData.id}`;
+        }
+        
+        placeEditorAtWorld(worldPos.x, worldPos.y, urlToEdit, entryEl.id);
+      }
     }
   });
 
