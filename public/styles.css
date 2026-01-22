@@ -275,8 +275,7 @@ body::before{
 }
 
 /* Ensure entry highlight shows when hovering over link cards */
-.entry:has(.link-card:hover):not(.editing)::before,
-.entry:has(.link-card-placeholder:hover):not(.editing)::before {
+.entry.has-link-card-hover:not(.editing)::before {
   content: '';
   position: absolute;
   top: -2px;
@@ -994,6 +993,13 @@ body::before{
 }
 
 /* Media cards (similar to link cards) */
+.media-card,
+.media-card *,
+.media-card::before,
+.media-card::after {
+  cursor: pointer !important;
+}
+
 .media-card {
   margin-top: 16px;
   margin-bottom: 8px;
@@ -1009,7 +1015,6 @@ body::before{
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
   position: relative;
   z-index: 10;
-  cursor: pointer;
 }
 
 .media-card:hover {
@@ -1018,7 +1023,8 @@ body::before{
   transform: translateY(-1px);
 }
 
-.entry:has(.media-card:hover):not(.editing)::before {
+/* Remove automatic highlighting for media cards - use manual class like link cards */
+.entry.has-media-card-hover:not(.editing)::before {
   content: '';
   position: absolute;
   top: -2px;
@@ -1086,4 +1092,29 @@ body::before{
 
 .media-card-no-image .media-card-content {
   padding: 16px;
+}
+
+/* Selection box */
+.selection-box {
+  position: absolute;
+  border: 2px solid rgba(59, 130, 246, 0.6);
+  background: rgba(59, 130, 246, 0.1);
+  pointer-events: none;
+  z-index: 10000;
+}
+
+/* Selected entries */
+.entry.selected::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  width: calc(100% + 4px);
+  height: calc(100% + 4px);
+  border: 2px solid rgba(59, 130, 246, 0.8);
+  background-color: rgba(59, 130, 246, 0.15);
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: -1;
+  box-sizing: border-box;
 }

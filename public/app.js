@@ -42,6 +42,16 @@ const anchorPos = { x: 0, y: 0 };
 const entries = new Map();
 let entryIdCounter = 0;
 
+// Selection state
+let selectedEntries = new Set();
+let isSelecting = false;
+let selectionStart = null;
+let selectionBox = null;
+
+// Undo stack
+const undoStack = [];
+const MAX_UNDO_STACK = 50;
+
 function setAnchorGreeting() {
   if (currentUser && currentUser.username) {
     anchor.textContent = `Hello, ${currentUser.username}`;
@@ -2414,6 +2424,31 @@ viewport.addEventListener('mousedown', (e) => {
   // Normal mode: allow editing and dragging
   const entryEl = findEntryElement(e.target);
   
+  // Shift+drag on empty space for selection box
+  if(e.shiftKey && !entryEl){
+    e.preventDefault();
+    isSelecting = true;
+    selectionStart = screenToWorld(e.clientX, e.clientY);
+    
+    // Create selection box element
+    if(!selectionBox){
+      selectionBox = document.createElement('div');
+      selectionBox.className = 'selection-box';
+      viewport.appendChild(selectionBox);
+    }
+    
+    selectionBox.style.display = 'block';
+    const startScreen = worldToScreen(selectionStart.x, selectionStart.y);
+    selectionBox.style.left = `${startScreen.x}px`;
+    selectionBox.style.top = `${startScreen.y}px`;
+    selectionBox.style.width = '0px';
+    selectionBox.style.height = '0px';
+    
+    // Clear existing selection
+    clearSelection();
+    return;
+  }
+  
   if(entryEl) {
     // Only prepare for drag if Shift is held (for shift+drag to move)
     if(e.shiftKey) {
@@ -2466,6 +2501,30 @@ viewport.addEventListener('mousemove', (e) => {
       applyTransform();
       isClick = false;
     }
+    return;
+  }
+  
+  // Handle selection box dragging
+  if(isSelecting && selectionStart){
+    const currentWorld = screenToWorld(e.clientX, e.clientY);
+    
+    // Calculate box dimensions in world coordinates
+    const minX = Math.min(selectionStart.x, currentWorld.x);
+    const minY = Math.min(selectionStart.y, currentWorld.y);
+    const maxX = Math.max(selectionStart.x, currentWorld.x);
+    const maxY = Math.max(selectionStart.y, currentWorld.y);
+    
+    // Convert to screen coordinates for the selection box element
+    const topLeft = worldToScreen(minX, minY);
+    const bottomRight = worldToScreen(maxX, maxY);
+    
+    selectionBox.style.left = `${topLeft.x}px`;
+    selectionBox.style.top = `${topLeft.y}px`;
+    selectionBox.style.width = `${bottomRight.x - topLeft.x}px`;
+    selectionBox.style.height = `${bottomRight.y - topLeft.y}px`;
+    
+    // Highlight entries within the selection box
+    selectEntriesInBox(minX, minY, maxX, maxY);
     return;
   }
   
@@ -2539,6 +2598,17 @@ viewport.addEventListener('mousemove', (e) => {
 });
 
 window.addEventListener('mouseup', (e) => {
+  // Handle selection box completion
+  if(isSelecting){
+    isSelecting = false;
+    if(selectionBox){
+      selectionBox.style.display = 'none';
+    }
+    selectionStart = null;
+    // Keep the selected entries highlighted
+    return;
+  }
+  
   // In read-only mode, only handle navigation clicks
   if (isReadOnly) {
     if (dragging) {
@@ -3672,10 +3742,16 @@ async function searchMedia(query) {
     console.log('[Autocomplete] Movies results:', moviesData.results?.length || 0);
     console.log('[Autocomplete] Songs results:', songsData.results?.length || 0);
 
-    const allResults = [
-      ...(moviesData.results || []),
-      ...(songsData.results || [])
-    ];
+    // Interleave movies and songs for equal weighting
+    const movies = moviesData.results || [];
+    const songs = songsData.results || [];
+    const allResults = [];
+    const maxLength = Math.max(movies.length, songs.length);
+    
+    for (let i = 0; i < maxLength; i++) {
+      if (i < movies.length) allResults.push(movies[i]);
+      if (i < songs.length) allResults.push(songs[i]);
+    }
 
     if (allResults.length > 0) {
       console.log('[Autocomplete] Showing', allResults.length, 'results');
@@ -3789,10 +3865,19 @@ function selectAutocompleteResult(result) {
   let targetEntryId = null;
 
   if (editingEntryId && editingEntryId !== 'anchor') {
+    // Editing existing entry - replace content with card
     targetEntry = entries.get(editingEntryId)?.element;
     targetEntryId = editingEntryId;
+    
+    // Clear existing text content from entry
+    if (targetEntry) {
+      // Remove all text nodes and keep only existing cards
+      const existingCards = Array.from(targetEntry.querySelectorAll('.link-card, .media-card'));
+      targetEntry.innerHTML = '';
+      existingCards.forEach(card => targetEntry.appendChild(card));
+    }
   } else {
-    // Create a new entry with the media card
+    // Create a new entry with just the media card (no text)
     const entryId = `entry-${entryIdCounter++}`;
     const entry = document.createElement('div');
     entry.className = 'entry melt';
@@ -3807,31 +3892,32 @@ function selectAutocompleteResult(result) {
     const entryData = {
       id: entryId,
       element: entry,
-      text: result.title,
+      text: '', // No text, just card
       position: { x: worldPos.x, y: worldPos.y },
-      parentEntryId: currentViewEntryId
+      parentEntryId: currentViewEntryId,
+      mediaCardData: result
     };
     entries.set(entryId, entryData);
 
     targetEntry = entry;
     targetEntryId = entryId;
 
-    // Clear editor
-    editor.textContent = '';
-    editor.style.display = 'none';
-    editingEntryId = null;
-
-    // Update visibility
-    updateEntryVisibility();
-
     // Save to server
     saveEntryToServer(entryData);
   }
+
+  // Clear and hide editor
+  editor.textContent = '';
+  editor.style.display = 'none';
+  editingEntryId = null;
 
   if (targetEntry) {
     // Add media card to entry
     const card = createMediaCard(result);
     targetEntry.appendChild(card);
+
+    // Update visibility
+    updateEntryVisibility();
 
     // Update entry dimensions
     setTimeout(() => {
@@ -3839,6 +3925,7 @@ function selectAutocompleteResult(result) {
       if (targetEntryId) {
         const entryData = entries.get(targetEntryId);
         if (entryData) {
+          entryData.text = ''; // Entry has no text, just card
           entryData.mediaCardData = result;
           updateEntryOnServer(entryData);
         }
@@ -3852,6 +3939,7 @@ function createMediaCard(mediaData) {
   card.className = mediaData.image || mediaData.poster ? 'media-card' : 'media-card media-card-no-image';
   card.dataset.mediaId = mediaData.id;
   card.dataset.type = mediaData.type;
+  card.dataset.title = mediaData.title;
 
   const imageUrl = mediaData.image || mediaData.poster;
   const typeLabel = mediaData.type === 'song' ? 'Song' : 'Movie';
@@ -3872,20 +3960,43 @@ function createMediaCard(mediaData) {
 
   card.innerHTML = cardContent;
 
-  // Handle click to open external link
+  // Handle click - same behavior as link cards
   card.addEventListener('click', (e) => {
+    // Don't handle click if shift was held (shift+click is for dragging)
+    // Also don't handle if we just finished dragging (prevents navigation after drag)
     if (e.shiftKey || justFinishedDragging) {
       e.preventDefault();
       e.stopPropagation();
       return;
     }
-
+    
     e.stopPropagation();
+    
+    // Command/Ctrl+click opens in new tab
+    if (e.metaKey || e.ctrlKey) {
+      if (mediaData.type === 'song' && mediaData.spotifyUrl) {
+        window.open(mediaData.spotifyUrl, '_blank');
+      } else if (mediaData.type === 'movie') {
+        window.open(`https://www.themoviedb.org/movie/${mediaData.id}`, '_blank');
+      }
+      return;
+    }
+    
+    // Regular click navigates into the card (like link cards)
+    const entryEl = card.closest('.entry');
+    if (entryEl && entryEl.id) {
+      navigateToEntry(entryEl.id);
+    }
+  });
 
+  // Right-click to open in new tab (context menu)
+  card.addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
     if (mediaData.type === 'song' && mediaData.spotifyUrl) {
       window.open(mediaData.spotifyUrl, '_blank');
     } else if (mediaData.type === 'movie') {
-      // Could open TMDB page or search
       window.open(`https://www.themoviedb.org/movie/${mediaData.id}`, '_blank');
     }
   });
@@ -3894,14 +4005,14 @@ function createMediaCard(mediaData) {
   card.addEventListener('mouseenter', () => {
     const entry = card.closest('.entry');
     if (entry) {
-      entry.classList.add('has-link-card-hover');
+      entry.classList.add('has-media-card-hover');
     }
   });
 
   card.addEventListener('mouseleave', () => {
     const entry = card.closest('.entry');
     if (entry) {
-      entry.classList.remove('has-link-card-hover');
+      entry.classList.remove('has-media-card-hover');
     }
   });
 
@@ -3926,8 +4037,146 @@ editor.addEventListener('input', updateAutocompleteOnMove);
 window.addEventListener('scroll', updateAutocompleteOnMove);
 window.addEventListener('resize', updateAutocompleteOnMove);
 
-// Keyboard shortcut: Command/Ctrl+Shift+1 to navigate to home page
-window.addEventListener('keydown', (e) => {
+// Selection helper functions
+function clearSelection() {
+  selectedEntries.forEach(entryId => {
+    const entryData = entries.get(entryId);
+    if (entryData && entryData.element) {
+      entryData.element.classList.remove('selected');
+    }
+  });
+  selectedEntries.clear();
+}
+
+function selectEntriesInBox(minX, minY, maxX, maxY) {
+  // Clear previous selection
+  clearSelection();
+  
+  // Check each entry to see if it's within the box
+  entries.forEach((entryData, entryId) => {
+    if (entryId === 'anchor') return;
+    
+    const entry = entryData.element;
+    if (!entry || entry.style.display === 'none') return;
+    
+    const rect = entry.getBoundingClientRect();
+    const entryWorld = screenToWorld(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    
+    if (entryWorld.x >= minX && entryWorld.x <= maxX && 
+        entryWorld.y >= minY && entryWorld.y <= maxY) {
+      selectedEntries.add(entryId);
+      entry.classList.add('selected');
+    }
+  });
+}
+
+// Undo system functions
+function saveUndoState(action, data) {
+  undoStack.push({ action, data, timestamp: Date.now() });
+  if (undoStack.length > MAX_UNDO_STACK) {
+    undoStack.shift(); // Remove oldest state
+  }
+}
+
+async function performUndo() {
+  if (undoStack.length === 0) return;
+  
+  const state = undoStack.pop();
+  console.log('[Undo] Restoring state:', state.action);
+  
+  switch (state.action) {
+    case 'delete':
+      // Restore deleted entries
+      for (const entryData of state.data.entries) {
+        const entry = document.createElement('div');
+        entry.className = 'entry';
+        entry.id = entryData.id;
+        entry.style.left = `${entryData.position.x}px`;
+        entry.style.top = `${entryData.position.y}px`;
+        entry.innerHTML = meltify(entryData.text);
+        world.appendChild(entry);
+        
+        entries.set(entryData.id, {
+          ...entryData,
+          element: entry
+        });
+        
+        // Restore to server
+        await saveEntryToServer(entryData);
+      }
+      updateEntryVisibility();
+      break;
+      
+    case 'move':
+      // Restore previous positions
+      for (const { entryId, oldPosition } of state.data.moves) {
+        const entryData = entries.get(entryId);
+        if (entryData && entryData.element) {
+          entryData.element.style.left = `${oldPosition.x}px`;
+          entryData.element.style.top = `${oldPosition.y}px`;
+          entryData.position = oldPosition;
+          await updateEntryOnServer(entryData);
+        }
+      }
+      break;
+      
+    case 'create':
+      // Delete created entry
+      const entryData = entries.get(state.data.entryId);
+      if (entryData) {
+        await deleteEntryWithConfirmation(state.data.entryId, true); // Skip confirmation
+      }
+      break;
+  }
+}
+
+// Multi-entry operations
+async function deleteSelectedEntries() {
+  if (selectedEntries.size === 0) return;
+  
+  // Save undo state
+  const deletedEntries = [];
+  selectedEntries.forEach(entryId => {
+    const entryData = entries.get(entryId);
+    if (entryData) {
+      deletedEntries.push({
+        id: entryData.id,
+        text: entryData.text,
+        position: entryData.position,
+        parentEntryId: entryData.parentEntryId,
+        mediaCardData: entryData.mediaCardData,
+        linkCardsData: entryData.linkCardsData
+      });
+    }
+  });
+  saveUndoState('delete', { entries: deletedEntries });
+  
+  // Delete entries
+  for (const entryId of selectedEntries) {
+    await deleteEntryWithConfirmation(entryId, true); // Skip confirmation
+  }
+  
+  clearSelection();
+}
+
+// Keyboard shortcuts
+window.addEventListener('keydown', async (e) => {
+  // Command+Z / Ctrl+Z for undo
+  if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+    e.preventDefault();
+    await performUndo();
+    return;
+  }
+  
+  // Delete key for selected entries
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (selectedEntries.size > 0 && document.activeElement !== editor) {
+      e.preventDefault();
+      await deleteSelectedEntries();
+      return;
+    }
+  }
+  
   // Command+Shift+1 (Mac) or Ctrl+Shift+1 (Windows/Linux)
   // Check for both '1'/'Digit1' in key and 'Digit1' in code to handle different keyboard layouts
   const isOneKey = e.key === '1' || e.key === 'Digit1' || e.code === 'Digit1';
