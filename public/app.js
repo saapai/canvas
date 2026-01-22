@@ -678,6 +678,12 @@ async function loadUserEntries(username, editable) {
     // Set read-only mode
     isReadOnly = !editable;
     
+    // Hide search button in read-only mode
+    const searchButton = document.getElementById('search-button');
+    if (searchButton) {
+      searchButton.style.display = isReadOnly ? 'none' : 'flex';
+    }
+    
     // Check if we need to navigate to a specific path based on URL
     const pathParts = window.location.pathname.split('/').filter(Boolean);
     if (pathParts.length > 1 && pathParts[0] === username) {
@@ -3903,8 +3909,16 @@ let searchTimeout = null;
 let searchSelectedIndex = -1;
 let searchResultsData = [];
 
+// Hide search button initially if in read-only mode
+if (searchButton && isReadOnly) {
+  searchButton.style.display = 'none';
+}
+
 if (searchButton) {
   searchButton.addEventListener('click', () => {
+    // Don't allow search in read-only mode
+    if (isReadOnly) return;
+    
     searchModal.classList.remove('hidden');
     // Focus input after a short delay to ensure modal is visible
     setTimeout(() => {
