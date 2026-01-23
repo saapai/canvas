@@ -1897,7 +1897,7 @@ function findRandomEmptySpaceNextToEntry() {
 
     // Choose a random side (right, bottom, left, top)
     const side = Math.floor(Math.random() * 4);
-    const padding = 40; // Space between entry and cursor
+    const padding = 40 / cam.z; // Space between entry and cursor (in world coordinates)
 
     let x, y;
     switch (side) {
@@ -2064,7 +2064,9 @@ function showCursorInDefaultPosition(entryId = null) {
     const viewportRect = viewport.getBoundingClientRect();
     const center = screenToWorld(viewportRect.width / 2, viewportRect.height / 2);
     let found = false;
-    const offsets = [0, 100, -100, 200, -200, 150, -150];
+    // Adjust offsets for zoom level
+    const baseOffset = 100 / cam.z;
+    const offsets = [0, baseOffset, -baseOffset, baseOffset * 2, -baseOffset * 2, baseOffset * 1.5, -baseOffset * 1.5];
     for (const offsetX of offsets) {
       for (const offsetY of offsets) {
         const testX = center.x + offsetX;
