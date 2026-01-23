@@ -2084,6 +2084,11 @@ function showCursorAtWorld(wx, wy, force = false) {
     return;
   }
   
+  // Don't show cursor if there are selected entries (user might want to delete them)
+  if (selectedEntries.size > 0 && !force) {
+    return;
+  }
+  
   // Don't update cursor if we're processing a click - wait for click handler to set position
   if (isProcessingClick && !force) {
     return;
@@ -2146,6 +2151,13 @@ function showCursorInDefaultPosition(entryId = null) {
   console.log('[CURSOR] showCursorInDefaultPosition called. isReadOnly:', isReadOnly, 'entryId:', entryId, 'hasClickedRecently:', hasClickedRecently);
   
   if (isReadOnly) {
+    return;
+  }
+  
+  // Don't show cursor if there are selected entries (user might want to delete them)
+  if (selectedEntries.size > 0) {
+    console.log('[CURSOR] Entries are selected, hiding cursor');
+    hideCursor();
     return;
   }
   
@@ -5754,6 +5766,11 @@ function clearSelection() {
     }
   });
   selectedEntries.clear();
+  
+  // Show cursor again when selection is cleared (if not in read-only mode and not editing)
+  if (!isReadOnly && !editingEntryId) {
+    showCursorInDefaultPosition();
+  }
 }
 
 function selectEntriesInBox(minX, minY, maxX, maxY) {
@@ -5781,6 +5798,11 @@ function selectEntriesInBox(minX, minY, maxX, maxY) {
       entry.classList.add('selected');
     }
   });
+  
+  // Hide cursor when entries are selected
+  if (selectedEntries.size > 0) {
+    hideCursor();
+  }
 }
 
 // Undo system functions
