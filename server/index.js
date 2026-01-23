@@ -445,6 +445,12 @@ app.get('/api/auth/me', async (req, res) => {
   });
 });
 
+// Test endpoint to verify API routes work
+app.get('/api/test', (req, res) => {
+  console.log('[TEST] API test route hit');
+  return res.json({ success: true, message: 'API routes are working' });
+});
+
 // Get all spaces/usernames for the current user
 // IMPORTANT: This route must be defined BEFORE the /:username catch-all route
 app.get('/api/auth/spaces', requireAuth, async (req, res) => {
@@ -1006,17 +1012,19 @@ app.get('/', async (req, res) => {
 app.get('/:username', async (req, res) => {
   try {
     // CRITICAL: Skip API routes - check path first before processing
-    if (req.path && req.path.startsWith('/api/')) {
-      console.log('[USER ROUTE] Blocked API route, path:', req.path);
-      return res.status(404).send('Not found');
+    // Use req.originalUrl or req.url to get the full path
+    const fullPath = req.originalUrl || req.url || req.path;
+    if (fullPath && fullPath.startsWith('/api/')) {
+      console.log('[USER ROUTE] Blocked API route, fullPath:', fullPath, 'req.path:', req.path);
+      return res.status(404).json({ error: 'API route blocked by username route' });
     }
     
     const { username } = req.params;
     
     // Skip API routes - they should have been handled already
     if (username === 'api' || username.startsWith('api')) {
-      console.log('[USER ROUTE] Blocked API route, username:', username);
-      return res.status(404).send('Not found');
+      console.log('[USER ROUTE] Blocked API route, username:', username, 'fullPath:', fullPath);
+      return res.status(404).json({ error: 'API route blocked by username route' });
     }
     
     // Skip if this looks like a static file request (has extension)
