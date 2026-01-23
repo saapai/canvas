@@ -4115,24 +4115,24 @@ async function organizeEntriesIntoHubs() {
 }
 
 // Autocomplete toggle functionality
-const toggleText = document.getElementById('toggle-text');
-const toggleMedia = document.getElementById('toggle-media');
+const toggleButton = document.getElementById('toggle-button');
+const toggleState = toggleButton?.querySelector('.toggle-state');
 
-if (toggleText && toggleMedia) {
-  toggleText.addEventListener('click', () => {
-    mediaAutocompleteEnabled = false;
-    toggleText.classList.add('active');
-    toggleMedia.classList.remove('active');
-    hideAutocomplete(); // Hide autocomplete when switching to text mode
-  });
-  
-  toggleMedia.addEventListener('click', () => {
-    mediaAutocompleteEnabled = true;
-    toggleMedia.classList.add('active');
-    toggleText.classList.remove('active');
-    // Trigger autocomplete search if editor has content
-    if (editor.style.display !== 'none' && editor.innerText.trim().length >= 3) {
-      handleAutocompleteSearch();
+if (toggleButton && toggleState) {
+  toggleButton.addEventListener('click', () => {
+    mediaAutocompleteEnabled = !mediaAutocompleteEnabled;
+    
+    if (mediaAutocompleteEnabled) {
+      toggleButton.classList.add('active');
+      toggleState.textContent = 'ON';
+      // Trigger autocomplete search if editor has content
+      if (editor.style.display !== 'none' && editor.innerText.trim().length >= 3) {
+        handleAutocompleteSearch();
+      }
+    } else {
+      toggleButton.classList.remove('active');
+      toggleState.textContent = 'OFF';
+      hideAutocomplete(); // Hide autocomplete when switching to text mode
     }
   });
 }

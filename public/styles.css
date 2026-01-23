@@ -743,58 +743,61 @@ body::before{
 .autocomplete-toggle {
   display: flex;
   align-items: center;
-  gap: 0;
+  gap: 10px;
   margin-right: 12px;
-  background: rgba(0, 0, 0, 0.06);
-  border: 1px solid rgba(0, 0, 0, 0.15);
-  border-radius: 20px;
-  overflow: hidden;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-  position: relative;
-  padding: 2px;
 }
 
 .toggle-button {
-  padding: 8px 16px;
-  background: transparent;
+  padding: 6px 12px;
+  background: var(--paper);
   color: var(--ink);
-  border: none;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 6px;
   cursor: pointer;
-  transition: all 0.25s ease;
+  transition: all 0.2s ease;
   font-family: 'Inter', sans-serif;
-  font-size: 14px;
-  font-weight: 500;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  position: relative;
-  z-index: 2;
-  border-radius: 18px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  min-width: 50px;
+  text-align: center;
 }
 
 .toggle-button:hover {
   background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.2);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
 }
 
 .toggle-button.active {
-  background: var(--paper);
-  color: var(--ink);
-  font-weight: 600;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  background: rgba(59, 130, 246, 0.15);
+  border-color: rgba(59, 130, 246, 0.3);
+  color: rgba(59, 130, 246, 1);
 }
 
-.toggle-button:not(.active) {
-  color: rgba(0, 0, 0, 0.6);
+.toggle-state {
+  display: inline-block;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  color: var(--ink);
+  font-weight: 500;
 }
 
 .toggle-icon {
   font-size: 16px;
 }
 
-.toggle-subtitle {
-  font-size: 10px;
-  opacity: 0.7;
-  font-weight: 400;
+.toggle-text {
+  opacity: 0.8;
 }
 
 /* Help button */
