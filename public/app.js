@@ -1948,7 +1948,8 @@ function showCursorAtWorld(wx, wy, force = false) {
   }
   
   editorWorldPos = { x: wx, y: wy };
-  editor.style.left = `${wx}px`;
+  // Account for editor's left padding (4px) so cursor appears exactly where clicked
+  editor.style.left = `${wx - 4}px`;
   editor.style.top = `${wy}px`;
   editor.textContent = '';
   editor.style.width = '4px';
@@ -2107,7 +2108,8 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
     }
   }
   
-  editor.style.left = `${wx}px`;
+  // Account for editor's left padding (4px) so cursor appears exactly where clicked
+  editor.style.left = `${wx - 4}px`;
   editor.style.top  = `${wy}px`;
   editor.textContent = text;
   // Always remove idle-cursor when placing editor (will be focused, so native caret shows)
