@@ -1533,7 +1533,12 @@ function navigateToEntry(entryId) {
   
   // Reset navigation flag - will be cleared by zoomToFitEntries animation completion
   navigationJustCompleted = true;
+  console.log('[NAV] Set navigationJustCompleted = true for navigateToEntry');
+  
+  // Note: isNavigating will be cleared by zoomToFitEntries animation completion
+  // This timeout is just a safety fallback
   setTimeout(() => {
+    console.log('[NAV] Fallback timeout (1000ms) - isNavigating:', isNavigating, 'navigationJustCompleted:', navigationJustCompleted);
     isNavigating = false;
     // Only hide editor if user hasn't explicitly placed it (clicked during navigation)
     // If editor is visible and has content or is focused, user wants to keep it
@@ -1550,10 +1555,12 @@ function navigateToEntry(entryId) {
     // Fallback: clear the flag if zoom animation didn't clear it
     setTimeout(() => {
       // Only clear if user hasn't clicked (which would have cleared it already)
+      console.log('[NAV] Final fallback timeout (900ms) - navigationJustCompleted:', navigationJustCompleted);
       if (navigationJustCompleted) {
         navigationJustCompleted = false;
         // Show cursor in default position after navigation completes (fallback)
         if (!isReadOnly) {
+          console.log('[NAV] Showing cursor from final fallback');
           requestAnimationFrame(() => {
             requestAnimationFrame(() => {
               showCursorInDefaultPosition();
@@ -1561,7 +1568,7 @@ function navigateToEntry(entryId) {
           });
         }
       }
-    }, 900); // Wait a bit longer than animation duration (800ms) to ensure it's a true fallback
+    }, 1200); // Wait longer to be a true fallback (after animation delay of 150ms + animation 800ms)
   }, 1000);
   
   // Update URL if we're on a user page
