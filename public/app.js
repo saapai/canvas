@@ -1240,12 +1240,15 @@ function zoomToFitEntries() {
     // This prevents anchor from moving when navigating back to empty home page
     if (!hasZoomedToFit) {
       centerAnchor();
-      // Show cursor after initial load
-      if (!isReadOnly) {
-        setTimeout(() => {
-          showCursorInDefaultPosition();
-        }, 100);
-      }
+    }
+    // Always show cursor after navigation or initial load when there are no entries
+    if (!isReadOnly) {
+      setTimeout(() => {
+        if (navigationJustCompleted) {
+          navigationJustCompleted = false;
+        }
+        showCursorInDefaultPosition();
+      }, 100);
     }
     return;
   }
@@ -1332,7 +1335,10 @@ function zoomToFitEntries() {
   
   // If zoom doesn't change and position is already correct, still show cursor after traversal
   const zoomChanged = Math.abs(finalZoom - cam.z) > 0.001;
-  const needsAnimation = zoomChanged || Math.abs(targetX - cam.x) > 1 || Math.abs(targetY - cam.y) > 1;
+  const positionChanged = Math.abs(targetX - cam.x) > 1 || Math.abs(targetY - cam.y) > 1;
+  const needsAnimation = zoomChanged || positionChanged;
+  
+  console.log('[ZOOM] needsAnimation:', needsAnimation, 'zoomChanged:', zoomChanged, 'positionChanged:', positionChanged, 'navigationJustCompleted:', navigationJustCompleted);
 
   // Store starting values for animation
   const startX = cam.x;
@@ -1365,40 +1371,43 @@ function zoomToFitEntries() {
     } else {
       // Animation completed - clear navigationJustCompleted flag to allow clicking
       // This happens after ~800ms, allowing immediate interaction after zoom
+      const wasNavigating = navigationJustCompleted;
       if (navigationJustCompleted) {
         navigationJustCompleted = false;
-        // Show cursor in default position after navigation/zoom completes
-        // Wait for entries to be fully rendered before showing cursor
-        if (!isReadOnly) {
-          // Use setTimeout to ensure entries are fully dimensioned
-          setTimeout(() => {
-            requestAnimationFrame(() => {
-              requestAnimationFrame(() => {
-                showCursorInDefaultPosition();
-              });
-            });
-          }, 100); // Small delay to ensure dimensions are updated
-        }
       }
-    }
-  }
-  
-  if (needsAnimation) {
-    requestAnimationFrame(animate);
-  } else {
-    // No animation needed, but still show cursor after traversal
-    if (navigationJustCompleted) {
-      navigationJustCompleted = false;
+      // Always show cursor after animation completes (whether from navigation or initial load)
       if (!isReadOnly) {
         // Use setTimeout to ensure entries are fully dimensioned
+        console.log('[ZOOM] Animation completed, showing cursor. wasNavigating:', wasNavigating);
         setTimeout(() => {
           requestAnimationFrame(() => {
             requestAnimationFrame(() => {
               showCursorInDefaultPosition();
             });
           });
-        }, 200); // Small delay to ensure dimensions are updated
+        }, 100); // Small delay to ensure dimensions are updated
       }
+    }
+  }
+  
+  if (needsAnimation) {
+    console.log('[ZOOM] Starting animation');
+    requestAnimationFrame(animate);
+  } else {
+    // No animation needed, but still show cursor after traversal
+    console.log('[ZOOM] No animation needed, showing cursor immediately');
+    if (navigationJustCompleted) {
+      navigationJustCompleted = false;
+    }
+    if (!isReadOnly) {
+      // Use setTimeout to ensure entries are fully dimensioned
+      setTimeout(() => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            showCursorInDefaultPosition();
+          });
+        });
+      }, 200); // Small delay to ensure dimensions are updated
     }
   }
 }
