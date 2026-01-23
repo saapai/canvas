@@ -1035,10 +1035,17 @@ app.get('/', async (req, res) => {
 // IMPORTANT: This must come AFTER all /api routes to avoid catching API requests
 app.get('/:username', async (req, res) => {
   try {
+    // CRITICAL: Skip API routes - check path first before processing
+    if (req.path && req.path.startsWith('/api/')) {
+      console.log('[USER ROUTE] Blocked API route, path:', req.path);
+      return res.status(404).send('Not found');
+    }
+    
     const { username } = req.params;
     
     // Skip API routes - they should have been handled already
     if (username === 'api' || username.startsWith('api')) {
+      console.log('[USER ROUTE] Blocked API route, username:', username);
       return res.status(404).send('Not found');
     }
     
