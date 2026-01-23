@@ -4165,6 +4165,287 @@ if (helpModal) {
   });
 }
 
+// User menu functionality
+const userMenuButton = document.getElementById('user-menu-button');
+const userMenuDropdown = document.getElementById('user-menu-dropdown');
+const spacesList = document.getElementById('spaces-list');
+const createSpaceButton = document.getElementById('create-space-button');
+const createSpaceForm = document.getElementById('create-space-form');
+const newUsernameInput = document.getElementById('new-username-input');
+const newUsernameError = document.getElementById('new-username-error');
+const createSpaceCancel = document.getElementById('create-space-cancel');
+const createSpaceSubmit = document.getElementById('create-space-submit');
+const logoutButton = document.getElementById('logout-button');
+const userMenu = document.getElementById('user-menu');
+
+let editingSpaceId = null;
+
+// Hide user menu if not logged in
+if (userMenu) {
+  fetch('/api/auth/me', { credentials: 'include' })
+    .then(res => {
+      if (!res.ok) {
+        userMenu.style.display = 'none';
+      }
+    })
+    .catch(() => {
+      userMenu.style.display = 'none';
+    });
+}
+
+// Toggle dropdown
+if (userMenuButton && userMenuDropdown) {
+  userMenuButton.addEventListener('click', (e) => {
+    e.stopPropagation();
+    userMenuDropdown.classList.toggle('hidden');
+    if (!userMenuDropdown.classList.contains('hidden')) {
+      loadSpaces();
+    }
+  });
+  
+  // Close dropdown when clicking outside
+  document.addEventListener('click', (e) => {
+    if (userMenuDropdown && !userMenuDropdown.contains(e.target) && !userMenuButton.contains(e.target)) {
+      userMenuDropdown.classList.add('hidden');
+      createSpaceForm.classList.add('hidden');
+      editingSpaceId = null;
+    }
+  });
+}
+
+// Load spaces
+async function loadSpaces() {
+  if (!spacesList) return;
+  
+  try {
+    const response = await fetch('/api/auth/spaces', { credentials: 'include' });
+    if (!response.ok) {
+      console.error('Failed to load spaces');
+      return;
+    }
+    
+    const data = await response.json();
+    spacesList.innerHTML = '';
+    
+    if (data.spaces && data.spaces.length > 0) {
+      data.spaces.forEach(space => {
+        const spaceItem = document.createElement('div');
+        spaceItem.className = 'space-item';
+        spaceItem.innerHTML = `
+          <div class="space-item-content">
+            <span class="space-username">${escapeHtml(space.username)}</span>
+          </div>
+          <button class="space-edit-button" data-space-id="${space.id}" data-space-username="${escapeHtml(space.username)}">✏️</button>
+        `;
+        
+        // Click to navigate
+        spaceItem.querySelector('.space-item-content').addEventListener('click', () => {
+          window.location.href = `/${space.username}`;
+        });
+        
+        // Edit button
+        spaceItem.querySelector('.space-edit-button').addEventListener('click', (e) => {
+          e.stopPropagation();
+          startEditingSpace(space.id, space.username);
+        });
+        
+        spacesList.appendChild(spaceItem);
+      });
+    }
+  } catch (error) {
+    console.error('Error loading spaces:', error);
+  }
+}
+
+function startEditingSpace(spaceId, currentUsername) {
+  editingSpaceId = spaceId;
+  const spaceItem = Array.from(spacesList.children).find(item => 
+    item.querySelector('.space-edit-button').dataset.spaceId === spaceId
+  );
+  
+  if (!spaceItem) return;
+  
+  const content = spaceItem.querySelector('.space-item-content');
+  const editButton = spaceItem.querySelector('.space-edit-button');
+  
+  const editForm = document.createElement('div');
+  editForm.className = 'space-edit-form';
+  editForm.innerHTML = `
+    <input type="text" class="space-edit-input" value="${escapeHtml(currentUsername)}" maxlength="40" />
+    <div class="username-error hidden"></div>
+    <div class="space-edit-buttons">
+      <button class="space-edit-cancel">Cancel</button>
+      <button class="space-edit-save">Save</button>
+    </div>
+  `;
+  
+  const input = editForm.querySelector('.space-edit-input');
+  const errorDiv = editForm.querySelector('.username-error');
+  const cancelBtn = editForm.querySelector('.space-edit-cancel');
+  const saveBtn = editForm.querySelector('.space-edit-save');
+  
+  content.replaceWith(editForm);
+  editButton.style.display = 'none';
+  
+  input.focus();
+  input.select();
+  
+  cancelBtn.addEventListener('click', () => {
+    restoreSpaceItem(spaceItem, spaceId, currentUsername);
+  });
+  
+  saveBtn.addEventListener('click', async () => {
+    const newUsername = input.value.trim();
+    if (!newUsername) {
+      showError(input, errorDiv, 'Username is required');
+      return;
+    }
+    
+    if (newUsername === currentUsername) {
+      restoreSpaceItem(spaceItem, spaceId, currentUsername);
+      return;
+    }
+    
+    try {
+      const response = await fetch('/api/auth/update-username', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ username: newUsername, userId: spaceId })
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        if (error.error === 'Username already taken') {
+          showError(input, errorDiv, 'Username already taken');
+        } else {
+          showError(input, errorDiv, error.error || 'Failed to update username');
+        }
+        return;
+      }
+      
+      // Success - reload page to new username
+      const data = await response.json();
+      window.location.href = `/${data.user.username}`;
+    } catch (error) {
+      showError(input, errorDiv, 'Failed to update username');
+    }
+  });
+  
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      saveBtn.click();
+    } else if (e.key === 'Escape') {
+      cancelBtn.click();
+    }
+  });
+}
+
+function restoreSpaceItem(spaceItem, spaceId, username) {
+  const editForm = spaceItem.querySelector('.space-edit-form');
+  const editButton = spaceItem.querySelector('.space-edit-button');
+  
+  const content = document.createElement('div');
+  content.className = 'space-item-content';
+  content.innerHTML = `<span class="space-username">${escapeHtml(username)}</span>`;
+  
+  content.addEventListener('click', () => {
+    window.location.href = `/${username}`;
+  });
+  
+  editForm.replaceWith(content);
+  editButton.style.display = '';
+  editingSpaceId = null;
+}
+
+function showError(input, errorDiv, message) {
+  input.classList.add('error');
+  errorDiv.textContent = message;
+  errorDiv.classList.remove('hidden');
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+// Create new space
+if (createSpaceButton && createSpaceForm) {
+  createSpaceButton.addEventListener('click', () => {
+    createSpaceForm.classList.toggle('hidden');
+    if (!createSpaceForm.classList.contains('hidden')) {
+      newUsernameInput.focus();
+    }
+  });
+  
+  createSpaceCancel.addEventListener('click', () => {
+    createSpaceForm.classList.add('hidden');
+    newUsernameInput.value = '';
+    newUsernameError.classList.add('hidden');
+    newUsernameInput.classList.remove('error');
+  });
+  
+  createSpaceSubmit.addEventListener('click', async () => {
+    const username = newUsernameInput.value.trim();
+    if (!username) {
+      showError(newUsernameInput, newUsernameError, 'Username is required');
+      return;
+    }
+    
+    try {
+      const response = await fetch('/api/auth/create-space', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ username })
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        if (error.error === 'Username already taken') {
+          showError(newUsernameInput, newUsernameError, 'Username already taken');
+        } else {
+          showError(newUsernameInput, newUsernameError, error.error || 'Failed to create space');
+        }
+        return;
+      }
+      
+      // Success - navigate to new space
+      const data = await response.json();
+      window.location.href = `/${data.user.username}`;
+    } catch (error) {
+      showError(newUsernameInput, newUsernameError, 'Failed to create space');
+    }
+  });
+  
+  newUsernameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      createSpaceSubmit.click();
+    } else if (e.key === 'Escape') {
+      createSpaceCancel.click();
+    }
+  });
+}
+
+// Logout
+if (logoutButton) {
+  logoutButton.addEventListener('click', async () => {
+    try {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        credentials: 'include'
+      });
+      // Redirect to home page (will show login)
+      window.location.href = '/';
+    } catch (error) {
+      console.error('Error logging out:', error);
+      // Still redirect even if logout fails
+      window.location.href = '/';
+    }
+  });
+}
+
 // Search modal removed - using autocomplete instead
 
 // Autocomplete functions

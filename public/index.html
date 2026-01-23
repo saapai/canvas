@@ -23,6 +23,27 @@
       </span>
     </div>
     <button id="help-button" class="help-button" title="Show help">?</button>
+    <div id="user-menu" class="user-menu">
+      <button id="user-menu-button" class="user-menu-button" title="User menu">
+        <span class="user-icon">👤</span>
+        <span class="dropdown-arrow">▼</span>
+      </button>
+      <div id="user-menu-dropdown" class="user-menu-dropdown hidden">
+        <div id="spaces-list" class="spaces-list"></div>
+        <div class="user-menu-divider"></div>
+        <button id="create-space-button" class="create-space-button">+ Create new page</button>
+        <div id="create-space-form" class="create-space-form hidden">
+          <input type="text" id="new-username-input" class="new-username-input" placeholder="Enter username" maxlength="40" />
+          <div id="new-username-error" class="username-error hidden"></div>
+          <div class="create-space-buttons">
+            <button id="create-space-cancel" class="create-space-cancel">Cancel</button>
+            <button id="create-space-submit" class="create-space-submit">Create</button>
+          </div>
+        </div>
+        <div class="user-menu-divider"></div>
+        <button id="logout-button" class="logout-button">Log out</button>
+      </div>
+    </div>
   </div>
   <div id="help-modal" class="help-modal hidden">
     <div class="help-content">

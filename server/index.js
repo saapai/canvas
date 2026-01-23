@@ -439,6 +439,117 @@ app.get('/api/auth/me', async (req, res) => {
   });
 });
 
+// Get all spaces/usernames for the current user
+app.get('/api/auth/spaces', requireAuth, async (req, res) => {
+  try {
+    const users = await getUsersByPhone(req.user.phone);
+    const spaces = users
+      .filter(u => u.username && u.username.trim().length > 0)
+      .map(u => ({
+        id: u.id,
+        username: u.username
+      }));
+    return res.json({ spaces });
+  } catch (error) {
+    console.error('Error fetching spaces:', error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// Create a new space/username
+app.post('/api/auth/create-space', requireAuth, async (req, res) => {
+  try {
+    const { username } = req.body;
+    if (!username || typeof username !== 'string') {
+      return res.status(400).json({ error: 'Username is required' });
+    }
+    const trimmed = username.trim();
+    if (!trimmed) {
+      return res.status(400).json({ error: 'Username is required' });
+    }
+    if (trimmed.length > 40) {
+      return res.status(400).json({ error: 'Username too long' });
+    }
+    
+    const taken = await isUsernameTaken(trimmed);
+    if (taken) {
+      return res.status(400).json({ error: 'Username already taken' });
+    }
+    
+    // Create new user with same phone number
+    const newUser = await createUser(req.user.phone);
+    const updated = await setUsername(newUser.id, trimmed);
+    
+    const token = jwt.sign(
+      { id: updated.id },
+      JWT_SECRET,
+      { expiresIn: '365d' }
+    );
+    
+    setAuthCookie(res, token);
+    
+    return res.json({
+      user: { id: updated.id, phone: updated.phone, username: updated.username }
+    });
+  } catch (error) {
+    console.error('Error creating space:', error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// Update username
+app.put('/api/auth/update-username', requireAuth, async (req, res) => {
+  try {
+    const { username, userId } = req.body;
+    if (!username || typeof username !== 'string') {
+      return res.status(400).json({ error: 'Username is required' });
+    }
+    if (!userId || typeof userId !== 'string') {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
+    const trimmed = username.trim();
+    if (!trimmed) {
+      return res.status(400).json({ error: 'Username is required' });
+    }
+    if (trimmed.length > 40) {
+      return res.status(400).json({ error: 'Username too long' });
+    }
+    
+    // Check if username is taken (excluding current user)
+    const existingUser = await getUserByUsername(trimmed);
+    if (existingUser && existingUser.id !== userId) {
+      return res.status(400).json({ error: 'Username already taken' });
+    }
+    
+    const updated = await setUsername(userId, trimmed);
+    const token = jwt.sign(
+      { id: updated.id },
+      JWT_SECRET,
+      { expiresIn: '365d' }
+    );
+    
+    setAuthCookie(res, token);
+    
+    return res.json({
+      user: { id: updated.id, phone: updated.phone, username: updated.username }
+    });
+  } catch (error) {
+    console.error('Error updating username:', error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// Logout
+app.post('/api/auth/logout', (req, res) => {
+  res.clearCookie('auth_token', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/'
+  });
+  return res.json({ success: true });
+});
+
 app.post('/api/process-text', async (req, res) => {
   try {
     const { text, existingCards } = req.body;
