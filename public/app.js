@@ -812,6 +812,7 @@ async function saveEntryToServer(entryData) {
   const payload = {
     id: entryData.id,
     text: entryData.text,
+    textHtml: entryData.textHtml || null, // Include HTML formatting
     position: entryData.position,
     parentEntryId: entryData.parentEntryId,
     linkCardsData: entryData.linkCardsData || null,
@@ -870,6 +871,7 @@ async function updateEntryOnServer(entryData) {
       },
       body: JSON.stringify({
         text: entryData.text,
+        textHtml: entryData.textHtml || null, // Include HTML formatting
         position: entryData.position,
         parentEntryId: entryData.parentEntryId,
         linkCardsData: entryData.linkCardsData || null,

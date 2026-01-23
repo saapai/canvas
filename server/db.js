@@ -102,6 +102,15 @@ export async function initDatabase() {
     try {
       await db.query(`
         ALTER TABLE entries 
+        ADD COLUMN IF NOT EXISTS text_html TEXT;
+      `);
+    } catch (error) {
+      console.log('Note: text_html column check:', error.message);
+    }
+
+    try {
+      await db.query(`
+        ALTER TABLE entries 
         ADD COLUMN IF NOT EXISTS media_card_data JSONB;
       `);
     } catch (error) {
@@ -120,7 +129,7 @@ export async function getAllEntries(userId) {
   try {
     const db = getPool();
     const result = await db.query(
-      `SELECT id, text, position_x, position_y, parent_entry_id, link_cards_data, media_card_data
+      `SELECT id, text, text_html, position_x, position_y, parent_entry_id, link_cards_data, media_card_data
        FROM entries
        WHERE user_id = $1 AND deleted_at IS NULL
        ORDER BY created_at ASC`,
@@ -129,6 +138,7 @@ export async function getAllEntries(userId) {
     return result.rows.map(row => ({
       id: row.id,
       text: row.text,
+      textHtml: row.text_html || null,
       position: { x: row.position_x, y: row.position_y },
       parentEntryId: row.parent_entry_id || null,
       linkCardsData: row.link_cards_data || null,
@@ -180,11 +190,12 @@ export async function saveEntry(entry) {
     const mediaCardData = entry.mediaCardData ? JSON.stringify(entry.mediaCardData) : null;
     
     const result = await db.query(
-      `INSERT INTO entries (id, text, position_x, position_y, parent_entry_id, user_id, link_cards_data, media_card_data, updated_at, deleted_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, NULL)
+      `INSERT INTO entries (id, text, text_html, position_x, position_y, parent_entry_id, user_id, link_cards_data, media_card_data, updated_at, deleted_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, NULL)
        ON CONFLICT (id) 
        DO UPDATE SET 
          text = EXCLUDED.text,
+         text_html = EXCLUDED.text_html,
          position_x = EXCLUDED.position_x,
          position_y = EXCLUDED.position_y,
          parent_entry_id = EXCLUDED.parent_entry_id,
@@ -193,7 +204,7 @@ export async function saveEntry(entry) {
          media_card_data = EXCLUDED.media_card_data,
          deleted_at = NULL,
          updated_at = CURRENT_TIMESTAMP`,
-      [entry.id, entry.text, entry.position.x, entry.position.y, entry.parentEntryId || null, entry.userId, linkCardsData, mediaCardData]
+      [entry.id, entry.text, entry.textHtml || null, entry.position.x, entry.position.y, entry.parentEntryId || null, entry.userId, linkCardsData, mediaCardData]
     );
     
     console.log('[DB] saveEntry successful:', entry.id, 'rowCount:', result.rowCount);
