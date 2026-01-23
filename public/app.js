@@ -3599,6 +3599,7 @@ let autocompleteSearchTimeout = null;
 let autocompleteSelectedIndex = -1;
 let autocompleteResults = [];
 let autocompleteKeyboardNavigation = false; // Track if user used arrow keys to navigate
+let mediaAutocompleteEnabled = false; // Toggle for media autocomplete mode
 
 // Update editor width and entry border dimensions as content changes
 editor.addEventListener('input', () => {
@@ -3647,28 +3648,22 @@ editor.addEventListener('blur', (e) => {
       }
     }, 0);
   } else if (trimmed.length === 0 && editingEntryId && editingEntryId !== 'anchor') {
-    // If empty and editing existing entry, only delete if the stored entry text is also empty
-    // This prevents accidental deletion due to race conditions or editor clearing bugs
+    // If editor is empty and editing existing entry, delete the entry
+    // This happens when user deletes all text and clicks away
     setTimeout(async () => {
       if (document.activeElement !== editor) {
         const entryData = entries.get(editingEntryId);
         if (entryData) {
-          // Safety check: only delete if the stored entry text is also empty or just whitespace
-          const storedText = (entryData.text || '').trim();
-          if (storedText.length === 0) {
-            // Confirmed empty - use confirmation dialog if entry has children
-            const deleted = await deleteEntryWithConfirmation(editingEntryId);
-            if (deleted) {
-              editor.textContent = '';
-              editor.style.display = 'none';
-              editingEntryId = null;
-            }
-          } else {
-            // Entry has content - just cancel editing without deleting
-            entryData.element.classList.remove('editing');
+          // User deleted all text - delete the entry (with confirmation if has children)
+          // deleteEntryWithConfirmation already handles undo state
+          const deleted = await deleteEntryWithConfirmation(editingEntryId);
+          if (deleted) {
             editor.textContent = '';
             editor.style.display = 'none';
             editingEntryId = null;
+          } else {
+            // User cancelled deletion - restore editing state
+            entryData.element.classList.add('editing');
           }
         }
       }
@@ -4119,6 +4114,29 @@ async function organizeEntriesIntoHubs() {
   }, 950); // Slightly after animation completes (max 900ms + buffer)
 }
 
+// Autocomplete toggle functionality
+const toggleText = document.getElementById('toggle-text');
+const toggleMedia = document.getElementById('toggle-media');
+
+if (toggleText && toggleMedia) {
+  toggleText.addEventListener('click', () => {
+    mediaAutocompleteEnabled = false;
+    toggleText.classList.add('active');
+    toggleMedia.classList.remove('active');
+    hideAutocomplete(); // Hide autocomplete when switching to text mode
+  });
+  
+  toggleMedia.addEventListener('click', () => {
+    mediaAutocompleteEnabled = true;
+    toggleMedia.classList.add('active');
+    toggleText.classList.remove('active');
+    // Trigger autocomplete search if editor has content
+    if (editor.style.display !== 'none' && editor.innerText.trim().length >= 3) {
+      handleAutocompleteSearch();
+    }
+  });
+}
+
 // Help modal functionality
 const helpButton = document.getElementById('help-button');
 const helpModal = document.getElementById('help-modal');
@@ -4151,11 +4169,14 @@ let autocompleteIsShowing = false;
 let isSelectingAutocomplete = false;
 
 function handleAutocompleteSearch() {
-  if (!autocomplete || editor.style.display === 'none') {
+  // Only show autocomplete if:
+  // 1. Editor is visible (in edit mode)
+  // 2. Media autocomplete is enabled
+  if (!autocomplete || editor.style.display === 'none' || !mediaAutocompleteEnabled) {
     hideAutocomplete();
     autocompleteIsShowing = false;
-      return;
-    }
+    return;
+  }
 
   const text = editor.innerText || editor.textContent || '';
   const trimmed = text.trim();
@@ -4164,8 +4185,8 @@ function handleAutocompleteSearch() {
   if (trimmed.length < 3) {
     hideAutocomplete();
     autocompleteIsShowing = false;
-      return;
-    }
+    return;
+  }
 
   // Debounce search
   clearTimeout(autocompleteSearchTimeout);
@@ -4324,7 +4345,11 @@ function showAutocomplete(results) {
 }
 
 function updateAutocompletePosition() {
-  if (!autocomplete || !editor || editor.style.display === 'none') return;
+  // Only update position if editor is visible (in edit mode) and media autocomplete is enabled
+  if (!autocomplete || !editor || editor.style.display === 'none' || !mediaAutocompleteEnabled) {
+    hideAutocomplete();
+    return;
+  }
 
   const editorRect = editor.getBoundingClientRect();
   const viewportRect = viewport.getBoundingClientRect();
