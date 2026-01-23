@@ -764,7 +764,7 @@ async function loadUserEntries(username, editable) {
     }
     
     if (isReadOnly) {
-      editor.style.display = 'none';
+      hideCursor();
       // Keep pan/zoom but disable editing
       viewport.style.cursor = 'grab';
       
@@ -1160,6 +1160,10 @@ let navigationStack = [];
 let isNavigating = false;
 let navigationJustCompleted = false;
 
+// Track mouse position for typing without clicking
+let currentMousePos = { x: 0, y: 0 };
+let lastClickPos = null; // Track last click position for typing
+
 // Drag-to-pan
 let dragging = false;
 let draggingEntry = null;
@@ -1173,6 +1177,7 @@ let editorWorldPos = { x: 80, y: 80 };
 let editingEntryId = null;
 let isCommitting = false;
 let pendingEditTimeout = null; // Track pending edit to allow double-click detection
+let hasClickedRecently = false; // Track if user clicked somewhere (so we don't use hover position)
 
 function applyTransform(){
   world.style.transform = `translate3d(${cam.x}px, ${cam.y}px, 0) scale(${cam.z})`;
@@ -1345,6 +1350,12 @@ function zoomToFitEntries() {
     
     if (progress < 1) {
       requestAnimationFrame(animate);
+    } else {
+      // Animation completed - clear navigationJustCompleted flag to allow clicking
+      // This happens after ~800ms, allowing immediate interaction after zoom
+      if (navigationJustCompleted) {
+        navigationJustCompleted = false;
+      }
     }
   }
   
@@ -1421,6 +1432,8 @@ function navigateToEntry(entryId) {
   const entryData = entries.get(entryId);
   if (!entryData) return;
   
+  isNavigating = true;
+  
   // Get current username from page context or current user
   const pageUsername = window.PAGE_USERNAME;
   const username = pageUsername || (currentUser && currentUser.username);
@@ -1430,6 +1443,19 @@ function navigateToEntry(entryId) {
   currentViewEntryId = entryId;
   updateBreadcrumb();
   updateEntryVisibility();
+  
+  // Hide and blur editor to prevent paste behavior
+  if (!editor.classList.contains('idle-cursor') && document.activeElement === editor) {
+    hideCursor();
+    editor.blur();
+  }
+  if (editingEntryId && editingEntryId !== 'anchor') {
+    const entryData = entries.get(editingEntryId);
+    if (entryData && entryData.element) {
+      entryData.element.classList.remove('editing');
+    }
+    editingEntryId = null;
+  }
   
   // Recalculate dimensions for all visible entries after navigation
   setTimeout(() => {
@@ -1446,6 +1472,31 @@ function navigateToEntry(entryId) {
       zoomToFitEntries();
     });
   }, 100);
+  
+  // Reset navigation flag - will be cleared by zoomToFitEntries animation completion
+  navigationJustCompleted = true;
+  setTimeout(() => {
+    isNavigating = false;
+    // Only hide editor if user hasn't explicitly placed it (clicked during navigation)
+    // If editor is visible and has content or is focused, user wants to keep it
+    if (editor.classList.contains('idle-cursor') || 
+        (document.activeElement === editor && editor.textContent.trim().length > 0)) {
+      // User has placed cursor/editor - keep it visible
+      // navigationJustCompleted will be cleared by zoom animation or user click
+    } else if (!editor.classList.contains('idle-cursor') && document.activeElement === editor) {
+      // Editor was active but empty - hide it
+      hideCursor();
+      editor.blur();
+      editingEntryId = null;
+    }
+    // Fallback: clear the flag if zoom animation didn't clear it
+    setTimeout(() => {
+      // Only clear if user hasn't clicked (which would have cleared it already)
+      if (navigationJustCompleted) {
+        navigationJustCompleted = false;
+      }
+    }, 500);
+  }, 1000);
   
   // Update URL if we're on a user page
   if (username && pageUsername) {
@@ -1486,10 +1537,9 @@ function navigateBack(level = 1) {
   isNavigating = true;
   
   // Hide and blur editor to prevent paste behavior
-  if (editor.style.display !== 'none') {
-    editor.style.display = 'none';
+  if (!editor.classList.contains('idle-cursor') && document.activeElement === editor) {
+    hideCursor();
     editor.blur();
-    editor.textContent = '';
   }
   if (editingEntryId && editingEntryId !== 'anchor') {
     const entryData = entries.get(editingEntryId);
@@ -1564,17 +1614,29 @@ function navigateBack(level = 1) {
     }
   }
   
-  // Reset navigation flag after a delay to prevent paste events
-  // Also prevent editor from being shown for a bit longer
+  // Reset navigation flag - will be cleared by zoomToFitEntries animation completion
+  navigationJustCompleted = true;
   setTimeout(() => {
     isNavigating = false;
-    // Ensure editor is still hidden after navigation completes
-    if (editor.style.display !== 'none') {
-      editor.style.display = 'none';
+    // Only hide editor if user hasn't explicitly placed it (clicked during navigation)
+    // If editor is visible and has content or is focused, user wants to keep it
+    if (editor.classList.contains('idle-cursor') || 
+        (document.activeElement === editor && editor.textContent.trim().length > 0)) {
+      // User has placed cursor/editor - keep it visible
+      // navigationJustCompleted will be cleared by zoom animation or user click
+    } else if (!editor.classList.contains('idle-cursor') && document.activeElement === editor) {
+      // Editor was active but empty - hide it
+      hideCursor();
       editor.blur();
-      editor.textContent = '';
       editingEntryId = null;
     }
+    // Fallback: clear the flag if zoom animation didn't clear it
+    setTimeout(() => {
+      // Only clear if user hasn't clicked (which would have cleared it already)
+      if (navigationJustCompleted) {
+        navigationJustCompleted = false;
+      }
+    }, 500);
   }, 1000);
 }
 
@@ -1582,10 +1644,9 @@ function navigateToRoot() {
   isNavigating = true;
   
   // Hide and blur editor to prevent paste behavior
-  if (editor.style.display !== 'none') {
-    editor.style.display = 'none';
+  if (!editor.classList.contains('idle-cursor') && document.activeElement === editor) {
+    hideCursor();
     editor.blur();
-    editor.textContent = '';
   }
   if (editingEntryId && editingEntryId !== 'anchor') {
     const entryData = entries.get(editingEntryId);
@@ -1631,16 +1692,18 @@ function navigateToRoot() {
   // Reset navigation flag after a delay to prevent paste events
   // Also prevent editor from being shown for a bit longer
   navigationJustCompleted = true;
+  isNavigating = false;
+  // Note: navigationJustCompleted will be cleared by zoomToFitEntries animation completion
+  // But we also set a timeout as a fallback in case zoom doesn't happen
   setTimeout(() => {
-    isNavigating = false;
     // Ensure editor is still hidden after navigation completes
-    if (editor.style.display !== 'none') {
-      editor.style.display = 'none';
+    if (!editor.classList.contains('idle-cursor') && document.activeElement === editor) {
+      hideCursor();
       editor.blur();
-      editor.textContent = '';
       editingEntryId = null;
     }
-    // Keep the flag for a bit longer to prevent accidental editor placement
+    // Fallback: clear the flag if zoom animation didn't clear it
+    // (This handles cases where zoomToFitEntries doesn't run)
     setTimeout(() => {
       navigationJustCompleted = false;
     }, 500);
@@ -1688,10 +1751,9 @@ function updateBreadcrumb() {
     if (document.activeElement === editor) {
       editor.blur();
     }
-    // Clear editor content and hide it
-    editor.textContent = '';
-    editor.style.display = 'none';
-    navigateToRoot();
+      // Clear editor content and show cursor
+      hideCursor();
+      navigateToRoot();
   });
   breadcrumb.appendChild(homeItem);
   
@@ -1720,9 +1782,8 @@ function updateBreadcrumb() {
       if (document.activeElement === editor) {
         editor.blur();
       }
-      // Clear editor content and hide it
-      editor.textContent = '';
-      editor.style.display = 'none';
+      // Clear editor content and show cursor
+      hideCursor();
       const level = navigationStack.length - index - 1;
       if (level > 0) {
         navigateBack(level);
@@ -1733,13 +1794,31 @@ function updateBreadcrumb() {
 }
 
 
-function placeEditorAtWorld(wx, wy, text = '', entryId = null){
-  // Don't show editor during or right after navigation
-  if (isNavigating || navigationJustCompleted) {
+// Show cursor at a position (idle mode - not actively editing)
+function showCursorAtWorld(wx, wy, force = false) {
+  // Allow showing cursor even during navigation if user explicitly clicked
+  if (isReadOnly || (!force && (isNavigating || navigationJustCompleted))) {
     return;
   }
   
-  console.log('[EDITOR] placeEditorAtWorld called with entryId:', entryId, 'type:', typeof entryId);
+  editorWorldPos = { x: wx, y: wy };
+  editor.style.left = `${wx}px`;
+  editor.style.top = `${wy}px`;
+  editor.textContent = '';
+  editor.style.width = '4px';
+  editor.classList.add('idle-cursor');
+  editor.classList.remove('has-content');
+  // Don't focus - just show the cursor
+  editor.blur();
+}
+
+function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
+  // Allow placing editor during navigation if user explicitly clicked (force = true)
+  if (!force && (isNavigating || navigationJustCompleted)) {
+    return;
+  }
+  
+  console.log('[EDITOR] placeEditorAtWorld called with entryId:', entryId, 'type:', typeof entryId, 'force:', force);
   
   editorWorldPos = { x: wx, y: wy };
   editingEntryId = entryId;
@@ -1764,12 +1843,19 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null){
   
   editor.style.left = `${wx}px`;
   editor.style.top  = `${wy}px`;
-  editor.style.display = 'block';
   editor.textContent = text;
+  editor.classList.remove('idle-cursor');
   
   // Set editor width based on actual content, not fixed entry width
   // This allows the editor to expand/contract based on text content
   editor.style.width = 'auto';
+  
+  if (text) {
+    editor.classList.add('has-content');
+  } else {
+    editor.classList.remove('has-content');
+  }
+  
   editor.focus();
   
   // Update width based on content after rendering
@@ -1791,12 +1877,23 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null){
   sel.addRange(range);
 }
 
+// Hide cursor (but keep editor visible for smooth transitions)
+function hideCursor() {
+  editor.classList.remove('idle-cursor', 'has-content');
+  editor.textContent = '';
+  editor.blur();
+}
+
 async function commitEditor(){
   // Prevent commits during or right after navigation
   if (isNavigating || navigationJustCompleted) {
     console.log('[COMMIT] Blocked - isNavigating:', isNavigating, 'navigationJustCompleted:', navigationJustCompleted);
-    editor.textContent = '';
-    editor.style.display = 'none';
+    // After committing, show cursor at current position
+    if (editorWorldPos) {
+      showCursorAtWorld(editorWorldPos.x, editorWorldPos.y);
+    } else {
+      hideCursor();
+    }
     editingEntryId = null;
     return;
   }
@@ -1821,8 +1918,11 @@ async function commitEditor(){
     if(!entryData){
       console.warn('[COMMIT] Missing entry data for edit. Aborting edit to avoid duplicate:', editingEntryId);
       console.warn('[COMMIT] Entry not found in Map. Available entries:', Array.from(entries.keys()).filter(id => id.includes('83')));
-      editor.textContent = '';
-      editor.style.display = 'none';
+      if (editorWorldPos) {
+        showCursorAtWorld(editorWorldPos.x, editorWorldPos.y);
+      } else {
+        hideCursor();
+      }
       editingEntryId = null;
       isCommitting = false;
       return;
@@ -1930,8 +2030,11 @@ async function commitEditor(){
         return;
       }
       
-      editor.textContent = '';
-      editor.style.display = 'none';
+      if (editorWorldPos) {
+        showCursorAtWorld(editorWorldPos.x, editorWorldPos.y);
+      } else {
+        hideCursor();
+      }
       editingEntryId = null;
       isCommitting = false;
       return;
@@ -1942,8 +2045,12 @@ async function commitEditor(){
   // Safety check: if we somehow got here while editing, abort
   if (editingEntryId && editingEntryId !== 'anchor') {
     console.error('[COMMIT] ERROR: Attempted to create new entry while editingEntryId is set:', editingEntryId);
-    editor.textContent = '';
-    editor.style.display = 'none';
+    // After committing, show cursor at current position
+    if (editorWorldPos) {
+      showCursorAtWorld(editorWorldPos.x, editorWorldPos.y);
+    } else {
+      hideCursor();
+    }
     editingEntryId = null;
     isCommitting = false;
     return;
@@ -1954,8 +2061,12 @@ async function commitEditor(){
 
   // Allow entry if there's text OR URLs
   if(!processedText && urls.length === 0){
-    editor.textContent = '';
-    editor.style.display = 'none';
+    // After committing, show cursor at current position
+    if (editorWorldPos) {
+      showCursorAtWorld(editorWorldPos.x, editorWorldPos.y);
+    } else {
+      hideCursor();
+    }
     editingEntryId = null;
     isCommitting = false;
     return;
@@ -1966,8 +2077,12 @@ async function commitEditor(){
   const duplicateId = findDuplicateEntry(trimmedRight, currentViewEntryId, editingEntryId);
   if (duplicateId) {
     // Don't create duplicate - just clear editor
-    editor.textContent = '';
-    editor.style.display = 'none';
+    // After committing, show cursor at current position
+    if (editorWorldPos) {
+      showCursorAtWorld(editorWorldPos.x, editorWorldPos.y);
+    } else {
+      hideCursor();
+    }
     editingEntryId = null;
     isCommitting = false;
     return;
@@ -2079,8 +2194,12 @@ async function commitEditor(){
     }
   }
   
-  editor.textContent = '';
-  editor.style.display = 'none';
+  // After committing, show cursor at current position
+  if (editorWorldPos) {
+    showCursorAtWorld(editorWorldPos.x, editorWorldPos.y);
+  } else {
+    hideCursor();
+  }
   editingEntryId = null;
   isCommitting = false;
 }
@@ -2811,6 +2930,19 @@ viewport.addEventListener('mousedown', (e) => {
 });
 
 viewport.addEventListener('mousemove', (e) => {
+  // Track mouse position for typing without clicking
+  currentMousePos = { x: e.clientX, y: e.clientY };
+  
+  // Update cursor position if editor is in idle mode and not actively editing
+  // Don't update during navigation unless user explicitly clicked (handled in click handler)
+  if (!isReadOnly && !isNavigating && !navigationJustCompleted && 
+      editor.classList.contains('idle-cursor') && 
+      document.activeElement !== editor && 
+      !editingEntryId) {
+    const w = screenToWorld(e.clientX, e.clientY);
+    showCursorAtWorld(w.x, w.y);
+  }
+  
   // In read-only mode, only allow panning (no entry dragging)
   if (isReadOnly) {
     if (dragging) {
@@ -3123,8 +3255,8 @@ window.addEventListener('mouseup', (e) => {
     viewport.classList.remove('dragging');
     
     // Check if it was a click (no movement) - place editor
-    // Don't place editor if we're navigating or navigation just completed
-    if(clickStart && !isNavigating && !navigationJustCompleted) {
+    // Always allow clicking to place cursor, even during navigation
+    if(clickStart) {
       const dist = Math.hypot(e.clientX - clickStart.x, e.clientY - clickStart.y);
       const dt = performance.now() - clickStart.t;
       if(dist < 6 && dt < 350 && !isClick){
@@ -3134,7 +3266,25 @@ window.addEventListener('mouseup', (e) => {
         }
         
         const w = screenToWorld(e.clientX, e.clientY);
-        placeEditorAtWorld(w.x, w.y);
+        // Store click position for typing
+        lastClickPos = { x: w.x, y: w.y };
+        // Mark that user clicked - typing should happen at click position, not hover
+        hasClickedRecently = true;
+        // Clear the flag after a short delay to allow hover typing again
+        setTimeout(() => {
+          hasClickedRecently = false;
+        }, 100);
+        
+        // Always place editor/cursor at click position, even during navigation
+        // This allows user to click during navigation to set cursor position
+        // Clear navigation flags so user can type immediately
+        if (isNavigating || navigationJustCompleted) {
+          navigationJustCompleted = false;
+          // If still navigating, place cursor and it will be ready when navigation completes
+          placeEditorAtWorld(w.x, w.y, '', null, true); // force = true to allow during navigation
+        } else {
+          placeEditorAtWorld(w.x, w.y);
+        }
       }
     }
     clickStart = null;
@@ -3520,8 +3670,12 @@ editor.addEventListener('keydown', (e) => {
       }
     }
     
-    editor.textContent = '';
-    editor.style.display = 'none';
+    // After committing, show cursor at current position
+    if (editorWorldPos) {
+      showCursorAtWorld(editorWorldPos.x, editorWorldPos.y);
+    } else {
+      hideCursor();
+    }
     editingEntryId = null;
     return;
   }
@@ -3672,8 +3826,11 @@ editor.addEventListener('blur', (e) => {
           // deleteEntryWithConfirmation already handles undo state
             const deleted = await deleteEntryWithConfirmation(editingEntryId);
             if (deleted) {
-              editor.textContent = '';
-              editor.style.display = 'none';
+              if (editorWorldPos) {
+                showCursorAtWorld(editorWorldPos.x, editorWorldPos.y);
+              } else {
+                hideCursor();
+              }
               editingEntryId = null;
           } else {
             // User cancelled deletion - restore editing state
@@ -3683,11 +3840,14 @@ editor.addEventListener('blur', (e) => {
       }
     }, 0);
   } else if (trimmed.length === 0 && (!editingEntryId || editingEntryId === 'anchor')) {
-    // If empty and creating new entry, just hide the editor
+    // If empty and creating new entry, show cursor at current position
     setTimeout(() => {
       if (document.activeElement !== editor) {
-        editor.textContent = '';
-        editor.style.display = 'none';
+        if (editorWorldPos) {
+          showCursorAtWorld(editorWorldPos.x, editorWorldPos.y);
+        } else {
+          hideCursor();
+        }
         editingEntryId = null;
       }
     }, 0);
@@ -4862,8 +5022,11 @@ function selectAutocompleteResult(result) {
     const entryData = entries.get(editingEntryId);
     if (!entryData) {
       console.warn('[Autocomplete] Missing entry data for edit. Aborting selection to avoid duplicate:', editingEntryId);
-      editor.textContent = '';
-      editor.style.display = 'none';
+      if (editorWorldPos) {
+        showCursorAtWorld(editorWorldPos.x, editorWorldPos.y);
+      } else {
+        hideCursor();
+      }
       editingEntryId = null;
       return;
     }
@@ -4883,8 +5046,11 @@ function selectAutocompleteResult(result) {
       entryData.element.appendChild(card);
       
       // Clear and hide editor
-      editor.textContent = '';
-      editor.style.display = 'none';
+      if (editorWorldPos) {
+        showCursorAtWorld(editorWorldPos.x, editorWorldPos.y);
+      } else {
+        hideCursor();
+      }
       editingEntryId = null;
       
       // Update entry dimensions and save
@@ -4924,9 +5090,12 @@ function selectAutocompleteResult(result) {
   const card = createMediaCard(result);
   entry.appendChild(card);
   
-  // Clear and hide editor
-  editor.textContent = '';
-  editor.style.display = 'none';
+  // Clear editor and show cursor at current position
+  if (editorWorldPos) {
+    showCursorAtWorld(editorWorldPos.x, editorWorldPos.y);
+  } else {
+    hideCursor();
+  }
   editingEntryId = null;
   
   // Update visibility
@@ -5357,6 +5526,67 @@ async function deleteSelectedEntries() {
   
   clearSelection();
 }
+
+// Handle typing without clicking - start typing at hover position if editor is not visible
+window.addEventListener('keydown', (e) => {
+  // Only handle if editor is not visible and we're in edit mode
+  // Also check that the event target is not the editor (to avoid double-handling)
+  if (editor.style.display === 'none' && !isReadOnly && !isNavigating && !navigationJustCompleted && e.target !== editor) {
+    // Check if this is a printable character (not a modifier key)
+    // Allow letters, numbers, punctuation, space, etc.
+    // Exclude special keys like Escape, Enter, Arrow keys, etc.
+    const isPrintable = e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey;
+    
+    // Also allow some special keys that should start typing
+    const isSpecialStartKey = e.key === 'Backspace' || e.key === 'Delete';
+    
+    if (isPrintable || isSpecialStartKey) {
+      // Determine position: use last click position if available and recent, otherwise use hover position
+      let targetPos;
+      if (lastClickPos && hasClickedRecently) {
+        // User clicked somewhere - type at click position
+        targetPos = lastClickPos;
+      } else {
+        // User hasn't clicked - type at hover position
+        const w = screenToWorld(currentMousePos.x, currentMousePos.y);
+        targetPos = { x: w.x, y: w.y };
+      }
+      
+      // Place editor at determined position
+      placeEditorAtWorld(targetPos.x, targetPos.y);
+      
+      // If it's a printable character, insert it into the editor
+      if (isPrintable) {
+        // Focus the editor and insert the character
+        editor.focus();
+        // Insert the character at cursor position
+        const selection = window.getSelection();
+        if (selection.rangeCount > 0) {
+          const range = selection.getRangeAt(0);
+          range.deleteContents();
+          range.insertNode(document.createTextNode(e.key));
+          range.collapse(false);
+          selection.removeAllRanges();
+          selection.addRange(range);
+        } else {
+          // Fallback: append to end
+          editor.textContent += e.key;
+          const range = document.createRange();
+          range.selectNodeContents(editor);
+          range.collapse(false);
+          selection.removeAllRanges();
+          selection.addRange(range);
+        }
+        // Trigger input event to update dimensions
+        editor.dispatchEvent(new Event('input', { bubbles: true }));
+      }
+      
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+  }
+}, true); // Use capture phase to catch event early
 
 // Keyboard shortcuts
 window.addEventListener('keydown', async (e) => {
