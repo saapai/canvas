@@ -584,12 +584,25 @@ app.put('/api/auth/update-username', requireAuth, async (req, res) => {
 
 // Logout
 app.post('/api/auth/logout', (req, res) => {
+  // Clear the auth cookie with explicit settings
   res.clearCookie('auth_token', {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
-    path: '/'
+    path: '/',
+    domain: undefined // Don't set domain to ensure it works across all paths
   });
+  
+  // Also try clearing with different variations to be sure
+  res.cookie('auth_token', '', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+    expires: new Date(0) // Expire immediately
+  });
+  
+  console.log('[LOGOUT] Cleared auth cookie');
   return res.json({ success: true });
 });
 

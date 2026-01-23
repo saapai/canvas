@@ -4451,22 +4451,30 @@ if (logoutButton) {
   logoutButton.addEventListener('click', async (e) => {
     e.preventDefault();
     e.stopPropagation();
+    
+    // Close the dropdown
+    if (userMenuDropdown) {
+      userMenuDropdown.classList.add('hidden');
+    }
+    
     try {
       const response = await fetch('/api/auth/logout', {
         method: 'POST',
         credentials: 'include'
       });
-      // Redirect to home page (will show login)
-      if (response.ok) {
-        window.location.href = '/';
-      } else {
-        // Still redirect even if logout fails
-        window.location.href = '/';
-      }
+      
+      // Clear any local state
+      currentUser = null;
+      isLoggedIn = false;
+      
+      // Force a hard redirect to root with cache busting to ensure fresh page load
+      window.location.replace('/?logout=true&t=' + Date.now());
     } catch (error) {
       console.error('Error logging out:', error);
       // Still redirect even if logout fails
-      window.location.href = '/';
+      currentUser = null;
+      isLoggedIn = false;
+      window.location.replace('/?logout=true&t=' + Date.now());
     }
   });
 }
