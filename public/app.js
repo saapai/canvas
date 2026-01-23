@@ -2023,6 +2023,8 @@ function showCursorAtWorld(wx, wy, force = false) {
   editor.style.top = `${wy}px`;
   editor.textContent = '';
   editor.style.width = '4px';
+  // Ensure editor is visible
+  editor.style.display = 'block';
   // Focus the editor so user can type immediately
   // The focus event will remove idle-cursor class and show native caret
   editor.classList.add('idle-cursor');
