@@ -3277,7 +3277,8 @@ viewport.addEventListener('mousemove', (e) => {
               // If this selected entry is in edit mode, also move the editor to match
               if(editingEntryId === selectedId && editor.style.display !== 'none') {
                 editorWorldPos = { x: selectedNewX, y: selectedNewY };
-                editor.style.left = `${selectedNewX}px`;
+                // Account for editor's left padding (4px)
+                editor.style.left = `${selectedNewX - 4}px`;
                 editor.style.top = `${selectedNewY}px`;
               }
             }
@@ -3301,7 +3302,8 @@ viewport.addEventListener('mousemove', (e) => {
           // If this entry is in edit mode, also move the editor to match
           if(editingEntryId === entryId && editor.style.display !== 'none') {
             editorWorldPos = { x: newX, y: newY };
-            editor.style.left = `${newX}px`;
+            // Account for editor's left padding (4px)
+            editor.style.left = `${newX - 4}px`;
             editor.style.top = `${newY}px`;
           }
           
