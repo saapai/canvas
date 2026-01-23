@@ -1204,7 +1204,7 @@ app.get('/:username', async (req, res) => {
       return res.status(404).send('User not found');
     }
     
-    // Check if logged-in user is the page owner
+    // Check if logged-in user is the page owner (by phone number, not user ID)
     const cookies = parseCookies(req);
     const token = cookies.auth_token;
     let isOwner = false;
@@ -1214,8 +1214,13 @@ app.get('/:username', async (req, res) => {
         const payload = jwt.verify(token, JWT_SECRET);
         if (payload && payload.id) {
           const loggedInUser = await getUserById(payload.id);
-          if (loggedInUser && loggedInUser.id === user.id) {
-            isOwner = true;
+          if (loggedInUser && loggedInUser.phone && user.phone) {
+            // Normalize phone numbers by removing spaces and compare
+            const loggedInPhone = loggedInUser.phone.replace(/\s/g, '');
+            const userPhone = user.phone.replace(/\s/g, '');
+            if (loggedInPhone === userPhone) {
+              isOwner = true;
+            }
           }
         }
       } catch {
@@ -1248,7 +1253,7 @@ app.get('/:username/*', async (req, res) => {
       return res.status(404).send('User not found');
     }
     
-    // Check if logged-in user is the page owner
+    // Check if logged-in user is the page owner (by phone number, not user ID)
     const cookies = parseCookies(req);
     const token = cookies.auth_token;
     let isOwner = false;
@@ -1258,8 +1263,13 @@ app.get('/:username/*', async (req, res) => {
         const payload = jwt.verify(token, JWT_SECRET);
         if (payload && payload.id) {
           const loggedInUser = await getUserById(payload.id);
-          if (loggedInUser && loggedInUser.id === user.id) {
-            isOwner = true;
+          if (loggedInUser && loggedInUser.phone && user.phone) {
+            // Normalize phone numbers by removing spaces and compare
+            const loggedInPhone = loggedInUser.phone.replace(/\s/g, '');
+            const userPhone = user.phone.replace(/\s/g, '');
+            if (loggedInPhone === userPhone) {
+              isOwner = true;
+            }
           }
         }
       } catch {
