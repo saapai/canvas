@@ -442,47 +442,59 @@ app.get('/api/auth/me', async (req, res) => {
 // Get all spaces/usernames for the current user
 app.get('/api/auth/spaces', requireAuth, async (req, res) => {
   try {
+    console.log('[SPACES] Request received, user:', req.user ? { id: req.user.id, phone: req.user.phone, username: req.user.username } : 'null');
+    
     if (!req.user || !req.user.phone) {
+      console.log('[SPACES] No user or phone, returning 401');
       return res.status(401).json({ error: 'Not authenticated' });
     }
     
     const normalizedPhone = String(req.user.phone).trim();
+    console.log('[SPACES] Looking up users for phone:', normalizedPhone);
     
     // Use the same phone matching logic as verify-code
     let users = await getUsersByPhone(normalizedPhone);
+    console.log('[SPACES] Initial lookup found', users.length, 'users');
     
     // If not found, try alternative phone formats (with/without +1, with/without spaces)
     if (users.length === 0) {
       // Try without +1 prefix if it starts with +1
       if (normalizedPhone.startsWith('+1')) {
         const phoneWithoutPlus = normalizedPhone.substring(2).trim();
+        console.log('[SPACES] Trying without +1:', phoneWithoutPlus);
         users = await getUsersByPhone(phoneWithoutPlus);
+        console.log('[SPACES] Found', users.length, 'users without +1');
       }
       // Try with +1 if it doesn't have it
       if (users.length === 0 && !normalizedPhone.startsWith('+1')) {
         const phoneWithPlusOne = '+1' + normalizedPhone;
+        console.log('[SPACES] Trying with +1:', phoneWithPlusOne);
         users = await getUsersByPhone(phoneWithPlusOne);
+        console.log('[SPACES] Found', users.length, 'users with +1');
       }
       // Try without any + prefix
       if (users.length === 0 && normalizedPhone.startsWith('+')) {
         const phoneWithoutPlus = normalizedPhone.substring(1);
+        console.log('[SPACES] Trying without +:', phoneWithoutPlus);
         users = await getUsersByPhone(phoneWithoutPlus);
+        console.log('[SPACES] Found', users.length, 'users without +');
       }
     }
     
     // Filter users to only those with usernames (same as verify-code)
     const usersWithUsernames = users.filter(u => u.username && String(u.username).trim().length > 0);
+    console.log('[SPACES] Users with usernames:', usersWithUsernames.length);
     
     const spaces = usersWithUsernames.map(u => ({
       id: u.id,
       username: u.username
     }));
     
-    console.log('[SPACES] Found spaces for phone:', normalizedPhone, 'count:', spaces.length);
+    console.log('[SPACES] Returning spaces:', spaces);
     
     return res.json({ spaces });
   } catch (error) {
-    console.error('Error fetching spaces:', error);
+    console.error('[SPACES] Error fetching spaces:', error);
     return res.status(500).json({ error: error.message });
   }
 });
