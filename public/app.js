@@ -1313,10 +1313,6 @@ function zoomToFitEntries() {
   // Never zoom in - only zoom out or stay at current zoom
   const finalZoom = Math.min(clampedZoom, cam.z);
   
-  // If zoom doesn't change and position is already correct, still show cursor after traversal
-  const zoomChanged = Math.abs(finalZoom - cam.z) > 0.001;
-  const needsAnimation = zoomChanged || Math.abs(targetX - cam.x) > 1 || Math.abs(targetY - cam.y) > 1;
-  
   // Calculate target camera position
   const screenCenterX = viewportWidth / 2;
   const screenCenterY = viewportHeight / 2;
@@ -1333,6 +1329,10 @@ function zoomToFitEntries() {
   
   const targetX = screenCenterX - contentCenterX * finalZoom + offsetX;
   const targetY = screenCenterY - contentCenterY * finalZoom + offsetY;
+  
+  // If zoom doesn't change and position is already correct, still show cursor after traversal
+  const zoomChanged = Math.abs(finalZoom - cam.z) > 0.001;
+  const needsAnimation = zoomChanged || Math.abs(targetX - cam.x) > 1 || Math.abs(targetY - cam.y) > 1;
 
   // Store starting values for animation
   const startX = cam.x;
