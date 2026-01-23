@@ -2876,6 +2876,13 @@ viewport.addEventListener('mousemove', (e) => {
               selectedData.element.style.left = `${selectedNewX}px`;
               selectedData.element.style.top = `${selectedNewY}px`;
               selectedData.position = { x: selectedNewX, y: selectedNewY };
+              
+              // If this selected entry is in edit mode, also move the editor to match
+              if(editingEntryId === selectedId && editor.style.display !== 'none') {
+                editorWorldPos = { x: selectedNewX, y: selectedNewY };
+                editor.style.left = `${selectedNewX}px`;
+                editor.style.top = `${selectedNewY}px`;
+              }
             }
           });
         }
@@ -2893,6 +2900,14 @@ viewport.addEventListener('mousemove', (e) => {
         if(entryData) {
           console.log('[DRAG] Updating position for entry:', entryId, 'from', entryData.position, 'to', { x: newX, y: newY });
           entryData.position = { x: newX, y: newY };
+          
+          // If this entry is in edit mode, also move the editor to match
+          if(editingEntryId === entryId && editor.style.display !== 'none') {
+            editorWorldPos = { x: newX, y: newY };
+            editor.style.left = `${newX}px`;
+            editor.style.top = `${newY}px`;
+          }
+          
           // Debounce position saves to avoid too many server requests
           if (entryData.positionSaveTimeout) {
             clearTimeout(entryData.positionSaveTimeout);
