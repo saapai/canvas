@@ -4292,12 +4292,11 @@ async function loadSpaces() {
             <span class="space-username">${escapeHtml(space.username)}</span>
           </div>
           <button class="space-edit-button" data-space-id="${space.id}" data-space-username="${escapeHtml(space.username)}" title="Edit username">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
-              <!-- Pencil body (black) -->
-              <path d="M3 21l9-9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="M12 12l9-9" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
-              <!-- Eraser (white with black border) -->
-              <rect x="18" y="3" width="4" height="4" rx="1" fill="white" stroke="currentColor" stroke-width="1.5"/>
+            <svg width="14" height="14" viewBox="0 0 20 20" fill="none">
+              <!-- Pencil body (filled, angled) -->
+              <rect x="2" y="8" width="12" height="4" rx="2" fill="currentColor" transform="rotate(45 8 10)"/>
+              <!-- Eraser (white/light with dark border) -->
+              <rect x="14" y="2" width="4" height="4" rx="0.5" fill="white" stroke="currentColor" stroke-width="1.2"/>
             </svg>
           </button>
         `;
