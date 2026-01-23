@@ -357,8 +357,44 @@ async function handleSaveUsername() {
     }
     currentUser = data.user;
     setAnchorGreeting();
+    
+    // CRITICAL: Clear everything before hiding auth overlay
+    // This prevents any stale content from showing
+    entries.clear();
+    const existingEntries = world.querySelectorAll('.entry:not(#editor):not(#anchor)');
+    existingEntries.forEach(entry => entry.remove());
+    
+    // Reset editor completely
+    editor.textContent = '';
+    editor.innerHTML = '';
+    editor.style.display = 'none';
+    editor.style.left = '';
+    editor.style.top = '';
+    editor.blur();
+    editingEntryId = null;
+    
+    // Reset state flags
+    hasZoomedToFit = false;
+    entryIdCounter = 0;
+    selectedEntries.clear();
+    
     hideAuthOverlay();
+    
     await loadEntriesFromServer();
+    
+    // For new users with no entries, ensure canvas is ready immediately
+    if (entries.size === 0) {
+      // Center the anchor
+      centerAnchor();
+      
+      // Wait a bit for DOM to settle, then show cursor
+      setTimeout(() => {
+        // Double check editor is clear
+        editor.textContent = '';
+        editor.innerHTML = '';
+        showCursorInDefaultPosition();
+      }, 200);
+    }
   } catch (error) {
     console.error(error);
     setAuthError(error.message);
@@ -1404,11 +1440,9 @@ function zoomToFitEntries() {
   });
 
   if (visibleEntries.length === 0) {
-    // No entries to fit - only center anchor on initial load, not on navigation
-    // This prevents anchor from moving when navigating back to empty home page
-    if (!hasZoomedToFit) {
-      centerAnchor();
-    }
+    // No entries to fit - center anchor and show cursor
+    centerAnchor();
+    
     // Always show cursor after navigation or initial load when there are no entries
     if (!isReadOnly) {
       setTimeout(() => {
@@ -2262,11 +2296,18 @@ function showCursorAtWorld(wx, wy, force = false) {
     return;
   }
   
+  console.log('[CURSOR] showCursorAtWorld at', wx, wy);
+  
   editorWorldPos = { x: wx, y: wy };
   // Account for editor's left padding (4px) so cursor appears exactly where clicked
   editor.style.left = `${wx - 4}px`;
   editor.style.top = `${wy}px`;
+  
+  // CRITICAL: Clear editor content completely to prevent stale content
   editor.textContent = '';
+  editor.innerHTML = '';
+  editor.value = ''; // Also clear value just in case
+  
   editor.style.width = '4px';
   // Ensure editor is visible
   editor.style.display = 'block';
