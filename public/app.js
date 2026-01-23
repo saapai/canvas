@@ -1891,8 +1891,9 @@ function findRandomEmptySpaceNextToEntry() {
     const rect = element.getBoundingClientRect();
     const worldX = parseFloat(element.style.left) || 0;
     const worldY = parseFloat(element.style.top) || 0;
-    const worldWidth = rect.width;
-    const worldHeight = rect.height;
+    // Convert screen dimensions to world dimensions (accounting for zoom)
+    const worldWidth = rect.width / cam.z;
+    const worldHeight = rect.height / cam.z;
 
     // Choose a random side (right, bottom, left, top)
     const side = Math.floor(Math.random() * 4);
@@ -1928,8 +1929,8 @@ function findRandomEmptySpaceNextToEntry() {
   // Try positions in a grid pattern around the viewport
   const viewportRect = viewport.getBoundingClientRect();
   const center = screenToWorld(viewportRect.width / 2, viewportRect.height / 2);
-  const step = 100;
-  const maxRadius = 500;
+  const step = 100 / cam.z; // Adjust step for zoom level
+  const maxRadius = 500 / cam.z;
   
   for (let radius = step; radius <= maxRadius; radius += step) {
     for (let angle = 0; angle < 360; angle += 45) {
@@ -1944,8 +1945,8 @@ function findRandomEmptySpaceNextToEntry() {
   
   // Last resort: return a position far from center (shouldn't overlap)
   return {
-    x: center.x + 500,
-    y: center.y + 500
+    x: center.x + 500 / cam.z,
+    y: center.y + 500 / cam.z
   };
 }
 
