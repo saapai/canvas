@@ -745,20 +745,22 @@ body::before{
   align-items: center;
   gap: 0;
   margin-right: 12px;
-  background: var(--paper);
+  background: rgba(0, 0, 0, 0.06);
   border: 1px solid rgba(0, 0, 0, 0.15);
-  border-radius: 8px;
+  border-radius: 20px;
   overflow: hidden;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  position: relative;
+  padding: 2px;
 }
 
 .toggle-button {
   padding: 8px 16px;
-  background: var(--paper);
+  background: transparent;
   color: var(--ink);
   border: none;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.25s ease;
   font-family: 'Inter', sans-serif;
   font-size: 14px;
   font-weight: 500;
@@ -766,10 +768,8 @@ body::before{
   align-items: center;
   gap: 6px;
   position: relative;
-}
-
-.toggle-button:first-child {
-  border-right: 1px solid rgba(0, 0, 0, 0.15);
+  z-index: 2;
+  border-radius: 18px;
 }
 
 .toggle-button:hover {
@@ -777,8 +777,14 @@ body::before{
 }
 
 .toggle-button.active {
-  background: rgba(0, 0, 0, 0.08);
+  background: var(--paper);
+  color: var(--ink);
   font-weight: 600;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.toggle-button:not(.active) {
+  color: rgba(0, 0, 0, 0.6);
 }
 
 .toggle-icon {
