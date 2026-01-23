@@ -64,8 +64,16 @@ const undoStack = [];
 const MAX_UNDO_STACK = 50;
 
 function setAnchorGreeting() {
-  if (currentUser && currentUser.username) {
-    anchor.textContent = `Hello, ${currentUser.username}`;
+  // Get username from page context (URL path) or current user
+  const pageUsername = window.PAGE_USERNAME;
+  const pathParts = window.location.pathname.split('/').filter(Boolean);
+  const usernameFromPath = pathParts.length > 0 && pathParts[0] !== 'index.html' ? pathParts[0] : null;
+  
+  // Use page username (from URL) if available, otherwise fall back to current user
+  const displayUsername = pageUsername || usernameFromPath || (currentUser && currentUser.username);
+  
+  if (displayUsername) {
+    anchor.textContent = `Hello, ${displayUsername}`;
   } else {
     anchor.textContent = 'Hello';
   }
