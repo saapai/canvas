@@ -957,26 +957,31 @@ app.get('/api/public/:username/path/*', async (req, res) => {
 // Root route - redirect logged-in users to their page
 app.get('/', async (req, res) => {
   try {
-    // Check if user is logged in
-    const cookies = parseCookies(req);
-    const token = cookies.auth_token;
+    // If logout query param is present, don't redirect even if logged in
+    const isLogout = req.query.logout === 'true';
     
-    if (token) {
-      try {
-        const payload = jwt.verify(token, JWT_SECRET);
-        if (payload && payload.id) {
-          const user = await getUserById(payload.id);
-          if (user && user.username) {
-            // Redirect to user's page
-            return res.redirect(`/${user.username}`);
+    if (!isLogout) {
+      // Check if user is logged in
+      const cookies = parseCookies(req);
+      const token = cookies.auth_token;
+      
+      if (token) {
+        try {
+          const payload = jwt.verify(token, JWT_SECRET);
+          if (payload && payload.id) {
+            const user = await getUserById(payload.id);
+            if (user && user.username) {
+              // Redirect to user's page
+              return res.redirect(`/${user.username}`);
+            }
           }
+        } catch {
+          // Invalid token, serve main app
         }
-      } catch {
-        // Invalid token, serve main app
       }
     }
     
-    // Not logged in or no username - serve main app (will show auth)
+    // Not logged in, no username, or logout requested - serve main app (will show auth)
     try {
       const indexPath = join(__dirname, '../public/index.html');
       const html = readFileSync(indexPath, 'utf8');
