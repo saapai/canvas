@@ -4486,43 +4486,6 @@ if (createSpaceButton && createSpaceForm) {
     }
   });
   
-  // Handle new space button (simpler version)
-  const newSpaceButton = document.getElementById('new-space-button');
-  if (newSpaceButton) {
-    newSpaceButton.addEventListener('click', async () => {
-      const username = prompt('Enter a username for your new duttapad:');
-      if (!username) return;
-      
-      const trimmed = username.trim();
-      if (!trimmed) {
-        alert('Username cannot be empty');
-        return;
-      }
-      
-      try {
-        const response = await fetch('/api/auth/create-space', {
-          method: 'POST',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: trimmed })
-        });
-        
-        const data = await response.json();
-        
-        if (!response.ok) {
-          alert(data.error || 'Failed to create space');
-          return;
-        }
-        
-        // Navigate to the new space
-        window.location.href = `/${data.user.username}`;
-      } catch (error) {
-        console.error('Error creating space:', error);
-        alert('Failed to create space');
-      }
-    });
-  }
-  
   newUsernameInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter') {
       createSpaceSubmit.click();
@@ -4561,6 +4524,43 @@ if (logoutButton) {
       currentUser = null;
       isLoggedIn = false;
       window.location.replace('/?logout=true&t=' + Date.now());
+    }
+  });
+}
+
+// Handle new space button (simpler version)
+const newSpaceButton = document.getElementById('new-space-button');
+if (newSpaceButton) {
+  newSpaceButton.addEventListener('click', async () => {
+    const username = prompt('Enter a username for your new duttapad:');
+    if (!username) return;
+    
+    const trimmed = username.trim();
+    if (!trimmed) {
+      alert('Username cannot be empty');
+      return;
+    }
+    
+    try {
+      const response = await fetch('/api/auth/create-space', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: trimmed })
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok) {
+        alert(data.error || 'Failed to create space');
+        return;
+      }
+      
+      // Navigate to the new space
+      window.location.href = `/${data.user.username}`;
+    } catch (error) {
+      console.error('Error creating space:', error);
+      alert('Failed to create space');
     }
   });
 }

@@ -655,9 +655,18 @@ app.put('/api/auth/update-username', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Username is reserved' });
     }
     
-    // Check if the user owns this space
+    // Check if the user owns this space (normalize phone numbers for comparison)
     const spaceUser = await getUserById(spaceId);
-    if (!spaceUser || spaceUser.phone !== req.user.phone) {
+    if (!spaceUser) {
+      return res.status(404).json({ error: 'Space not found' });
+    }
+    
+    // Normalize phone numbers for comparison (remove spaces)
+    const currentPhone = String(req.user.phone).replace(/\s/g, '').trim();
+    const spacePhone = String(spaceUser.phone).replace(/\s/g, '').trim();
+    
+    if (currentPhone !== spacePhone) {
+      console.log('[UPDATE-USERNAME] Phone mismatch:', { currentPhone, spacePhone });
       return res.status(403).json({ error: 'You do not own this space' });
     }
     
