@@ -2129,11 +2129,18 @@ function getEntryBottomRightPosition(entryId) {
   return null;
 }
 
-// Show cursor in a good default position (random empty space next to entry)
+// Show cursor in a good default position
+// RULE: Cursor should ALWAYS be visible unless something is in edit mode (typing)
 function showCursorInDefaultPosition(entryId = null) {
   console.log('[CURSOR] showCursorInDefaultPosition called. isReadOnly:', isReadOnly, 'entryId:', entryId, 'hasClickedRecently:', hasClickedRecently);
   
   if (isReadOnly) {
+    return;
+  }
+  
+  // Don't show idle cursor if user is actively editing (typing in editor)
+  if (editingEntryId && document.activeElement === editor && editor.textContent.trim().length > 0) {
+    console.log('[CURSOR] User is actively editing, not showing idle cursor');
     return;
   }
   
@@ -2154,8 +2161,10 @@ function showCursorInDefaultPosition(entryId = null) {
       if (positionOverlapsEntry(pos.x, pos.y)) {
         // Position overlaps, find a new empty space
         const newPos = findRandomEmptySpaceNextToEntry();
+        console.log('[CURSOR] Position overlaps, using new position:', newPos);
         showCursorAtWorld(newPos.x, newPos.y);
       } else {
+        console.log('[CURSOR] Using entry bottom-right position:', pos);
         showCursorAtWorld(pos.x, pos.y);
       }
       return;
@@ -2169,15 +2178,17 @@ function showCursorInDefaultPosition(entryId = null) {
     if (positionOverlapsEntry(cursorPosBeforeEdit.x, cursorPosBeforeEdit.y)) {
       // Position overlaps, find a new empty space
       const newPos = findRandomEmptySpaceNextToEntry();
+      console.log('[CURSOR] Stored position overlaps, using new position:', newPos);
       showCursorAtWorld(newPos.x, newPos.y);
     } else {
+      console.log('[CURSOR] Using stored cursor position:', cursorPosBeforeEdit);
       showCursorAtWorld(cursorPosBeforeEdit.x, cursorPosBeforeEdit.y);
     }
     cursorPosBeforeEdit = null; // Clear after using
     return;
   }
   
-  // PRIORITY 4: Otherwise, find a random empty space next to an entry
+  // PRIORITY 4: Otherwise, find a random empty space (or center for empty pages)
   // Keep trying until we find a position that doesn't overlap
   let attempts = 0;
   const maxAttempts = 10;
@@ -2195,6 +2206,7 @@ function showCursorInDefaultPosition(entryId = null) {
   }
   
   if (foundNonOverlapping && pos) {
+    console.log('[CURSOR] Using random empty space:', pos);
     showCursorAtWorld(pos.x, pos.y);
   } else {
     // If we still couldn't find a non-overlapping position, try systematic search
@@ -2210,6 +2222,7 @@ function showCursorInDefaultPosition(entryId = null) {
         const testX = center.x + offsetX;
         const testY = center.y + offsetY;
         if (!positionOverlapsEntry(testX, testY)) {
+          console.log('[CURSOR] Using systematic search position:', { x: testX, y: testY });
           showCursorAtWorld(testX, testY);
           found = true;
           break;
@@ -2219,6 +2232,7 @@ function showCursorInDefaultPosition(entryId = null) {
     }
     if (!found) {
       // Last resort: use center position (should be visible even if it overlaps slightly)
+      console.log('[CURSOR] Using center position (last resort):', center);
       showCursorAtWorld(center.x, center.y);
     }
   }
