@@ -1369,12 +1369,15 @@ function zoomToFitEntries() {
     if (progress < 1) {
       requestAnimationFrame(animate);
     } else {
-      // Animation completed - clear navigationJustCompleted flag to allow clicking
+      // Animation completed - clear navigation flags to allow clicking
       // This happens after ~800ms, allowing immediate interaction after zoom
       const wasNavigating = navigationJustCompleted;
       if (navigationJustCompleted) {
         navigationJustCompleted = false;
       }
+      // Clear isNavigating flag immediately so user can interact
+      isNavigating = false;
+      
       // Always show cursor after animation completes (whether from navigation or initial load)
       if (!isReadOnly) {
         // Use setTimeout to ensure entries are fully dimensioned
@@ -1382,10 +1385,11 @@ function zoomToFitEntries() {
         setTimeout(() => {
           requestAnimationFrame(() => {
             requestAnimationFrame(() => {
+              console.log('[ZOOM] About to call showCursorInDefaultPosition');
               showCursorInDefaultPosition();
             });
           });
-        }, 100); // Small delay to ensure dimensions are updated
+        }, 150); // Increased delay to ensure dimensions are updated
       }
     }
   }
@@ -1399,15 +1403,19 @@ function zoomToFitEntries() {
     if (navigationJustCompleted) {
       navigationJustCompleted = false;
     }
+    // Clear isNavigating flag immediately so user can interact
+    isNavigating = false;
+    
     if (!isReadOnly) {
       // Use setTimeout to ensure entries are fully dimensioned
       setTimeout(() => {
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
+            console.log('[ZOOM] About to call showCursorInDefaultPosition (no animation path)');
             showCursorInDefaultPosition();
           });
         });
-      }, 200); // Small delay to ensure dimensions are updated
+      }, 250); // Increased delay to ensure dimensions are updated
     }
   }
 }
@@ -2128,6 +2136,8 @@ function getEntryBottomRightPosition(entryId) {
 
 // Show cursor in a good default position (random empty space next to entry)
 function showCursorInDefaultPosition(entryId = null) {
+  console.log('[CURSOR] showCursorInDefaultPosition called. isReadOnly:', isReadOnly, 'entryId:', entryId, 'hasClickedRecently:', hasClickedRecently);
+  
   if (isReadOnly) {
     return;
   }
@@ -2136,6 +2146,7 @@ function showCursorInDefaultPosition(entryId = null) {
   // Check lastClickPos first - if user clicked, always use that position
   // Note: We don't check for overlaps here because user explicitly clicked there
   if (lastClickPos && hasClickedRecently) {
+    console.log('[CURSOR] Using last click position:', lastClickPos);
     showCursorAtWorld(lastClickPos.x, lastClickPos.y, true); // force = true to override isProcessingClick
     return;
   }
