@@ -1966,24 +1966,12 @@ function findRandomEmptySpaceNextToEntry() {
   });
 
   if (visibleEntries.length === 0) {
-    // No entries - place cursor near anchor or center (within viewport)
+    // No entries - place cursor in center of viewport for empty pages
     const viewportRect = viewport.getBoundingClientRect();
     const center = screenToWorld(viewportRect.width / 2, viewportRect.height / 2);
     
-    if (anchor && currentViewEntryId === null) {
-      const anchorX = anchorPos.x;
-      const anchorY = anchorPos.y;
-      const anchorRect = anchor.getBoundingClientRect();
-      const pos = {
-        x: anchorX + anchorRect.width / cam.z + 40,
-        y: anchorY + 20
-      };
-      // Check if anchor position is in viewport, otherwise use center
-      if (isPositionInViewport(pos.x, pos.y)) {
-        return pos;
-      }
-    }
-    // Use center (should be in viewport)
+    // For empty pages, always use center so it's clear where user is typing
+    console.log('[CURSOR] Empty page - placing cursor in center:', center);
     return { x: center.x, y: center.y };
   }
 
@@ -3705,6 +3693,15 @@ window.addEventListener('mouseup', (e) => {
         // ALWAYS place editor/cursor at exact click position - this is the superceding rule
         // Clear navigation flags so user can type immediately
         navigationJustCompleted = false;
+        isNavigating = false; // Also clear isNavigating to allow blur handler to commit
+        
+        // If currently editing an entry, blur and commit it first
+        if (editingEntryId && document.activeElement === editor) {
+          console.log('[CLICK] Committing current edit before moving cursor');
+          // Focus will trigger blur, which will auto-commit via blur event handler
+          // But we need to ensure isNavigating is false so blur handler doesn't skip commit
+        }
+        
         // Always place cursor at click position, even during navigation
         // Use force=true to ensure cursor is visible and ready
         placeEditorAtWorld(w.x, w.y, '', null, true); // force = true to allow during navigation
@@ -4224,8 +4221,12 @@ editor.addEventListener('focus', (e) => {
 
 editor.addEventListener('blur', (e) => {
   // Auto-save when editor loses focus (e.g., clicking elsewhere)
-  // Only save if there's content and we're not navigating
+  // Only save if there's content and we're not in the middle of navigation
+  // Note: We clear isNavigating when user clicks, so this should work
+  console.log('[BLUR] Editor blurred. isNavigating:', isNavigating, 'navigationJustCompleted:', navigationJustCompleted, 'editingEntryId:', editingEntryId);
+  
   if (isNavigating || navigationJustCompleted) {
+    console.log('[BLUR] Skipping commit due to navigation');
     return;
   }
   
