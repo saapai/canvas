@@ -1529,8 +1529,16 @@ function navigateToEntry(entryId) {
       // Only clear if user hasn't clicked (which would have cleared it already)
       if (navigationJustCompleted) {
         navigationJustCompleted = false;
+        // Show cursor in default position after navigation completes (fallback)
+        if (!isReadOnly) {
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              showCursorInDefaultPosition();
+            });
+          });
+        }
       }
-    }, 500);
+    }, 900); // Wait a bit longer than animation duration (800ms) to ensure it's a true fallback
   }, 1000);
   
   // Update URL if we're on a user page
@@ -1611,6 +1619,9 @@ function navigateBack(level = 1) {
       zoomToFitEntries();
     });
   }, 100);
+  
+  // Reset navigation flag - will be cleared by zoomToFitEntries animation completion
+  navigationJustCompleted = true;
   
   // Update URL to reflect navigation state
   const pageUsername = window.PAGE_USERNAME;
@@ -2272,6 +2283,7 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
 function hideCursor() {
   editor.classList.remove('idle-cursor', 'has-content');
   editor.textContent = '';
+  editor.style.display = 'none'; // Hide editor when hiding cursor
   editor.blur();
 }
 
