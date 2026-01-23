@@ -4228,7 +4228,11 @@ async function loadSpaces() {
   
   try {
     console.log('[SPACES CLIENT] Fetching /api/auth/spaces with credentials: include');
-    const response = await fetch('/api/auth/spaces', { credentials: 'include' });
+    const response = await fetch('/api/auth/spaces', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' }
+    });
     
     console.log('[SPACES CLIENT] Response status:', response.status);
     console.log('[SPACES CLIENT] Response ok:', response.ok);
