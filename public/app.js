@@ -1178,6 +1178,7 @@ let editingEntryId = null;
 let isCommitting = false;
 let pendingEditTimeout = null; // Track pending edit to allow double-click detection
 let hasClickedRecently = false; // Track if user clicked somewhere (so we don't use hover position)
+let cursorPosBeforeEdit = null; // Store cursor position before entering edit mode
 
 function applyTransform(){
   world.style.transform = `translate3d(${cam.x}px, ${cam.y}px, 0) scale(${cam.z})`;
@@ -1238,6 +1239,12 @@ function zoomToFitEntries() {
     // This prevents anchor from moving when navigating back to empty home page
     if (!hasZoomedToFit) {
       centerAnchor();
+      // Show cursor after initial load
+      if (!isReadOnly) {
+        setTimeout(() => {
+          showCursorInDefaultPosition();
+        }, 100);
+      }
     }
     return;
   }
@@ -1355,6 +1362,10 @@ function zoomToFitEntries() {
       // This happens after ~800ms, allowing immediate interaction after zoom
       if (navigationJustCompleted) {
         navigationJustCompleted = false;
+        // Show cursor in default position after navigation/zoom completes
+        if (!isReadOnly) {
+          showCursorInDefaultPosition();
+        }
       }
     }
   }
@@ -1635,6 +1646,10 @@ function navigateBack(level = 1) {
       // Only clear if user hasn't clicked (which would have cleared it already)
       if (navigationJustCompleted) {
         navigationJustCompleted = false;
+        // Show cursor in default position after navigation completes
+        if (!isReadOnly) {
+          showCursorInDefaultPosition();
+        }
       }
     }, 500);
   }, 1000);
@@ -1794,10 +1809,74 @@ function updateBreadcrumb() {
 }
 
 
+// Find a random empty space next to an entry
+function findRandomEmptySpaceNextToEntry() {
+  const visibleEntries = Array.from(entries.values()).filter(entryData => {
+    const element = entryData.element;
+    if (!element) return false;
+    if (currentViewEntryId === null) {
+      return !entryData.parentEntryId && element.style.display !== 'none';
+    } else {
+      return element.style.display !== 'none';
+    }
+  });
+
+  if (visibleEntries.length === 0) {
+    // No entries - place cursor near anchor or center
+    if (anchor && currentViewEntryId === null) {
+      const anchorX = anchorPos.x;
+      const anchorY = anchorPos.y;
+      const anchorRect = anchor.getBoundingClientRect();
+      return {
+        x: anchorX + anchorRect.width / cam.z + 40,
+        y: anchorY + 20
+      };
+    }
+    // Fallback to center
+    const viewportRect = viewport.getBoundingClientRect();
+    const center = screenToWorld(viewportRect.width / 2, viewportRect.height / 2);
+    return { x: center.x, y: center.y };
+  }
+
+  // Pick a random entry
+  const randomEntry = visibleEntries[Math.floor(Math.random() * visibleEntries.length)];
+  const element = randomEntry.element;
+  const rect = element.getBoundingClientRect();
+  const worldX = parseFloat(element.style.left) || 0;
+  const worldY = parseFloat(element.style.top) || 0;
+  const worldWidth = rect.width;
+  const worldHeight = rect.height;
+
+  // Choose a random side (right, bottom, left, top)
+  const side = Math.floor(Math.random() * 4);
+  const padding = 40; // Space between entry and cursor
+
+  let x, y;
+  switch (side) {
+    case 0: // Right
+      x = worldX + worldWidth + padding;
+      y = worldY + Math.random() * worldHeight;
+      break;
+    case 1: // Bottom
+      x = worldX + Math.random() * worldWidth;
+      y = worldY + worldHeight + padding;
+      break;
+    case 2: // Left
+      x = worldX - padding;
+      y = worldY + Math.random() * worldHeight;
+      break;
+    case 3: // Top
+      x = worldX + Math.random() * worldWidth;
+      y = worldY - padding;
+      break;
+  }
+
+  return { x, y };
+}
+
 // Show cursor at a position (idle mode - not actively editing)
 function showCursorAtWorld(wx, wy, force = false) {
-  // Allow showing cursor even during navigation if user explicitly clicked
-  if (isReadOnly || (!force && (isNavigating || navigationJustCompleted))) {
+  if (isReadOnly) {
     return;
   }
   
@@ -1812,6 +1891,24 @@ function showCursorAtWorld(wx, wy, force = false) {
   editor.blur();
 }
 
+// Show cursor in a good default position (random empty space next to entry)
+function showCursorInDefaultPosition() {
+  if (isReadOnly) {
+    return;
+  }
+  
+  // If we have a stored position from before edit mode, use it
+  if (cursorPosBeforeEdit) {
+    showCursorAtWorld(cursorPosBeforeEdit.x, cursorPosBeforeEdit.y);
+    cursorPosBeforeEdit = null; // Clear after using
+    return;
+  }
+  
+  // Otherwise, find a random empty space next to an entry
+  const pos = findRandomEmptySpaceNextToEntry();
+  showCursorAtWorld(pos.x, pos.y);
+}
+
 function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
   // Allow placing editor during navigation if user explicitly clicked (force = true)
   if (!force && (isNavigating || navigationJustCompleted)) {
@@ -1819,6 +1916,11 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
   }
   
   console.log('[EDITOR] placeEditorAtWorld called with entryId:', entryId, 'type:', typeof entryId, 'force:', force);
+  
+  // Store cursor position before entering edit mode (if not already editing)
+  if (!editingEntryId && !text) {
+    cursorPosBeforeEdit = { x: editorWorldPos.x, y: editorWorldPos.y };
+  }
   
   editorWorldPos = { x: wx, y: wy };
   editingEntryId = entryId;
@@ -1888,12 +1990,8 @@ async function commitEditor(){
   // Prevent commits during or right after navigation
   if (isNavigating || navigationJustCompleted) {
     console.log('[COMMIT] Blocked - isNavigating:', isNavigating, 'navigationJustCompleted:', navigationJustCompleted);
-    // After committing, show cursor at current position
-    if (editorWorldPos) {
-      showCursorAtWorld(editorWorldPos.x, editorWorldPos.y);
-    } else {
-      hideCursor();
-    }
+    // After committing, show cursor in default position (restore previous or find empty space)
+    showCursorInDefaultPosition();
     editingEntryId = null;
     return;
   }
@@ -2045,12 +2143,8 @@ async function commitEditor(){
   // Safety check: if we somehow got here while editing, abort
   if (editingEntryId && editingEntryId !== 'anchor') {
     console.error('[COMMIT] ERROR: Attempted to create new entry while editingEntryId is set:', editingEntryId);
-    // After committing, show cursor at current position
-    if (editorWorldPos) {
-      showCursorAtWorld(editorWorldPos.x, editorWorldPos.y);
-    } else {
-      hideCursor();
-    }
+    // After committing, show cursor in default position (restore previous or find empty space)
+    showCursorInDefaultPosition();
     editingEntryId = null;
     isCommitting = false;
     return;
@@ -2061,12 +2155,8 @@ async function commitEditor(){
 
   // Allow entry if there's text OR URLs
   if(!processedText && urls.length === 0){
-    // After committing, show cursor at current position
-    if (editorWorldPos) {
-      showCursorAtWorld(editorWorldPos.x, editorWorldPos.y);
-    } else {
-      hideCursor();
-    }
+    // After committing, show cursor in default position (restore previous or find empty space)
+    showCursorInDefaultPosition();
     editingEntryId = null;
     isCommitting = false;
     return;
@@ -2077,12 +2167,8 @@ async function commitEditor(){
   const duplicateId = findDuplicateEntry(trimmedRight, currentViewEntryId, editingEntryId);
   if (duplicateId) {
     // Don't create duplicate - just clear editor
-    // After committing, show cursor at current position
-    if (editorWorldPos) {
-      showCursorAtWorld(editorWorldPos.x, editorWorldPos.y);
-    } else {
-      hideCursor();
-    }
+    // After committing, show cursor in default position (restore previous or find empty space)
+    showCursorInDefaultPosition();
     editingEntryId = null;
     isCommitting = false;
     return;
@@ -2194,12 +2280,8 @@ async function commitEditor(){
     }
   }
   
-  // After committing, show cursor at current position
-  if (editorWorldPos) {
-    showCursorAtWorld(editorWorldPos.x, editorWorldPos.y);
-  } else {
-    hideCursor();
-  }
+  // After committing, show cursor in default position (restore previous or find empty space)
+  showCursorInDefaultPosition();
   editingEntryId = null;
   isCommitting = false;
 }
@@ -2933,16 +3015,6 @@ viewport.addEventListener('mousemove', (e) => {
   // Track mouse position for typing without clicking
   currentMousePos = { x: e.clientX, y: e.clientY };
   
-  // Update cursor position if editor is in idle mode and not actively editing
-  // Don't update during navigation unless user explicitly clicked (handled in click handler)
-  if (!isReadOnly && !isNavigating && !navigationJustCompleted && 
-      editor.classList.contains('idle-cursor') && 
-      document.activeElement !== editor && 
-      !editingEntryId) {
-    const w = screenToWorld(e.clientX, e.clientY);
-    showCursorAtWorld(w.x, w.y);
-  }
-  
   // In read-only mode, only allow panning (no entry dragging)
   if (isReadOnly) {
     if (dragging) {
@@ -3670,12 +3742,8 @@ editor.addEventListener('keydown', (e) => {
       }
     }
     
-    // After committing, show cursor at current position
-    if (editorWorldPos) {
-      showCursorAtWorld(editorWorldPos.x, editorWorldPos.y);
-    } else {
-      hideCursor();
-    }
+    // After committing, show cursor in default position (restore previous or find empty space)
+    showCursorInDefaultPosition();
     editingEntryId = null;
     return;
   }
@@ -3840,14 +3908,10 @@ editor.addEventListener('blur', (e) => {
       }
     }, 0);
   } else if (trimmed.length === 0 && (!editingEntryId || editingEntryId === 'anchor')) {
-    // If empty and creating new entry, show cursor at current position
+    // If empty and creating new entry, show cursor in default position
     setTimeout(() => {
       if (document.activeElement !== editor) {
-        if (editorWorldPos) {
-          showCursorAtWorld(editorWorldPos.x, editorWorldPos.y);
-        } else {
-          hideCursor();
-        }
+        showCursorInDefaultPosition();
         editingEntryId = null;
       }
     }, 0);
@@ -3899,6 +3963,12 @@ viewport.addEventListener('contextmenu', (e) => {
 
 requestAnimationFrame(() => {
   centerAnchor();
+  // Show cursor after initial setup
+  if (!isReadOnly) {
+    setTimeout(() => {
+      showCursorInDefaultPosition();
+    }, 100);
+  }
 });
 
 // Handle browser back/forward buttons
