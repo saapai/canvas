@@ -1312,7 +1312,11 @@ function zoomToFitEntries() {
   
   // Never zoom in - only zoom out or stay at current zoom
   const finalZoom = Math.min(clampedZoom, cam.z);
-
+  
+  // If zoom doesn't change and position is already correct, still show cursor after traversal
+  const zoomChanged = Math.abs(finalZoom - cam.z) > 0.001;
+  const needsAnimation = zoomChanged || Math.abs(targetX - cam.x) > 1 || Math.abs(targetY - cam.y) > 1;
+  
   // Calculate target camera position
   const screenCenterX = viewportWidth / 2;
   const screenCenterY = viewportHeight / 2;
@@ -1364,14 +1368,33 @@ function zoomToFitEntries() {
       if (navigationJustCompleted) {
         navigationJustCompleted = false;
         // Show cursor in default position after navigation/zoom completes
+        // Wait for entries to be fully rendered before showing cursor
         if (!isReadOnly) {
-          showCursorInDefaultPosition();
+          requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+              showCursorInDefaultPosition();
+            });
+          });
         }
       }
     }
   }
   
-  requestAnimationFrame(animate);
+  if (needsAnimation) {
+    requestAnimationFrame(animate);
+  } else {
+    // No animation needed, but still show cursor after traversal
+    if (navigationJustCompleted) {
+      navigationJustCompleted = false;
+      if (!isReadOnly) {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            showCursorInDefaultPosition();
+          });
+        });
+      }
+    }
+  }
 }
 
 // Check if a duplicate entry exists at the current directory level
