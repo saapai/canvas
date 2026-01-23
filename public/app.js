@@ -1902,10 +1902,45 @@ function showCursorAtWorld(wx, wy, force = false) {
   });
 }
 
+// Get bottom-right position of an entry (or where it was)
+function getEntryBottomRightPosition(entryId) {
+  if (!entryId) return null;
+  
+  const entryData = entries.get(entryId);
+  if (entryData && entryData.element) {
+    const element = entryData.element;
+    const rect = element.getBoundingClientRect();
+    const worldX = parseFloat(element.style.left) || 0;
+    const worldY = parseFloat(element.style.top) || 0;
+    const worldWidth = rect.width;
+    const worldHeight = rect.height;
+    
+    // Position cursor at bottom-right with some padding
+    const padding = 40;
+    return {
+      x: worldX + worldWidth + padding,
+      y: worldY + worldHeight + padding
+    };
+  }
+  
+  // If entry doesn't exist anymore (was deleted), use stored position if available
+  // Otherwise return null to fall back to random position
+  return null;
+}
+
 // Show cursor in a good default position (random empty space next to entry)
-function showCursorInDefaultPosition() {
+function showCursorInDefaultPosition(entryId = null) {
   if (isReadOnly) {
     return;
+  }
+  
+  // If we have an entry ID, place cursor at bottom-right of that entry
+  if (entryId) {
+    const pos = getEntryBottomRightPosition(entryId);
+    if (pos) {
+      showCursorAtWorld(pos.x, pos.y);
+      return;
+    }
   }
   
   // If we have a stored position from before edit mode, use it
@@ -2039,10 +2074,11 @@ async function commitEditor(){
       // If editor text is empty, delete the entry
       if(!trimmedRight){
         // User intentionally cleared text and committed - delete the entry
+        const deletedEntryId = editingEntryId; // Store before deletion
         const deleted = await deleteEntryWithConfirmation(editingEntryId);
         if (deleted) {
-          editor.textContent = '';
-          editor.style.display = 'none';
+          // Show cursor at bottom-right of deleted entry
+          showCursorInDefaultPosition(deletedEntryId);
           editingEntryId = null;
         }
         isCommitting = false;
@@ -2138,8 +2174,8 @@ async function commitEditor(){
         return;
       }
       
-      // After committing, show cursor in default position (restore previous or find empty space)
-      showCursorInDefaultPosition();
+      // After committing, show cursor at bottom-right of edited entry
+      showCursorInDefaultPosition(editingEntryId);
       editingEntryId = null;
       isCommitting = false;
       return;
@@ -2287,8 +2323,9 @@ async function commitEditor(){
     }
   }
   
-  // After committing, show cursor in default position (restore previous or find empty space)
-  showCursorInDefaultPosition();
+  // After committing, show cursor at bottom-right of created/edited entry
+  // Use the newly created entryId (entry was just created above)
+  showCursorInDefaultPosition(entryId);
   editingEntryId = null;
   isCommitting = false;
 }
@@ -3904,13 +3941,11 @@ editor.addEventListener('blur', (e) => {
         if (entryData) {
           // User deleted all text - delete the entry (with confirmation if has children)
           // deleteEntryWithConfirmation already handles undo state
+            const deletedEntryId = editingEntryId; // Store before deletion
             const deleted = await deleteEntryWithConfirmation(editingEntryId);
             if (deleted) {
-              if (editorWorldPos) {
-                showCursorAtWorld(editorWorldPos.x, editorWorldPos.y);
-              } else {
-                hideCursor();
-              }
+              // Show cursor at bottom-right of deleted entry
+              showCursorInDefaultPosition(deletedEntryId);
               editingEntryId = null;
           } else {
             // User cancelled deletion - restore editing state
