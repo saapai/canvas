@@ -453,9 +453,13 @@ app.get('/api/test', (req, res) => {
 
 // Get all spaces/usernames for the current user
 // IMPORTANT: This route must be defined BEFORE the /:username catch-all route
-app.get('/api/auth/spaces', requireAuth, async (req, res) => {
+// Using app.all to catch all HTTP methods just in case
+app.all('/api/auth/spaces', requireAuth, async (req, res) => {
   try {
-    console.log('[SPACES] Route matched! Request received');
+    console.log('[SPACES] ========== ROUTE MATCHED! ==========');
+    console.log('[SPACES] Method:', req.method);
+    console.log('[SPACES] Path:', req.path);
+    console.log('[SPACES] Original URL:', req.originalUrl);
     console.log('[SPACES] Current user:', req.user ? { id: req.user.id, phone: req.user.phone, username: req.user.username } : 'null');
     
     if (!req.user || !req.user.phone) {
