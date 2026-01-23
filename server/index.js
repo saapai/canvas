@@ -458,12 +458,25 @@ app.get('/api/auth/spaces', requireAuth, async (req, res) => {
     }
     
     // Get the phone number from the current user
-    const phone = String(req.user.phone).trim();
+    // Normalize phone number (remove spaces) to match database format
+    const phone = String(req.user.phone).replace(/\s/g, '').trim();
     console.log('[SPACES] Looking up all users with phone:', phone);
+    console.log('[SPACES] Original phone from user:', req.user.phone);
     
     // Query database directly for all users with this phone number
     const users = await getUsersByPhone(phone);
     console.log('[SPACES] Found users:', users.length, users.map(u => ({ id: u.id, phone: u.phone, username: u.username })));
+    
+    // If no users found, try with space in phone number
+    if (users.length === 0 && req.user.phone.includes(' ')) {
+      const phoneWithSpace = req.user.phone.trim();
+      console.log('[SPACES] Trying with space in phone:', phoneWithSpace);
+      const usersWithSpace = await getUsersByPhone(phoneWithSpace);
+      if (usersWithSpace.length > 0) {
+        users.push(...usersWithSpace);
+        console.log('[SPACES] Found users with space format:', users.length);
+      }
+    }
     
     // Filter to only users with usernames and map to spaces format
     const spaces = users
