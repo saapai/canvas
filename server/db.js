@@ -440,12 +440,22 @@ export async function createUser(phone) {
 export async function setUsername(userId, username) {
   try {
     const db = getPool();
+    // Get old username before updating
+    const oldUser = await getUserById(userId);
+    const oldUsername = oldUser?.username;
+    
+    // Update username in users table
     await db.query(
       `UPDATE users
        SET username = $1
        WHERE id = $2`,
       [username, userId]
     );
+    
+    // If there was an old username, we don't need to update entries
+    // because entries are linked by user_id, not username
+    // The username change only affects the URL/path, not the data ownership
+    
     return getUserById(userId);
   } catch (error) {
     console.error('Error setting username:', error);

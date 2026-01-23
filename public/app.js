@@ -4235,7 +4235,7 @@ async function loadSpaces() {
           <div class="space-item-content">
             <span class="space-username">${escapeHtml(space.username)}</span>
           </div>
-          <button class="space-edit-button" data-space-id="${space.id}" data-space-username="${escapeHtml(space.username)}">✏️</button>
+          <button class="space-edit-button" data-space-id="${space.id}" data-space-username="${escapeHtml(space.username)}" title="Edit username">✏️</button>
         `;
         
         // Click to navigate
@@ -4430,14 +4430,21 @@ if (createSpaceButton && createSpaceForm) {
 
 // Logout
 if (logoutButton) {
-  logoutButton.addEventListener('click', async () => {
+  logoutButton.addEventListener('click', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
     try {
-      await fetch('/api/auth/logout', {
+      const response = await fetch('/api/auth/logout', {
         method: 'POST',
         credentials: 'include'
       });
       // Redirect to home page (will show login)
-      window.location.href = '/';
+      if (response.ok) {
+        window.location.href = '/';
+      } else {
+        // Still redirect even if logout fails
+        window.location.href = '/';
+      }
     } catch (error) {
       console.error('Error logging out:', error);
       // Still redirect even if logout fails
