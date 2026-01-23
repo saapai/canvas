@@ -5,6 +5,7 @@ import twilio from 'twilio';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import rateLimit from 'express-rate-limit';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -12,6 +13,7 @@ import { processTextWithLLM, fetchLinkMetadata, generateLinkCard } from './llm.j
 import {
   initDatabase,
   getAllEntries,
+  getEntriesCount,
   saveEntry,
   deleteEntry,
   saveAllEntries,
@@ -33,6 +35,49 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
+const isDevelopment = process.env.NODE_ENV !== 'production';
+const DEBUG = process.env.DEBUG === 'true' || isDevelopment;
+
+// Helper for conditional logging
+const debugLog = (...args) => {
+  if (DEBUG) {
+    console.log(...args);
+  }
+};
+
+// Request validation helpers
+const validatePhone = (phone) => {
+  if (!phone || typeof phone !== 'string') {
+    return { valid: false, error: 'Phone is required' };
+  }
+  const normalized = phone.trim();
+  if (!normalized) {
+    return { valid: false, error: 'Phone is required' };
+  }
+  // Basic validation: should be at least 10 digits
+  const digits = normalized.replace(/\D/g, '');
+  if (digits.length < 10) {
+    return { valid: false, error: 'Invalid phone number format' };
+  }
+  return { valid: true, normalized };
+};
+
+const validateUsername = (username) => {
+  if (!username || typeof username !== 'string') {
+    return { valid: false, error: 'Username is required' };
+  }
+  const trimmed = username.trim();
+  if (!trimmed) {
+    return { valid: false, error: 'Username is required' };
+  }
+  if (trimmed.length > 40) {
+    return { valid: false, error: 'Username too long (max 40 characters)' };
+  }
+  if (!/^[a-zA-Z0-9_-]+$/.test(trimmed)) {
+    return { valid: false, error: 'Username can only contain letters, numbers, underscores, and hyphens' };
+  }
+  return { valid: true, trimmed };
+};
 
 // Optional Twilio client for SMS / Verify (used for sending verification codes)
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || '';
@@ -45,7 +90,35 @@ const twilioClient = TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN
   : null;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '10mb' })); // Limit JSON payload size
+
+// Rate limiting configuration (isDevelopment already defined above)
+
+// General API rate limiter: 100 requests per 15 minutes per IP
+const generalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => {
+    // Skip rate limiting for health checks
+    return req.path === '/api/health';
+  }
+});
+
+// Strict rate limiter for auth endpoints: 5 requests per 15 minutes per IP
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // Limit each IP to 5 auth requests per windowMs
+  message: 'Too many authentication attempts, please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: isDevelopment // Skip in development for easier testing
+});
+
+// Apply general rate limiting to all API routes
+app.use('/api/', generalLimiter);
 
 // Serve static files BEFORE any other routes
 // This ensures app.js, styles.css, etc. are served correctly
@@ -159,16 +232,35 @@ app.use('/api/*', async (req, res, next) => {
 
 app.use(attachUser);
 
-app.post('/api/auth/send-code', async (req, res) => {
+// Health check endpoint (before rate limiting)
+app.get('/api/health', async (req, res) => {
+  try {
+    const db = getPool();
+    // Quick database connectivity check
+    await db.query('SELECT 1');
+    res.json({ 
+      status: 'healthy', 
+      timestamp: new Date().toISOString(),
+      database: 'connected'
+    });
+  } catch (error) {
+    res.status(503).json({ 
+      status: 'unhealthy', 
+      timestamp: new Date().toISOString(),
+      database: 'disconnected',
+      error: error.message 
+    });
+  }
+});
+
+app.post('/api/auth/send-code', authLimiter, async (req, res) => {
   try {
     const { phone } = req.body;
-    if (!phone || typeof phone !== 'string') {
-      return res.status(400).json({ error: 'Phone is required' });
+    const phoneValidation = validatePhone(phone);
+    if (!phoneValidation.valid) {
+      return res.status(400).json({ error: phoneValidation.error });
     }
-    const normalizedPhone = phone.trim();
-    if (!normalizedPhone) {
-      return res.status(400).json({ error: 'Phone is required' });
-    }
+    const normalizedPhone = phoneValidation.normalized;
 
     // Use Twilio Verify API (primary method)
     if (!twilioClient || !TWILIO_VERIFY_SERVICE_SID) {
@@ -195,7 +287,7 @@ app.post('/api/auth/send-code', async (req, res) => {
   }
 });
 
-app.post('/api/auth/verify-code', async (req, res) => {
+app.post('/api/auth/verify-code', authLimiter, async (req, res) => {
   try {
     const { phone, code } = req.body;
     if (!phone || !code) {
@@ -233,67 +325,13 @@ app.post('/api/auth/verify-code', async (req, res) => {
       return res.status(400).json({ error: 'Invalid or expired code' });
     }
 
-    // Try to find all users by phone number
-    let users = await getUsersByPhone(normalizedPhone);
-    
-    console.log('Initial phone lookup:', {
-      searchedPhone: normalizedPhone,
-      foundUsers: users.length,
-      users: users.map(u => ({ id: u.id, phone: u.phone, username: u.username }))
-    });
-    
-    // If not found, try alternative phone formats (with/without +1, with/without spaces)
-    if (users.length === 0) {
-      // Try without +1 prefix if it starts with +1
-      if (normalizedPhone.startsWith('+1')) {
-        const phoneWithoutPlus = normalizedPhone.substring(2).trim();
-        console.log('Trying without +1 prefix:', phoneWithoutPlus);
-        users = await getUsersByPhone(phoneWithoutPlus);
-        console.log('Result without +1:', { foundUsers: users.length });
-      }
-      // Try with +1 if it doesn't have it
-      if (users.length === 0 && !normalizedPhone.startsWith('+1')) {
-        const phoneWithPlusOne = '+1' + normalizedPhone;
-        console.log('Trying with +1 prefix:', phoneWithPlusOne);
-        users = await getUsersByPhone(phoneWithPlusOne);
-        console.log('Result with +1:', { foundUsers: users.length });
-      }
-      // Try without any + prefix
-      if (users.length === 0 && normalizedPhone.startsWith('+')) {
-        const phoneWithoutPlus = normalizedPhone.substring(1);
-        console.log('Trying without + prefix:', phoneWithoutPlus);
-        users = await getUsersByPhone(phoneWithoutPlus);
-        console.log('Result without +:', { foundUsers: users.length });
-      }
-      // Special handling for +13853687238 format (starts with +13, not +1)
-      if (users.length === 0 && normalizedPhone === '+13853687238') {
-        console.log('Special handling for +13853687238');
-        // Try as +1 3853687238 (assuming it should be +1 3853687238)
-        users = await getUsersByPhone('+13853687238');
-        console.log('Result for +13853687238:', { foundUsers: users.length });
-        // Try without + prefix
-        if (users.length === 0) {
-          users = await getUsersByPhone('13853687238');
-          console.log('Result for 13853687238:', { foundUsers: users.length });
-        }
-        // Try last 10 digits only
-        if (users.length === 0) {
-          users = await getUsersByPhone('3853687238');
-          console.log('Result for 3853687238:', { foundUsers: users.length });
-        }
-      }
-    }
-    
-    console.log('Final phone lookup:', {
-      searchedPhone: normalizedPhone,
-      foundUsers: users.length,
-      users: users.map(u => ({ id: u.id, phone: u.phone, username: u.username }))
-    });
+    // Single normalized lookup (phone normalization happens in getUsersByPhone)
+    const users = await getUsersByPhone(normalizedPhone);
     
     // Filter users to only those with usernames
     const usersWithUsernames = users.filter(u => u.username && String(u.username).trim().length > 0);
     
-    console.log('Users with usernames:', {
+    debugLog('Users with usernames:', {
       count: usersWithUsernames.length,
       usernames: usersWithUsernames.map(u => ({ id: u.id, username: u.username }))
     });
@@ -315,7 +353,7 @@ app.post('/api/auth/verify-code', async (req, res) => {
         user = users[0];
       } else {
         // Create new user
-        console.log('Creating new user with phone:', normalizedPhone);
+        debugLog('Creating new user with phone:', normalizedPhone);
         user = await createUser(normalizedPhone);
       }
       
@@ -403,16 +441,11 @@ app.post('/api/auth/create-new-user', async (req, res) => {
 app.post('/api/auth/set-username', requireAuth, async (req, res) => {
   try {
     const { username } = req.body;
-    if (!username || typeof username !== 'string') {
-      return res.status(400).json({ error: 'Username is required' });
+    const usernameValidation = validateUsername(username);
+    if (!usernameValidation.valid) {
+      return res.status(400).json({ error: usernameValidation.error });
     }
-    const trimmed = username.trim();
-    if (!trimmed) {
-      return res.status(400).json({ error: 'Username is required' });
-    }
-    if (trimmed.length > 40) {
-      return res.status(400).json({ error: 'Username too long' });
-    }
+    const trimmed = usernameValidation.trimmed;
 
     const taken = await isUsernameTaken(trimmed);
     if (taken) {
@@ -449,7 +482,7 @@ app.get('/api/auth/me', async (req, res) => {
 
 // Test endpoint to verify API routes work
 app.get('/api/test', (req, res) => {
-  console.log('[TEST] API test route hit');
+  debugLog('[TEST] API test route hit');
   return res.json({ success: true, message: 'API routes are working' });
 });
 
@@ -458,78 +491,20 @@ app.get('/api/test', (req, res) => {
 // Using POST like verify-code to avoid GET route conflicts
 app.post('/api/auth/spaces', requireAuth, async (req, res) => {
   try {
-    console.log('[SPACES] ========== ROUTE MATCHED! ==========');
-    console.log('[SPACES] Current user:', req.user ? { id: req.user.id, phone: req.user.phone, username: req.user.username } : 'null');
+    debugLog('[SPACES] Current user:', req.user ? { id: req.user.id, phone: req.user.phone, username: req.user.username } : 'null');
     
     if (!req.user || !req.user.phone) {
-      console.log('[SPACES] No user or phone, returning 401');
       return res.status(401).json({ error: 'Not authenticated' });
     }
     
-    // Use the EXACT same logic as verify-code
+    // Single normalized lookup (phone normalization happens in getUsersByPhone)
     const normalizedPhone = String(req.user.phone).trim();
-    console.log('[SPACES] Looking up users for phone:', normalizedPhone);
-    
-    // Try to find all users by phone number (same as verify-code)
-    let users = await getUsersByPhone(normalizedPhone);
-    
-    console.log('[SPACES] Initial phone lookup:', {
-      searchedPhone: normalizedPhone,
-      foundUsers: users.length,
-      users: users.map(u => ({ id: u.id, phone: u.phone, username: u.username }))
-    });
-    
-    // If not found, try alternative phone formats (same as verify-code)
-    if (users.length === 0) {
-      // Try without +1 prefix if it starts with +1
-      if (normalizedPhone.startsWith('+1')) {
-        const phoneWithoutPlus = normalizedPhone.substring(2).trim();
-        console.log('[SPACES] Trying without +1 prefix:', phoneWithoutPlus);
-        users = await getUsersByPhone(phoneWithoutPlus);
-        console.log('[SPACES] Result without +1:', { foundUsers: users.length });
-      }
-      // Try with +1 if it doesn't have it
-      if (users.length === 0 && !normalizedPhone.startsWith('+1')) {
-        const phoneWithPlusOne = '+1' + normalizedPhone;
-        console.log('[SPACES] Trying with +1 prefix:', phoneWithPlusOne);
-        users = await getUsersByPhone(phoneWithPlusOne);
-        console.log('[SPACES] Result with +1:', { foundUsers: users.length });
-      }
-      // Try without any + prefix
-      if (users.length === 0 && normalizedPhone.startsWith('+')) {
-        const phoneWithoutPlus = normalizedPhone.substring(1);
-        console.log('[SPACES] Trying without + prefix:', phoneWithoutPlus);
-        users = await getUsersByPhone(phoneWithoutPlus);
-        console.log('[SPACES] Result without +:', { foundUsers: users.length });
-      }
-      // Special handling for +13853687238 format (starts with +13, not +1)
-      if (users.length === 0 && normalizedPhone === '+13853687238') {
-        console.log('[SPACES] Special handling for +13853687238');
-        users = await getUsersByPhone('+13853687238');
-        console.log('[SPACES] Result for +13853687238:', { foundUsers: users.length });
-        // Try without + prefix
-        if (users.length === 0) {
-          users = await getUsersByPhone('13853687238');
-          console.log('[SPACES] Result for 13853687238:', { foundUsers: users.length });
-        }
-        // Try last 10 digits only
-        if (users.length === 0) {
-          users = await getUsersByPhone('3853687238');
-          console.log('[SPACES] Result for 3853687238:', { foundUsers: users.length });
-        }
-      }
-    }
-    
-    console.log('[SPACES] Final phone lookup:', {
-      searchedPhone: normalizedPhone,
-      foundUsers: users.length,
-      users: users.map(u => ({ id: u.id, phone: u.phone, username: u.username }))
-    });
+    const users = await getUsersByPhone(normalizedPhone);
     
     // Filter users to only those with usernames (same as verify-code)
     const usersWithUsernames = users.filter(u => u.username && String(u.username).trim().length > 0);
     
-    console.log('[SPACES] Users with usernames:', {
+    debugLog('[SPACES] Users with usernames:', {
       count: usersWithUsernames.length,
       usernames: usersWithUsernames.map(u => ({ id: u.id, username: u.username }))
     });
@@ -539,7 +514,7 @@ app.post('/api/auth/spaces', requireAuth, async (req, res) => {
       username: u.username
     }));
     
-    console.log('[SPACES] Returning spaces:', spaces);
+    debugLog('[SPACES] Returning spaces:', spaces);
     
     return res.json({ spaces });
   } catch (error) {
@@ -552,16 +527,11 @@ app.post('/api/auth/spaces', requireAuth, async (req, res) => {
 app.post('/api/auth/create-space', requireAuth, async (req, res) => {
   try {
     const { username } = req.body;
-    if (!username || typeof username !== 'string') {
-      return res.status(400).json({ error: 'Username is required' });
+    const usernameValidation = validateUsername(username);
+    if (!usernameValidation.valid) {
+      return res.status(400).json({ error: usernameValidation.error });
     }
-    const trimmed = username.trim();
-    if (!trimmed) {
-      return res.status(400).json({ error: 'Username is required' });
-    }
-    if (trimmed.length > 40) {
-      return res.status(400).json({ error: 'Username too long' });
-    }
+    const trimmed = usernameValidation.trimmed;
     
     const taken = await isUsernameTaken(trimmed);
     if (taken) {
@@ -593,19 +563,14 @@ app.post('/api/auth/create-space', requireAuth, async (req, res) => {
 app.put('/api/auth/update-username', requireAuth, async (req, res) => {
   try {
     const { username, userId } = req.body;
-    if (!username || typeof username !== 'string') {
-      return res.status(400).json({ error: 'Username is required' });
+    const usernameValidation = validateUsername(username);
+    if (!usernameValidation.valid) {
+      return res.status(400).json({ error: usernameValidation.error });
     }
     if (!userId || typeof userId !== 'string') {
       return res.status(400).json({ error: 'User ID is required' });
     }
-    const trimmed = username.trim();
-    if (!trimmed) {
-      return res.status(400).json({ error: 'Username is required' });
-    }
-    if (trimmed.length > 40) {
-      return res.status(400).json({ error: 'Username too long' });
-    }
+    const trimmed = usernameValidation.trimmed;
     
     // Check if username is taken (excluding current user)
     const existingUser = await getUserByUsername(trimmed);
@@ -651,15 +616,13 @@ app.post('/api/auth/logout', (req, res) => {
     expires: new Date(0) // Expire immediately
   });
   
-  console.log('[LOGOUT] Cleared auth cookie');
+  debugLog('[LOGOUT] Cleared auth cookie');
   return res.json({ success: true });
 });
 
 // Diagnostic: Log any unmatched API routes
 app.use('/api/*', (req, res, next) => {
-  console.log('[API] Unmatched API route:', req.method, req.path);
-  console.log('[API] Full URL:', req.originalUrl);
-  console.log('[API] Headers:', req.headers);
+  debugLog('[API] Unmatched API route:', req.method, req.path);
   res.status(404).json({ error: 'API endpoint not found', path: req.path });
 });
 
@@ -813,8 +776,35 @@ app.get('/api/entries', async (req, res) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });
     }
-    const entries = await getAllEntries(req.user.id);
-    res.json(entries);
+    
+    // Parse pagination parameters
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 1000; // Default to 1000 for backward compatibility
+    const offset = (page - 1) * limit;
+    
+    // Validate pagination
+    if (limit > 5000) {
+      return res.status(400).json({ error: 'Limit cannot exceed 5000' });
+    }
+    if (limit < 1) {
+      return res.status(400).json({ error: 'Limit must be at least 1' });
+    }
+    
+    const [entries, totalCount] = await Promise.all([
+      getAllEntries(req.user.id, { limit, offset }),
+      getEntriesCount(req.user.id)
+    ]);
+    
+    res.json({
+      entries,
+      pagination: {
+        page,
+        limit,
+        total: totalCount,
+        totalPages: Math.ceil(totalCount / limit),
+        hasMore: offset + entries.length < totalCount
+      }
+    });
   } catch (error) {
     console.error('Error fetching entries:', error);
     res.status(500).json({ error: error.message });
@@ -828,9 +818,7 @@ app.post('/api/entries', async (req, res) => {
     }
     const { id, text, textHtml, position, parentEntryId, linkCardsData, mediaCardData, pageOwnerId } = req.body;
     
-    console.log(`[SAVE] Received request for entry ${id}`);
-    console.log(`[SAVE] Request body textHtml:`, textHtml ? textHtml.substring(0, 100) : 'null');
-    console.log(`[SAVE] Request body keys:`, Object.keys(req.body));
+    debugLog(`[SAVE] Received request for entry ${id}`);
     
     if (!id || !text || !position) {
       return res.status(400).json({ error: 'id, text, and position are required' });
@@ -851,16 +839,16 @@ app.post('/api/entries', async (req, res) => {
       const pageOwnerPhone = pageOwner.phone.replace(/\s/g, '');
       
       if (loggedInPhone !== pageOwnerPhone) {
-        console.log('[SAVE] Phone mismatch:', loggedInPhone, pageOwnerPhone);
+        debugLog('[SAVE] Phone mismatch:', loggedInPhone, pageOwnerPhone);
         return res.status(403).json({ error: 'Not authorized to edit this page' });
       }
       
       // Permission verified - use pageOwnerId
       targetUserId = pageOwnerId;
-      console.log('[SAVE] Using pageOwnerId:', targetUserId);
+      debugLog('[SAVE] Using pageOwnerId:', targetUserId);
     }
 
-    console.log(`[SAVE] Saving entry ${id} for user ${targetUserId}, parent: ${parentEntryId}, text: ${text.substring(0, 30)}, hasTextHtml: ${!!textHtml}`);
+    debugLog(`[SAVE] Saving entry ${id} for user ${targetUserId}`);
 
     const entry = {
       id,
@@ -872,17 +860,9 @@ app.post('/api/entries', async (req, res) => {
       mediaCardData: mediaCardData || null,
       userId: targetUserId
     };
-    
-    console.log(`[SAVE] Entry object created:`, {
-      id: entry.id,
-      text: entry.text.substring(0, 30),
-      textHtml: entry.textHtml ? entry.textHtml.substring(0, 50) : 'null',
-      textHtmlLength: entry.textHtml ? entry.textHtml.length : 0,
-      hasTextHtml: !!entry.textHtml
-    });
 
     const savedEntry = await saveEntry(entry);
-    console.log(`[SAVE] Successfully saved entry ${id}`);
+    debugLog(`[SAVE] Successfully saved entry ${id}`);
     res.json(savedEntry);
   } catch (error) {
     console.error('Error saving entry:', error);
@@ -898,9 +878,7 @@ app.put('/api/entries/:id', async (req, res) => {
     const { id } = req.params;
     const { text, textHtml, position, parentEntryId, linkCardsData, mediaCardData, pageOwnerId } = req.body;
     
-    console.log(`[UPDATE] Received request for entry ${id}`);
-    console.log(`[UPDATE] Request body textHtml:`, textHtml ? textHtml.substring(0, 100) : 'null');
-    console.log(`[UPDATE] Request body keys:`, Object.keys(req.body));
+    debugLog(`[UPDATE] Received request for entry ${id}`);
     
     if (!text || !position) {
       return res.status(400).json({ error: 'text and position are required' });
@@ -928,7 +906,7 @@ app.put('/api/entries/:id', async (req, res) => {
       targetUserId = pageOwnerId;
     }
 
-    console.log(`[UPDATE] Updating entry ${id} for user ${targetUserId}, text: ${text.substring(0, 30)}, textHtml: ${textHtml ? textHtml.substring(0, 50) : 'null'}`);
+    debugLog(`[UPDATE] Updating entry ${id} for user ${targetUserId}`);
 
     const entry = {
       id,
@@ -940,17 +918,9 @@ app.put('/api/entries/:id', async (req, res) => {
       mediaCardData: mediaCardData || null,
       userId: targetUserId
     };
-    
-    console.log(`[UPDATE] Entry object created:`, {
-      id: entry.id,
-      text: entry.text.substring(0, 30),
-      textHtml: entry.textHtml ? entry.textHtml.substring(0, 50) : 'null',
-      textHtmlLength: entry.textHtml ? entry.textHtml.length : 0,
-      hasTextHtml: !!entry.textHtml
-    });
 
     const savedEntry = await saveEntry(entry);
-    console.log(`[UPDATE] Successfully updated entry ${id}`);
+    debugLog(`[UPDATE] Successfully updated entry ${id}`);
     res.json(savedEntry);
   } catch (error) {
     console.error('Error updating entry:', error);
@@ -981,18 +951,18 @@ app.delete('/api/entries/:id', async (req, res) => {
       const pageOwnerPhone = pageOwner.phone.replace(/\s/g, '');
       
       if (loggedInPhone !== pageOwnerPhone) {
-        console.log('[DELETE] Phone mismatch:', loggedInPhone, pageOwnerPhone);
+        debugLog('[DELETE] Phone mismatch:', loggedInPhone, pageOwnerPhone);
         return res.status(403).json({ error: 'Not authorized to edit this page' });
       }
       
       // Permission verified - use pageOwnerId
       targetUserId = pageOwnerId;
-      console.log('[DELETE] Using pageOwnerId:', targetUserId);
+      debugLog('[DELETE] Using pageOwnerId:', targetUserId);
     }
     
-    console.log(`[DELETE] Deleting entry ${id} for user ${targetUserId}`);
+    debugLog(`[DELETE] Deleting entry ${id} for user ${targetUserId}`);
     await deleteEntry(id, targetUserId);
-    console.log(`[DELETE] Successfully deleted entry ${id}`);
+    debugLog(`[DELETE] Successfully deleted entry ${id}`);
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting entry:', error);
@@ -1009,6 +979,11 @@ app.post('/api/entries/batch', async (req, res) => {
     
     if (!Array.isArray(entries)) {
       return res.status(400).json({ error: 'entries must be an array' });
+    }
+    
+    // Limit batch size to prevent abuse
+    if (entries.length > 1000) {
+      return res.status(400).json({ error: 'Batch size cannot exceed 1000 entries' });
     }
 
     const savedEntries = await saveAllEntries(entries, req.user.id);
@@ -1031,10 +1006,10 @@ app.get('/api/public/:username/entries', async (req, res) => {
     const entries = await getEntriesByUsername(username);
     
     // Log entry statistics for debugging
-    console.log(`[DEBUG] User: ${username}, Total entries: ${entries.length}`);
+    debugLog(`[DEBUG] User: ${username}, Total entries: ${entries.length}`);
     const rootEntries = entries.filter(e => !e.parentEntryId);
     const childEntries = entries.filter(e => e.parentEntryId);
-    console.log(`[DEBUG] Root entries: ${rootEntries.length}, Child entries: ${childEntries.length}`);
+    debugLog(`[DEBUG] Root entries: ${rootEntries.length}, Child entries: ${childEntries.length}`);
     
     res.json({ user: { username: user.username }, entries });
   } catch (error) {
@@ -1143,7 +1118,7 @@ app.get('/', async (req, res) => {
               });
               
               const primaryUser = usersWithUsernames[0];
-              console.log(`[ROOT] Redirecting to primary duttapad: ${primaryUser.username}`);
+              debugLog(`[ROOT] Redirecting to primary duttapad: ${primaryUser.username}`);
               return res.redirect(`/${primaryUser.username}`);
             }
           }
@@ -1178,7 +1153,7 @@ app.get('/:username', async (req, res) => {
     // Use req.originalUrl or req.url to get the full path
     const fullPath = req.originalUrl || req.url || req.path;
     if (fullPath && fullPath.startsWith('/api/')) {
-      console.log('[USER ROUTE] Blocked API route, fullPath:', fullPath, 'req.path:', req.path);
+      debugLog('[USER ROUTE] Blocked API route, fullPath:', fullPath);
       return res.status(404).json({ error: 'API route blocked by username route' });
     }
     
@@ -1186,7 +1161,7 @@ app.get('/:username', async (req, res) => {
     
     // Skip API routes - they should have been handled already
     if (username === 'api' || username.startsWith('api')) {
-      console.log('[USER ROUTE] Blocked API route, username:', username, 'fullPath:', fullPath);
+      debugLog('[USER ROUTE] Blocked API route, username:', username);
       return res.status(404).json({ error: 'API route blocked by username route' });
     }
     
@@ -1241,7 +1216,7 @@ app.get('/:username/*', async (req, res) => {
     // Skip API routes - they should have been handled already
     // This check must come FIRST before any other processing
     if (username === 'api') {
-      console.log('[USER ROUTE] Blocked API route in nested path, username:', username);
+      debugLog('[USER ROUTE] Blocked API route in nested path, username:', username);
       return res.status(404).send('Not found');
     }
     
