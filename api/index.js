@@ -612,8 +612,9 @@ app.post('/api/auth/create-space', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Username already taken' });
     }
     
-    // Create a new user with the same phone number
-    const newUser = await createUser(req.user.phone);
+    // Create a new user with the same phone number (normalize to remove spaces for consistency)
+    const normalizedPhone = String(req.user.phone).replace(/\s/g, '').trim();
+    const newUser = await createUser(normalizedPhone);
     const updated = await setUsername(newUser.id, trimmed);
     
     // Create new JWT token for the new user
