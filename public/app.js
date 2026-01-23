@@ -356,44 +356,11 @@ async function handleSaveUsername() {
       throw new Error(data.error || 'Failed to save username');
     }
     currentUser = data.user;
-    setAnchorGreeting();
     
-    // CRITICAL: Clear everything before hiding auth overlay
-    // This prevents any stale content from showing
-    entries.clear();
-    const existingEntries = world.querySelectorAll('.entry:not(#editor):not(#anchor)');
-    existingEntries.forEach(entry => entry.remove());
-    
-    // Reset editor completely
-    editor.textContent = '';
-    editor.innerHTML = '';
-    editor.style.display = 'none';
-    editor.style.left = '';
-    editor.style.top = '';
-    editor.blur();
-    editingEntryId = null;
-    
-    // Reset state flags
-    hasZoomedToFit = false;
-    entryIdCounter = 0;
-    selectedEntries.clear();
-    
-    hideAuthOverlay();
-    
-    await loadEntriesFromServer();
-    
-    // For new users with no entries, ensure canvas is ready immediately
-    if (entries.size === 0) {
-      // Center the anchor
-      centerAnchor();
-      
-      // Wait a bit for DOM to settle, then show cursor
-      setTimeout(() => {
-        // Double check editor is clear
-        editor.textContent = '';
-        editor.innerHTML = '';
-        showCursorInDefaultPosition();
-      }, 200);
+    // Redirect to user's page (just like existing users do when they log in)
+    if (currentUser && currentUser.username) {
+      window.location.href = `/${currentUser.username}`;
+      return;
     }
   } catch (error) {
     console.error(error);
