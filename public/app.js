@@ -1862,7 +1862,25 @@ function positionOverlapsEntry(wx, wy) {
   return false;
 }
 
+// Check if a position is within the viewport (at 0.75x zoom level)
+function isPositionInViewport(wx, wy) {
+  const viewportRect = viewport.getBoundingClientRect();
+  // Calculate viewport bounds in world coordinates at 0.75x zoom
+  const viewportWorldWidth = viewportRect.width / 0.75;
+  const viewportWorldHeight = viewportRect.height / 0.75;
+  const viewportCenter = screenToWorld(viewportRect.width / 2, viewportRect.height / 2);
+  
+  const viewportLeft = viewportCenter.x - viewportWorldWidth / 2;
+  const viewportRight = viewportCenter.x + viewportWorldWidth / 2;
+  const viewportTop = viewportCenter.y - viewportWorldHeight / 2;
+  const viewportBottom = viewportCenter.y + viewportWorldHeight / 2;
+  
+  return wx >= viewportLeft && wx <= viewportRight && 
+         wy >= viewportTop && wy <= viewportBottom;
+}
+
 // Find a random empty space next to an entry that doesn't overlap with entries
+// Prefers positions within viewport (0.75x zoom)
 function findRandomEmptySpaceNextToEntry() {
   const visibleEntries = Array.from(entries.values()).filter(entryData => {
     const element = entryData.element;
@@ -1875,24 +1893,31 @@ function findRandomEmptySpaceNextToEntry() {
   });
 
   if (visibleEntries.length === 0) {
-    // No entries - place cursor near anchor or center
+    // No entries - place cursor near anchor or center (within viewport)
+    const viewportRect = viewport.getBoundingClientRect();
+    const center = screenToWorld(viewportRect.width / 2, viewportRect.height / 2);
+    
     if (anchor && currentViewEntryId === null) {
       const anchorX = anchorPos.x;
       const anchorY = anchorPos.y;
       const anchorRect = anchor.getBoundingClientRect();
-      return {
+      const pos = {
         x: anchorX + anchorRect.width / cam.z + 40,
         y: anchorY + 20
       };
+      // Check if anchor position is in viewport, otherwise use center
+      if (isPositionInViewport(pos.x, pos.y)) {
+        return pos;
+      }
     }
-    // Fallback to center
-    const viewportRect = viewport.getBoundingClientRect();
-    const center = screenToWorld(viewportRect.width / 2, viewportRect.height / 2);
+    // Use center (should be in viewport)
     return { x: center.x, y: center.y };
   }
 
-  // Try multiple positions until we find one that doesn't overlap
-  const maxAttempts = 20;
+  // Try multiple positions until we find one that doesn't overlap and is in viewport
+  const maxAttempts = 50; // Increased attempts to find viewport position
+  let bestPosition = null;
+  
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     // Pick a random entry
     const randomEntry = visibleEntries[Math.floor(Math.random() * visibleEntries.length)];
@@ -1930,19 +1955,44 @@ function findRandomEmptySpaceNextToEntry() {
 
     // Check if this position overlaps with any entry
     if (!positionOverlapsEntry(x, y)) {
-      return { x, y };
+      // Prefer positions within viewport
+      if (isPositionInViewport(x, y)) {
+        return { x, y };
+      }
+      // Store as fallback if we don't have one yet
+      if (!bestPosition) {
+        bestPosition = { x, y };
+      }
     }
   }
   
+  // If we found a non-overlapping position (even if outside viewport), use it
+  if (bestPosition) {
+    return bestPosition;
+  }
+  
   // If we couldn't find a non-overlapping position after maxAttempts, try systematic search
-  // Try positions in a grid pattern around the viewport
+  // Try positions in a grid pattern around the viewport center (preferring viewport)
   const viewportRect = viewport.getBoundingClientRect();
   const center = screenToWorld(viewportRect.width / 2, viewportRect.height / 2);
-  const step = 100 / cam.z; // Adjust step for zoom level
-  const maxRadius = 500 / cam.z;
+  const step = 50 / cam.z; // Smaller step for finer search
+  const maxRadius = (viewportRect.width / 0.75) / 2; // Limit to viewport at 0.75x zoom
   
+  // First, try positions within viewport
   for (let radius = step; radius <= maxRadius; radius += step) {
-    for (let angle = 0; angle < 360; angle += 45) {
+    for (let angle = 0; angle < 360; angle += 30) {
+      const rad = (angle * Math.PI) / 180;
+      const testX = center.x + Math.cos(rad) * radius;
+      const testY = center.y + Math.sin(rad) * radius;
+      if (!positionOverlapsEntry(testX, testY) && isPositionInViewport(testX, testY)) {
+        return { x: testX, y: testY };
+      }
+    }
+  }
+  
+  // If nothing in viewport, try outside viewport
+  for (let radius = step; radius <= maxRadius * 2; radius += step) {
+    for (let angle = 0; angle < 360; angle += 30) {
       const rad = (angle * Math.PI) / 180;
       const testX = center.x + Math.cos(rad) * radius;
       const testY = center.y + Math.sin(rad) * radius;
@@ -1952,11 +2002,8 @@ function findRandomEmptySpaceNextToEntry() {
     }
   }
   
-  // Last resort: return a position far from center (shouldn't overlap)
-  return {
-    x: center.x + 500 / cam.z,
-    y: center.y + 500 / cam.z
-  };
+  // Last resort: return center position (should be visible)
+  return { x: center.x, y: center.y };
 }
 
 // Show cursor at a position (idle mode - not actively editing)
@@ -2139,6 +2186,8 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
   editor.textContent = text;
   // Always remove idle-cursor when placing editor (will be focused, so native caret shows)
   editor.classList.remove('idle-cursor');
+  // Ensure editor is visible (in case it was hidden during navigation)
+  editor.style.display = 'block';
   
   // Set editor width based on actual content, not fixed entry width
   // This allows the editor to expand/contract based on text content
@@ -3562,13 +3611,10 @@ window.addEventListener('mouseup', (e) => {
         
         // ALWAYS place editor/cursor at exact click position - this is the superceding rule
         // Clear navigation flags so user can type immediately
-        if (isNavigating || navigationJustCompleted) {
-          navigationJustCompleted = false;
-          // If still navigating, place cursor and it will be ready when navigation completes
-          placeEditorAtWorld(w.x, w.y, '', null, true); // force = true to allow during navigation
-        } else {
-          placeEditorAtWorld(w.x, w.y);
-        }
+        navigationJustCompleted = false;
+        // Always place cursor at click position, even during navigation
+        // Use force=true to ensure cursor is visible and ready
+        placeEditorAtWorld(w.x, w.y, '', null, true); // force = true to allow during navigation
         
         // Clear the processing flag after cursor is placed
         requestAnimationFrame(() => {
