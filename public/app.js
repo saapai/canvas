@@ -4386,12 +4386,18 @@ if (createSpaceButton && createSpaceForm) {
     newUsernameInput.classList.remove('error');
   });
   
-  createSpaceSubmit.addEventListener('click', async () => {
+  createSpaceSubmit.addEventListener('click', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
     const username = newUsernameInput.value.trim();
     if (!username) {
       showError(newUsernameInput, newUsernameError, 'Username is required');
       return;
     }
+    
+    // Clear previous errors
+    newUsernameInput.classList.remove('error');
+    newUsernameError.classList.add('hidden');
     
     try {
       const response = await fetch('/api/auth/create-space', {
@@ -4402,19 +4408,24 @@ if (createSpaceButton && createSpaceForm) {
       });
       
       if (!response.ok) {
-        const error = await response.json();
-        if (error.error === 'Username already taken') {
+        const errorData = await response.json().catch(() => ({ error: 'Failed to create space' }));
+        if (errorData.error === 'Username already taken') {
           showError(newUsernameInput, newUsernameError, 'Username already taken');
         } else {
-          showError(newUsernameInput, newUsernameError, error.error || 'Failed to create space');
+          showError(newUsernameInput, newUsernameError, errorData.error || 'Failed to create space');
         }
         return;
       }
       
       // Success - navigate to new space
       const data = await response.json();
-      window.location.href = `/${data.user.username}`;
+      if (data.user && data.user.username) {
+        window.location.href = `/${data.user.username}`;
+      } else {
+        showError(newUsernameInput, newUsernameError, 'Failed to create space');
+      }
     } catch (error) {
+      console.error('Error creating space:', error);
       showError(newUsernameInput, newUsernameError, 'Failed to create space');
     }
   });
