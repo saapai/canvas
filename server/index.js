@@ -48,7 +48,13 @@ app.use(express.json());
 
 // Serve static files BEFORE any other routes
 // This ensures app.js, styles.css, etc. are served correctly
-app.use(express.static('public'));
+// BUT exclude /api routes from static file serving
+app.use((req, res, next) => {
+  if (req.path.startsWith('/api/')) {
+    return next();
+  }
+  express.static('public')(req, res, next);
+});
 
 // Helper function to generate user page HTML (canvas view, editable if owner)
 function generateUserPageHTML(user, isOwner = false, pathParts = []) {
