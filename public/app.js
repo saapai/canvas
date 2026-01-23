@@ -3395,10 +3395,6 @@ viewport.addEventListener('mousedown', (e) => {
       clickStart = { x: e.clientX, y: e.clientY, t: performance.now(), entryEl: entryEl, button: e.button };
       
       console.log('[DRAG] Starting drag on entry:', entryEl.id, 'from target:', e.target);
-    } else {
-      // Clicking on link card or media card - just track for potential click action
-      clickStart = { x: e.clientX, y: e.clientY, t: performance.now(), entryEl: entryEl, button: e.button };
-    }
   } else {
     // Start panning viewport (or prepare for click on empty space)
     dragging = true;
@@ -5123,11 +5119,6 @@ function showError(input, errorDiv, message) {
   errorDiv.classList.remove('hidden');
 }
 
-function escapeHtml(text) {
-  const div = document.createElement('div');
-  div.textContent = text;
-  return div.innerHTML;
-}
 
 // Create new space
 if (createSpaceButton && createSpaceForm) {
