@@ -887,10 +887,14 @@ function showDeleteConfirmation(entryId, childCount) {
     const deleteBtn = document.getElementById('delete-confirm-delete');
 
     if (childCount === 0) {
-      message.textContent = 'Are you sure you want to delete this entry?';
+      message.textContent = entryId ? 'Are you sure you want to delete this entry?' : 'Are you sure you want to delete the selected entries?';
       childCountEl.textContent = '';
     } else {
-      message.innerHTML = `This entry has <strong id="delete-child-count">${childCount}</strong> child ${childCount === 1 ? 'entry' : 'entries'} that will also be deleted.`;
+      if (entryId) {
+        message.innerHTML = `This entry has <strong id="delete-child-count">${childCount}</strong> child ${childCount === 1 ? 'entry' : 'entries'} that will also be deleted.`;
+      } else {
+        message.innerHTML = `The selected entries have <strong id="delete-child-count">${childCount}</strong> child ${childCount === 1 ? 'entry' : 'entries'} that will also be deleted.`;
+      }
       childCountEl.textContent = childCount;
     }
 
@@ -950,13 +954,26 @@ async function deleteEntryFromServer(entryId) {
   }
 }
 
-async function deleteEntryWithConfirmation(entryId, skipConfirmation = false) {
+async function deleteEntryWithConfirmation(entryId, skipConfirmation = false, skipUndo = false) {
   const childCount = countChildEntries(entryId);
   
   // If no children, delete immediately
   if (childCount === 0) {
     const entryData = entries.get(entryId);
     if (entryData) {
+      // Save undo state (unless we're deleting recursively as part of a parent deletion)
+      if (!skipUndo) {
+        const deletedEntry = {
+          id: entryData.id,
+          text: entryData.text,
+          position: entryData.position,
+          parentEntryId: entryData.parentEntryId,
+          mediaCardData: entryData.mediaCardData,
+          linkCardsData: entryData.linkCardsData
+        };
+        saveUndoState('delete', { entries: [deletedEntry] });
+      }
+      
       entryData.element.classList.remove('editing');
       entryData.element.remove();
       entries.delete(entryId);
@@ -975,10 +992,47 @@ async function deleteEntryWithConfirmation(entryId, skipConfirmation = false) {
   if (confirmed) {
     const entryData = entries.get(entryId);
     if (entryData) {
-      // Delete all child entries first (recursively, without confirmation)
+      // Collect all entries to delete (parent + all descendants)
+      const entriesToDelete = [];
+      
+      // Recursively collect all child entries
+      function collectChildren(parentId) {
+        const children = Array.from(entries.values()).filter(e => e.parentEntryId === parentId);
+        for (const child of children) {
+          entriesToDelete.push({
+            id: child.id,
+            text: child.text,
+            position: child.position,
+            parentEntryId: child.parentEntryId,
+            mediaCardData: child.mediaCardData,
+            linkCardsData: child.linkCardsData
+          });
+          collectChildren(child.id); // Recursively collect grandchildren
+        }
+      }
+      
+      // Add parent entry
+      entriesToDelete.push({
+        id: entryData.id,
+        text: entryData.text,
+        position: entryData.position,
+        parentEntryId: entryData.parentEntryId,
+        mediaCardData: entryData.mediaCardData,
+        linkCardsData: entryData.linkCardsData
+      });
+      
+      // Collect all children
+      collectChildren(entryId);
+      
+      // Save undo state (unless we're deleting recursively as part of a parent deletion)
+      if (!skipUndo) {
+        saveUndoState('delete', { entries: entriesToDelete });
+      }
+      
+      // Delete all child entries first (recursively, without confirmation and without undo)
       const childEntries = Array.from(entries.values()).filter(e => e.parentEntryId === entryId);
       for (const child of childEntries) {
-        await deleteEntryWithConfirmation(child.id, true); // Skip confirmation for children
+        await deleteEntryWithConfirmation(child.id, true, true); // Skip confirmation and undo for children
       }
       
       // Then delete the parent entry
@@ -1101,6 +1155,7 @@ let draggingEntry = null;
 let dragOffset = { x: 0, y: 0 };
 let last = { x: 0, y: 0 };
 let justFinishedDragging = false;
+let dragStartPositions = new Map(); // Track initial positions for undo
 
 // Where the editor is placed in WORLD coordinates
 let editorWorldPos = { x: 80, y: 80 };
@@ -1772,6 +1827,21 @@ async function commitEditor(){
         }
         isCommitting = false;
         return;
+      }
+
+      // Save undo state for edit (save old text before changing)
+      const oldText = entryData.text;
+      const oldMediaCardData = entryData.mediaCardData;
+      const oldLinkCardsData = entryData.linkCardsData;
+      
+      // Only save undo if text actually changed
+      if (oldText !== trimmedRight || oldMediaCardData !== null) {
+        saveUndoState('edit', {
+          entryId: editingEntryId,
+          oldText: oldText,
+          oldMediaCardData: oldMediaCardData,
+          oldLinkCardsData: oldLinkCardsData
+        });
       }
 
       // Extract URLs and process text
@@ -2667,18 +2737,31 @@ viewport.addEventListener('mousedown', (e) => {
   }
   
   if(entryEl) {
-    // Prepare for drag if Shift is held OR if entry is in selection
-    const isEntrySelected = selectedEntries.has(entryEl.id);
-    if(e.shiftKey || isEntrySelected) {
+    // Don't start drag if clicking on link card or media card (let them handle it)
+    const isLinkCard = e.target.closest('.link-card, .link-card-placeholder');
+    const isMediaCard = e.target.closest('.media-card');
+    
+    if (!isLinkCard && !isMediaCard) {
+      // Prepare for drag - always allow dragging entries (no shift needed)
+      const isEntrySelected = selectedEntries.has(entryEl.id);
       e.preventDefault();
       e.stopPropagation(); // Stop event from being handled elsewhere
       draggingEntry = entryEl;
       isClick = false;
       hasMoved = false;
       
+      // Save initial positions for undo (for single entry and selected entries)
+      dragStartPositions.clear();
+      const entriesToTrack = isEntrySelected ? Array.from(selectedEntries).map(id => entries.get(id)).filter(Boolean) : [entries.get(entryEl.id)].filter(Boolean);
+      entriesToTrack.forEach(entryData => {
+        if (entryData) {
+          dragStartPositions.set(entryData.id, { ...entryData.position });
+        }
+      });
+      
       // Set cursor to move for the entry and all its children (including link cards)
       entryEl.style.cursor = 'move';
-      const linkCards = entryEl.querySelectorAll('.link-card, .link-card-placeholder');
+      const linkCards = entryEl.querySelectorAll('.link-card, .link-card-placeholder, .media-card');
       linkCards.forEach(card => {
         card.style.cursor = 'move';
       });
@@ -2690,11 +2773,11 @@ viewport.addEventListener('mousedown', (e) => {
       dragOffset.x = mouseWorldPos.x - entryWorldPos.x;
       dragOffset.y = mouseWorldPos.y - entryWorldPos.y;
       
-      clickStart = { x: e.clientX, y: e.clientY, t: performance.now() };
+      clickStart = { x: e.clientX, y: e.clientY, t: performance.now(), entryEl: entryEl, button: e.button };
       
-      console.log('[SHIFT+DRAG] Starting drag on entry:', entryEl.id, 'from target:', e.target, 'isLinkCard:', e.target.closest('.link-card, .link-card-placeholder') !== null);
+      console.log('[DRAG] Starting drag on entry:', entryEl.id, 'from target:', e.target);
     } else {
-      // Regular click - just track for potential click action
+      // Clicking on link card or media card - just track for potential click action
       clickStart = { x: e.clientX, y: e.clientY, t: performance.now(), entryEl: entryEl, button: e.button };
     }
   } else {
@@ -2748,19 +2831,8 @@ viewport.addEventListener('mousemove', (e) => {
   
   // Normal mode: allow entry dragging
   if(draggingEntry) {
-    // Allow dragging if Shift is held OR if entry is selected
+    // Always allow dragging (no shift needed)
     const isEntrySelected = selectedEntries.has(draggingEntry.id);
-    if(!e.shiftKey && !isEntrySelected) {
-      // Shift was released and entry not selected, cancel drag and reset cursor
-      draggingEntry.style.cursor = '';
-      const linkCards = draggingEntry.querySelectorAll('.link-card, .link-card-placeholder, .media-card');
-      linkCards.forEach(card => {
-        card.style.cursor = '';
-      });
-      draggingEntry = null;
-      hasMoved = false;
-      return;
-    }
     
     // Check if we've moved enough to start dragging
     if(clickStart){
@@ -2916,11 +2988,15 @@ window.addEventListener('mouseup', (e) => {
         const dt = performance.now() - clickStart.t;
         isClick = (dist < dragThreshold && dt < 350);
         
-        // Navigate to entry if it was a click (not a drag) AND shift was NOT held
-        // If shift was held, it was a drag attempt, so don't navigate
-        // Also don't navigate if we're currently editing
-        if(isClick && !e.shiftKey && draggingEntry.id !== 'anchor' && draggingEntry.id && !editingEntryId) {
-          navigateToEntry(draggingEntry.id);
+        // Edit entry if it was a click (not a drag)
+        // Don't edit if we're currently editing or if it's the anchor
+        if(isClick && draggingEntry.id !== 'anchor' && draggingEntry.id && !editingEntryId && !isReadOnly) {
+          const entryData = entries.get(draggingEntry.id);
+          if(entryData) {
+            const rect = draggingEntry.getBoundingClientRect();
+            const worldPos = screenToWorld(rect.left, rect.top);
+            placeEditorAtWorld(worldPos.x, worldPos.y, entryData.text, draggingEntry.id);
+          }
         }
       }
     }
@@ -2935,10 +3011,27 @@ window.addEventListener('mouseup', (e) => {
     }
     
     // Save final position immediately when dragging ends
-    if (draggingEntry && draggingEntry.id !== 'anchor') {
+    if (draggingEntry && draggingEntry.id !== 'anchor' && hasMoved) {
       const entryData = entries.get(draggingEntry.id);
       if (entryData) {
         console.log('[DRAG END] Saving final position for entry:', draggingEntry.id, 'position:', entryData.position);
+        
+        // Save undo state for moved entries
+        const moves = [];
+        const isEntrySelected = selectedEntries.has(draggingEntry.id);
+        const entriesToSave = isEntrySelected ? Array.from(selectedEntries).map(id => entries.get(id)).filter(Boolean) : [entryData];
+        
+        entriesToSave.forEach(ed => {
+          const oldPosition = dragStartPositions.get(ed.id);
+          if (oldPosition && (oldPosition.x !== ed.position.x || oldPosition.y !== ed.position.y)) {
+            moves.push({ entryId: ed.id, oldPosition });
+          }
+        });
+        
+        if (moves.length > 0) {
+          saveUndoState('move', { moves });
+        }
+        
         // Clear any pending debounced save
         if (entryData.positionSaveTimeout) {
           clearTimeout(entryData.positionSaveTimeout);
@@ -2948,6 +3041,20 @@ window.addEventListener('mouseup', (e) => {
         updateEntryOnServer(entryData).catch(err => {
           console.error('Error saving final position:', err);
         });
+        
+        // Also save selected entries if dragging multiple
+        if (isEntrySelected) {
+          for (const selectedId of selectedEntries) {
+            if (selectedId !== draggingEntry.id) {
+              const selectedData = entries.get(selectedId);
+              if (selectedData) {
+                updateEntryOnServer(selectedData).catch(err => {
+                  console.error('Error saving selected entry position:', err);
+                });
+              }
+            }
+          }
+        }
       } else {
         console.error('[DRAG END] ERROR: Could not find entry data for:', draggingEntry.id, 'Available entries:', Array.from(entries.keys()));
       }
@@ -2956,6 +3063,7 @@ window.addEventListener('mouseup', (e) => {
     draggingEntry = null;
     clickStart = null;
     hasMoved = false;
+    dragStartPositions.clear();
   } else if(dragging) {
     dragging = false;
     viewport.classList.remove('dragging');
@@ -2977,7 +3085,7 @@ window.addEventListener('mouseup', (e) => {
     }
     clickStart = null;
   } else if(clickStart && clickStart.entryEl) {
-    // Handle click on entry (not dragging)
+    // Handle click on entry (not dragging) - this happens when clicking on link/media cards
     // Skip navigation if this was a right-click (button 2) - let contextmenu handle it
     if(e.button !== 2 && clickStart.button !== 2) {
       const dist = Math.hypot(e.clientX - clickStart.x, e.clientY - clickStart.y);
@@ -2996,16 +3104,34 @@ window.addEventListener('mouseup', (e) => {
               window.open(urls[0], '_blank');
             }
           }
-        } 
-        // Regular click: navigate to entry (open breadcrumb)
+        }
+        // Regular click on link/media card: navigate to entry (open breadcrumb)
         // But don't navigate if we're currently editing
-        else if(!e.shiftKey && entryEl.id !== 'anchor' && entryEl.id && !editingEntryId) {
+        else if(entryEl.id !== 'anchor' && entryEl.id && !editingEntryId) {
           navigateToEntry(entryEl.id);
         }
       }
     }
     
     clickStart = null;
+  }
+});
+
+// Double click to navigate to entry (open subpage)
+viewport.addEventListener('dblclick', (e) => {
+  if (isReadOnly) return;
+  
+  const entryEl = findEntryElement(e.target);
+  
+  // Don't navigate if clicking on link card or media card (they handle their own clicks)
+  if (e.target.closest('.link-card, .link-card-placeholder, .media-card')) {
+    return;
+  }
+  
+  if (entryEl && entryEl.id !== 'anchor' && entryEl.id && !editingEntryId) {
+    e.preventDefault();
+    e.stopPropagation();
+    navigateToEntry(entryEl.id);
   }
 });
 
@@ -4462,22 +4588,78 @@ async function performUndo() {
   switch (state.action) {
     case 'delete':
       // Restore deleted entries
-      for (const entryData of state.data.entries) {
+      // Sort entries so parents are restored before children
+      const sortedEntries = [...state.data.entries].sort((a, b) => {
+        // If a is a child of b, restore b first
+        if (a.parentEntryId === b.id) return 1;
+        // If b is a child of a, restore a first
+        if (b.parentEntryId === a.id) return -1;
+        // Otherwise maintain original order
+        return 0;
+      });
+      
+      for (const entryData of sortedEntries) {
         const entry = document.createElement('div');
         entry.className = 'entry';
         entry.id = entryData.id;
         entry.style.left = `${entryData.position.x}px`;
         entry.style.top = `${entryData.position.y}px`;
-        entry.innerHTML = meltify(entryData.text);
+        
+        // Process text and extract URLs
+        const { processedText, urls } = processTextWithLinks(entryData.text);
+        if (processedText) {
+          entry.innerHTML = meltify(processedText);
+        } else {
+          entry.innerHTML = '';
+        }
+        
         world.appendChild(entry);
         
-        entries.set(entryData.id, {
+        const storedEntryData = {
           ...entryData,
-          element: entry
-        });
+          element: entry,
+          linkCardsData: entryData.linkCardsData || [],
+          mediaCardData: entryData.mediaCardData || null
+        };
+        entries.set(entryData.id, storedEntryData);
+        
+        // Restore link cards if they exist
+        if (entryData.linkCardsData && entryData.linkCardsData.length > 0) {
+          entryData.linkCardsData.forEach((cardData) => {
+            if (cardData) {
+              const card = createLinkCard(cardData);
+              entry.appendChild(card);
+              updateEntryWidthForLinkCard(entry, card);
+            }
+          });
+        } else if (urls.length > 0) {
+          // Generate link cards from URLs if we don't have cached data
+          urls.forEach(async (url) => {
+            const cardData = await generateLinkCard(url);
+            if (cardData) {
+              const card = createLinkCard(cardData);
+              entry.appendChild(card);
+              updateEntryWidthForLinkCard(entry, card);
+              if (!storedEntryData.linkCardsData) storedEntryData.linkCardsData = [];
+              storedEntryData.linkCardsData.push(cardData);
+            }
+          });
+        }
+        
+        // Restore media cards if they exist
+        if (entryData.mediaCardData) {
+          const card = createMediaCard(entryData.mediaCardData);
+          entry.appendChild(card);
+          setTimeout(() => {
+            updateEntryDimensions(entry);
+          }, 100);
+        }
+        
+        // Update entry dimensions
+        updateEntryDimensions(entry);
         
         // Restore to server
-        await saveEntryToServer(entryData);
+        await saveEntryToServer(storedEntryData);
       }
       updateEntryVisibility();
       break;
@@ -4502,6 +4684,72 @@ async function performUndo() {
         await deleteEntryWithConfirmation(state.data.entryId, true); // Skip confirmation
       }
       break;
+      
+    case 'edit':
+      // Restore old text and media/link cards
+      const editEntryData = entries.get(state.data.entryId);
+      if (editEntryData && editEntryData.element) {
+        // Save current state for redo (if needed in future)
+        const currentText = editEntryData.text;
+        const currentMediaCardData = editEntryData.mediaCardData;
+        const currentLinkCardsData = editEntryData.linkCardsData;
+        
+        // Restore old text
+        editEntryData.text = state.data.oldText;
+        editEntryData.mediaCardData = state.data.oldMediaCardData;
+        editEntryData.linkCardsData = state.data.oldLinkCardsData;
+        
+        // Remove existing cards
+        const existingCards = editEntryData.element.querySelectorAll('.link-card, .link-card-placeholder, .media-card');
+        existingCards.forEach(card => card.remove());
+        
+        // Process and restore text
+        const { processedText, urls } = processTextWithLinks(state.data.oldText);
+        if (processedText) {
+          editEntryData.element.innerHTML = meltify(processedText);
+        } else {
+          editEntryData.element.innerHTML = '';
+        }
+        
+        // Restore link cards if they existed
+        if (state.data.oldLinkCardsData && state.data.oldLinkCardsData.length > 0) {
+          state.data.oldLinkCardsData.forEach((cardData) => {
+            if (cardData) {
+              const card = createLinkCard(cardData);
+              editEntryData.element.appendChild(card);
+              updateEntryWidthForLinkCard(editEntryData.element, card);
+            }
+          });
+        } else if (urls.length > 0) {
+          // Generate link cards from URLs if we don't have cached data
+          urls.forEach(async (url) => {
+            const cardData = await generateLinkCard(url);
+            if (cardData) {
+              const card = createLinkCard(cardData);
+              editEntryData.element.appendChild(card);
+              updateEntryWidthForLinkCard(editEntryData.element, card);
+              if (!editEntryData.linkCardsData) editEntryData.linkCardsData = [];
+              editEntryData.linkCardsData.push(cardData);
+            }
+          });
+        }
+        
+        // Restore media card if it existed
+        if (state.data.oldMediaCardData) {
+          const card = createMediaCard(state.data.oldMediaCardData);
+          editEntryData.element.appendChild(card);
+          setTimeout(() => {
+            updateEntryDimensions(editEntryData.element);
+          }, 100);
+        }
+        
+        // Update entry dimensions
+        updateEntryDimensions(editEntryData.element);
+        
+        // Save to server
+        await updateEntryOnServer(editEntryData);
+      }
+      break;
   }
 }
 
@@ -4509,26 +4757,60 @@ async function performUndo() {
 async function deleteSelectedEntries() {
   if (selectedEntries.size === 0) return;
   
-  // Save undo state
-  const deletedEntries = [];
-  selectedEntries.forEach(entryId => {
-    const entryData = entries.get(entryId);
-    if (entryData) {
-      deletedEntries.push({
-        id: entryData.id,
-        text: entryData.text,
-        position: entryData.position,
-        parentEntryId: entryData.parentEntryId,
-        mediaCardData: entryData.mediaCardData,
-        linkCardsData: entryData.linkCardsData
-      });
-    }
-  });
-  saveUndoState('delete', { entries: deletedEntries });
-  
-  // Delete entries
+  // Check if any selected entries have children
+  let hasChildren = false;
+  let totalChildCount = 0;
   for (const entryId of selectedEntries) {
-    await deleteEntryWithConfirmation(entryId, true); // Skip confirmation
+    const childCount = countChildEntries(entryId);
+    if (childCount > 0) {
+      hasChildren = true;
+      totalChildCount += childCount;
+    }
+  }
+  
+  // If any entry has children, show confirmation
+  if (hasChildren) {
+    const confirmed = await showDeleteConfirmation(null, totalChildCount);
+    if (!confirmed) {
+      return; // User cancelled
+    }
+  }
+  
+  // Collect all entries to delete (including children)
+  const allEntriesToDelete = [];
+  
+  // Helper to recursively collect all descendants
+  function collectAllDescendants(entryId) {
+    const entryData = entries.get(entryId);
+    if (!entryData) return;
+    
+    allEntriesToDelete.push({
+      id: entryData.id,
+      text: entryData.text,
+      position: entryData.position,
+      parentEntryId: entryData.parentEntryId,
+      mediaCardData: entryData.mediaCardData,
+      linkCardsData: entryData.linkCardsData
+    });
+    
+    // Collect children recursively
+    const children = Array.from(entries.values()).filter(e => e.parentEntryId === entryId);
+    for (const child of children) {
+      collectAllDescendants(child.id);
+    }
+  }
+  
+  // Collect all selected entries and their descendants
+  for (const entryId of selectedEntries) {
+    collectAllDescendants(entryId);
+  }
+  
+  // Save undo state with all entries (including children)
+  saveUndoState('delete', { entries: allEntriesToDelete });
+  
+  // Delete entries (skip confirmation since we already confirmed, skip undo since we saved it above)
+  for (const entryId of selectedEntries) {
+    await deleteEntryWithConfirmation(entryId, true, true); // Skip confirmation and undo
   }
   
   clearSelection();
