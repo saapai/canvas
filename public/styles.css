@@ -84,6 +84,12 @@ body::before{
   position: relative;
   z-index: 1;
   display: inline-block;
+  transition: font-style 0.15s ease;
+}
+
+/* Make entry text italic on hover to indicate it's clickable */
+.entry:hover:not(.editing) > span {
+  font-style: italic;
 }
 
 .entry:has(.link-card:hover),

@@ -1161,6 +1161,7 @@ let dragStartPositions = new Map(); // Track initial positions for undo
 let editorWorldPos = { x: 80, y: 80 };
 let editingEntryId = null;
 let isCommitting = false;
+let pendingEditTimeout = null; // Track pending edit to allow double-click detection
 
 function applyTransform(){
   world.style.transform = `translate3d(${cam.x}px, ${cam.y}px, 0) scale(${cam.z})`;
@@ -2742,6 +2743,12 @@ viewport.addEventListener('mousedown', (e) => {
     const isMediaCard = e.target.closest('.media-card');
     
     if (!isLinkCard && !isMediaCard) {
+      // Cancel any pending edit timeout since we're starting to drag
+      if (pendingEditTimeout) {
+        clearTimeout(pendingEditTimeout);
+        pendingEditTimeout = null;
+      }
+      
       // Prepare for drag - always allow dragging entries (no shift needed)
       const isEntrySelected = selectedEntries.has(entryEl.id);
       e.preventDefault();
@@ -2990,12 +2997,26 @@ window.addEventListener('mouseup', (e) => {
         
         // Edit entry if it was a click (not a drag)
         // Don't edit if we're currently editing or if it's the anchor
+        // Delay edit to allow double-click detection (typical double-click delay is ~300ms)
         if(isClick && draggingEntry.id !== 'anchor' && draggingEntry.id && !editingEntryId && !isReadOnly) {
           const entryData = entries.get(draggingEntry.id);
           if(entryData) {
             const rect = draggingEntry.getBoundingClientRect();
             const worldPos = screenToWorld(rect.left, rect.top);
-            placeEditorAtWorld(worldPos.x, worldPos.y, entryData.text, draggingEntry.id);
+            
+            // Clear any existing pending edit
+            if (pendingEditTimeout) {
+              clearTimeout(pendingEditTimeout);
+            }
+            
+            // Delay edit to allow double-click detection
+            pendingEditTimeout = setTimeout(() => {
+              pendingEditTimeout = null;
+              // Double-check we're still not editing (double-click might have happened)
+              if (!editingEntryId && draggingEntry.id !== 'anchor') {
+                placeEditorAtWorld(worldPos.x, worldPos.y, entryData.text, draggingEntry.id);
+              }
+            }, 300); // Wait 300ms to detect double-click
           }
         }
       }
@@ -3120,6 +3141,12 @@ window.addEventListener('mouseup', (e) => {
 // Double click to navigate to entry (open subpage)
 viewport.addEventListener('dblclick', (e) => {
   if (isReadOnly) return;
+  
+  // Cancel any pending edit from single click
+  if (pendingEditTimeout) {
+    clearTimeout(pendingEditTimeout);
+    pendingEditTimeout = null;
+  }
   
   const entryEl = findEntryElement(e.target);
   
