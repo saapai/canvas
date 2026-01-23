@@ -2075,10 +2075,30 @@ async function commitEditor(){
       if(!trimmedRight){
         // User intentionally cleared text and committed - delete the entry
         const deletedEntryId = editingEntryId; // Store before deletion
+        const deletedEntryData = entries.get(deletedEntryId);
+        let deletedEntryPos = null;
+        if (deletedEntryData && deletedEntryData.element) {
+          // Store position before deletion
+          const element = deletedEntryData.element;
+          const rect = element.getBoundingClientRect();
+          const worldX = parseFloat(element.style.left) || 0;
+          const worldY = parseFloat(element.style.top) || 0;
+          const worldWidth = rect.width;
+          const worldHeight = rect.height;
+          const padding = 40;
+          deletedEntryPos = {
+            x: worldX + worldWidth + padding,
+            y: worldY + worldHeight + padding
+          };
+        }
         const deleted = await deleteEntryWithConfirmation(editingEntryId);
         if (deleted) {
-          // Show cursor at bottom-right of deleted entry
-          showCursorInDefaultPosition(deletedEntryId);
+          // Show cursor at bottom-right of deleted entry (use stored position)
+          if (deletedEntryPos) {
+            showCursorAtWorld(deletedEntryPos.x, deletedEntryPos.y);
+          } else {
+            showCursorInDefaultPosition();
+          }
           editingEntryId = null;
         }
         isCommitting = false;
@@ -3942,10 +3962,30 @@ editor.addEventListener('blur', (e) => {
           // User deleted all text - delete the entry (with confirmation if has children)
           // deleteEntryWithConfirmation already handles undo state
             const deletedEntryId = editingEntryId; // Store before deletion
+            const deletedEntryData = entries.get(deletedEntryId);
+            let deletedEntryPos = null;
+            if (deletedEntryData && deletedEntryData.element) {
+              // Store position before deletion
+              const element = deletedEntryData.element;
+              const rect = element.getBoundingClientRect();
+              const worldX = parseFloat(element.style.left) || 0;
+              const worldY = parseFloat(element.style.top) || 0;
+              const worldWidth = rect.width;
+              const worldHeight = rect.height;
+              const padding = 40;
+              deletedEntryPos = {
+                x: worldX + worldWidth + padding,
+                y: worldY + worldHeight + padding
+              };
+            }
             const deleted = await deleteEntryWithConfirmation(editingEntryId);
             if (deleted) {
-              // Show cursor at bottom-right of deleted entry
-              showCursorInDefaultPosition(deletedEntryId);
+              // Show cursor at bottom-right of deleted entry (use stored position)
+              if (deletedEntryPos) {
+                showCursorAtWorld(deletedEntryPos.x, deletedEntryPos.y);
+              } else {
+                showCursorInDefaultPosition();
+              }
               editingEntryId = null;
           } else {
             // User cancelled deletion - restore editing state
