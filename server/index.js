@@ -53,7 +53,7 @@ app.use((req, res, next) => {
   if (req.path.startsWith('/api/')) {
     return next();
   }
-  express.static('public')(req, res, next);
+  return express.static('public')(req, res, next);
 });
 
 // Helper function to generate user page HTML (canvas view, editable if owner)
