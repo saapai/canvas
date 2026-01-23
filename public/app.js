@@ -1885,11 +1885,21 @@ function showCursorAtWorld(wx, wy, force = false) {
   editor.style.top = `${wy}px`;
   editor.textContent = '';
   editor.style.width = '4px';
+  // Focus the editor so user can type immediately
+  // The focus event will remove idle-cursor class and show native caret
   editor.classList.add('idle-cursor');
   editor.classList.remove('has-content');
-  // Don't focus - let the typing handler or click handle focusing
-  // This way the CSS cursor shows, and typing will work via the keydown handler
-  editor.blur();
+  // Focus editor so typing works immediately
+  requestAnimationFrame(() => {
+    editor.focus();
+    // Set cursor position at the start
+    const range = document.createRange();
+    range.setStart(editor, 0);
+    range.collapse(true);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  });
 }
 
 // Show cursor in a good default position (random empty space next to entry)
