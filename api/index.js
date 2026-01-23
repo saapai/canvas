@@ -588,6 +588,96 @@ app.post('/api/auth/spaces', requireAuth, async (req, res) => {
   }
 });
 
+// Create a new space/username for the current user
+app.post('/api/auth/create-space', requireAuth, async (req, res) => {
+  try {
+    const { username } = req.body;
+    if (!username || typeof username !== 'string') {
+      return res.status(400).json({ error: 'Username is required' });
+    }
+    
+    const trimmed = username.trim();
+    if (!trimmed) {
+      return res.status(400).json({ error: 'Username is required' });
+    }
+    if (trimmed.length > 40) {
+      return res.status(400).json({ error: 'Username too long' });
+    }
+    if (RESERVED_USERNAMES.has(trimmed)) {
+      return res.status(400).json({ error: 'Username is reserved' });
+    }
+    
+    const taken = await isUsernameTaken(trimmed);
+    if (taken) {
+      return res.status(400).json({ error: 'Username already taken' });
+    }
+    
+    // Create a new user with the same phone number
+    const newUser = await createUser(req.user.phone);
+    const updated = await setUsername(newUser.id, trimmed);
+    
+    // Create new JWT token for the new user
+    const token = jwt.sign(
+      { id: updated.id },
+      JWT_SECRET,
+      { expiresIn: '30d' }
+    );
+    setAuthCookie(res, token);
+    
+    return res.json({
+      user: { id: updated.id, phone: updated.phone, username: updated.username }
+    });
+  } catch (error) {
+    console.error('Error creating space:', error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// Update username for a specific space
+app.put('/api/auth/update-username', requireAuth, async (req, res) => {
+  try {
+    const { spaceId, newUsername } = req.body;
+    if (!spaceId || typeof spaceId !== 'string') {
+      return res.status(400).json({ error: 'Space ID is required' });
+    }
+    if (!newUsername || typeof newUsername !== 'string') {
+      return res.status(400).json({ error: 'Username is required' });
+    }
+    
+    const trimmed = newUsername.trim();
+    if (!trimmed) {
+      return res.status(400).json({ error: 'Username is required' });
+    }
+    if (trimmed.length > 40) {
+      return res.status(400).json({ error: 'Username too long' });
+    }
+    if (RESERVED_USERNAMES.has(trimmed)) {
+      return res.status(400).json({ error: 'Username is reserved' });
+    }
+    
+    // Check if the user owns this space
+    const spaceUser = await getUserById(spaceId);
+    if (!spaceUser || spaceUser.phone !== req.user.phone) {
+      return res.status(403).json({ error: 'You do not own this space' });
+    }
+    
+    // Check if username is taken (and not by this space)
+    const existingUser = await getUserByUsername(trimmed);
+    if (existingUser && existingUser.id !== spaceId) {
+      return res.status(400).json({ error: 'Username already taken' });
+    }
+    
+    const updated = await setUsername(spaceId, trimmed);
+    
+    return res.json({
+      user: { id: updated.id, phone: updated.phone, username: updated.username }
+    });
+  } catch (error) {
+    console.error('Error updating username:', error);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 // Diagnostic endpoint to debug user ID issues
 app.get('/api/debug/user-info', async (req, res) => {
   try {
