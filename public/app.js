@@ -1897,7 +1897,7 @@ function findRandomEmptySpaceNextToEntry() {
 
     // Choose a random side (right, bottom, left, top)
     const side = Math.floor(Math.random() * 4);
-    const padding = 40 / cam.z; // Space between entry and cursor (in world coordinates)
+    const padding = (40 + 5) / cam.z; // Space between entry and cursor (40px + 5px clearance in world coordinates)
 
     let x, y;
     switch (side) {
