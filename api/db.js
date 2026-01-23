@@ -346,11 +346,6 @@ export async function saveEntry(entry) {
     }
     
     return entry;
-      [entry.id, entry.text, entry.position.x, entry.position.y, entry.parentEntryId || null, entry.userId, linkCardsData, mediaCardData]
-    );
-    
-    console.log('[DB] saveEntry successful:', entry.id, 'rowCount:', result.rowCount);
-    return entry;
   } catch (error) {
     console.error('[DB] Error saving entry:', entry.id, error);
     throw error;
