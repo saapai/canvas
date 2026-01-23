@@ -4207,7 +4207,9 @@ if (userMenuButton && userMenuDropdown) {
   document.addEventListener('click', (e) => {
     if (userMenuDropdown && !userMenuDropdown.contains(e.target) && !userMenuButton.contains(e.target)) {
       userMenuDropdown.classList.add('hidden');
-      createSpaceForm.classList.add('hidden');
+      if (createSpaceForm) {
+        createSpaceForm.classList.add('hidden');
+      }
       editingSpaceId = null;
     }
   });
@@ -4222,7 +4224,7 @@ async function loadSpaces() {
   
   console.log('[SPACES CLIENT] Starting to load spaces...');
   console.log('[SPACES CLIENT] Current user:', currentUser);
-  console.log('[SPACES CLIENT] isLoggedIn:', isLoggedIn);
+  console.log('[SPACES CLIENT] User logged in:', !!currentUser);
   
   try {
     console.log('[SPACES CLIENT] Fetching /api/auth/spaces with credentials: include');
