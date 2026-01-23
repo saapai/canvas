@@ -511,24 +511,49 @@ export async function getUserByUsername(username) {
 export async function getEntriesByUsername(username) {
   try {
     const db = getPool();
-    const result = await db.query(
-      `SELECT e.id, e.text, e.position_x, e.position_y, e.parent_entry_id, e.link_cards_data, e.media_card_data, e.created_at
-       FROM entries e
-       JOIN users u ON e.user_id = u.id
-       WHERE u.username = $1 AND e.deleted_at IS NULL
-       ORDER BY e.created_at ASC`,
-      [username]
-    );
+    let result;
+    try {
+      // Try to select with text_html column
+      result = await db.query(
+        `SELECT e.id, e.text, e.text_html, e.position_x, e.position_y, e.parent_entry_id, e.link_cards_data, e.media_card_data, e.created_at
+         FROM entries e
+         JOIN users u ON e.user_id = u.id
+         WHERE u.username = $1 AND e.deleted_at IS NULL
+         ORDER BY e.created_at ASC`,
+        [username]
+      );
+    } catch (dbError) {
+      // If column doesn't exist, select without it
+      if (dbError.code === '42703' || dbError.message.includes('text_html') || (dbError.message.includes('column') && dbError.message.includes('text_html'))) {
+        console.error('[DB] ERROR: text_html column does not exist in getEntriesByUsername!');
+        result = await db.query(
+          `SELECT e.id, e.text, e.position_x, e.position_y, e.parent_entry_id, e.link_cards_data, e.media_card_data, e.created_at
+           FROM entries e
+           JOIN users u ON e.user_id = u.id
+           WHERE u.username = $1 AND e.deleted_at IS NULL
+           ORDER BY e.created_at ASC`,
+          [username]
+        );
+      } else {
+        throw dbError;
+      }
+    }
     console.log(`[DB] getEntriesByUsername(${username}) found ${result.rows.length} entries`);
-    return result.rows.map(row => ({
+    const mapped = result.rows.map(row => ({
       id: row.id,
       text: row.text,
+      textHtml: row.text_html || null, // Include HTML formatting
       position: { x: row.position_x, y: row.position_y },
       parentEntryId: row.parent_entry_id || null,
       linkCardsData: row.link_cards_data || null,
       mediaCardData: row.media_card_data || null,
       createdAt: row.created_at
     }));
+    
+    const withHtml = mapped.filter(e => e.textHtml);
+    console.log(`[DB] getEntriesByUsername: ${mapped.length} total, ${withHtml.length} with textHtml`);
+    
+    return mapped;
   } catch (error) {
     console.error('Error fetching entries by username:', error);
     throw error;
