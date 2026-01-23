@@ -1829,12 +1829,18 @@ function positionOverlapsEntry(wx, wy) {
     const element = entryData.element;
     if (!element || element.style.display === 'none') continue;
     
-    const rect = element.getBoundingClientRect();
     const worldX = parseFloat(element.style.left) || 0;
     const worldY = parseFloat(element.style.top) || 0;
+    
+    // Use getBoundingClientRect for accurate dimensions, but ensure it's valid
+    const rect = element.getBoundingClientRect();
+    // Only check if element has valid dimensions (not collapsed)
+    if (rect.width === 0 || rect.height === 0) continue;
+    
     // Get world dimensions accounting for zoom
-    const worldWidth = rect.width / cam.z;
-    const worldHeight = rect.height / cam.z;
+    // Use Math.max to ensure we have at least some minimum dimensions
+    const worldWidth = Math.max(rect.width / cam.z, 50); // Minimum 50px world width
+    const worldHeight = Math.max(rect.height / cam.z, 20); // Minimum 20px world height
     
     // Check if cursor area (with clearance) overlaps with entry
     // Check for any overlap between cursor area and entry using bounding box intersection
@@ -1849,13 +1855,16 @@ function positionOverlapsEntry(wx, wy) {
     const anchorX = anchorPos.x;
     const anchorY = anchorPos.y;
     const anchorRect = anchor.getBoundingClientRect();
-    const anchorWorldWidth = anchorRect.width / cam.z;
-    const anchorWorldHeight = anchorRect.height / cam.z;
-    
-    // Check if cursor area overlaps with anchor
-    if (!(cursorRight < anchorX || cursorLeft > anchorX + anchorWorldWidth || 
-          cursorBottom < anchorY || cursorTop > anchorY + anchorWorldHeight)) {
-      return true; // Overlaps
+    // Only check if anchor has valid dimensions
+    if (anchorRect.width > 0 && anchorRect.height > 0) {
+      const anchorWorldWidth = anchorRect.width / cam.z;
+      const anchorWorldHeight = anchorRect.height / cam.z;
+      
+      // Check if cursor area overlaps with anchor
+      if (!(cursorRight < anchorX || cursorLeft > anchorX + anchorWorldWidth || 
+            cursorBottom < anchorY || cursorTop > anchorY + anchorWorldHeight)) {
+        return true; // Overlaps
+      }
     }
   }
   
