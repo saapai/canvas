@@ -8,7 +8,7 @@ dotenv.config();
 let pool = null;
 let dbInitialized = false;
 
-function getPool() {
+export function getPool() {
   if (!pool) {
     // Check for POSTGRES_URL first, then fall back to POSTGRES_URL_NON_POOLING
     const connectionString = process.env.POSTGRES_URL || process.env.POSTGRES_URL_NON_POOLING;

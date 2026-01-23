@@ -23,7 +23,8 @@ import {
   getEntryPath,
   createUser,
   isUsernameTaken,
-  setUsername
+  setUsername,
+  getPool
 } from './db.js';
 import jwt from 'jsonwebtoken';
 
@@ -1265,6 +1266,47 @@ app.get('/:username/*', async (req, res) => {
   }
 });
 
+// Debug endpoint to check text_html column status
+app.get('/api/debug/text-html', async (req, res) => {
+  try {
+    const db = getPool();
+    
+    // Check if column exists
+    const columnCheck = await db.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'entries' AND column_name = 'text_html';
+    `);
+    
+    const columnExists = columnCheck.rows.length > 0;
+    
+    // Check entries with text_html
+    let entriesWithHtml = [];
+    if (columnExists) {
+      const result = await db.query(`
+        SELECT id, text, text_html, LENGTH(text_html) as html_length
+        FROM entries 
+        WHERE text_html IS NOT NULL AND text_html != ''
+        LIMIT 10
+      `);
+      entriesWithHtml = result.rows.map(row => ({
+        id: row.id,
+        text: row.text.substring(0, 30),
+        textHtml: row.text_html ? row.text_html.substring(0, 50) : null,
+        htmlLength: row.html_length
+      }));
+    }
+    
+    res.json({
+      columnExists,
+      entriesWithHtmlCount: entriesWithHtml.length,
+      sampleEntries: entriesWithHtml
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Export for Vercel serverless functions
 export default app;
 
@@ -1277,5 +1319,6 @@ if (process.env.VERCEL !== '1') {
     console.log('  POST /api/auth/create-space');
     console.log('  PUT /api/auth/update-username');
     console.log('  POST /api/auth/logout');
+    console.log('  GET /api/debug/text-html (debug endpoint)');
   });
 }
