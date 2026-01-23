@@ -452,38 +452,70 @@ app.get('/api/auth/spaces', requireAuth, async (req, res) => {
     const normalizedPhone = String(req.user.phone).trim();
     console.log('[SPACES] Looking up users for phone:', normalizedPhone);
     
-    // Use the same phone matching logic as verify-code
+    // Use the EXACT same phone matching logic as verify-code
     let users = await getUsersByPhone(normalizedPhone);
-    console.log('[SPACES] Initial lookup found', users.length, 'users');
+    
+    console.log('[SPACES] Initial phone lookup:', {
+      searchedPhone: normalizedPhone,
+      foundUsers: users.length,
+      users: users.map(u => ({ id: u.id, phone: u.phone, username: u.username }))
+    });
     
     // If not found, try alternative phone formats (with/without +1, with/without spaces)
     if (users.length === 0) {
       // Try without +1 prefix if it starts with +1
       if (normalizedPhone.startsWith('+1')) {
         const phoneWithoutPlus = normalizedPhone.substring(2).trim();
-        console.log('[SPACES] Trying without +1:', phoneWithoutPlus);
+        console.log('[SPACES] Trying without +1 prefix:', phoneWithoutPlus);
         users = await getUsersByPhone(phoneWithoutPlus);
-        console.log('[SPACES] Found', users.length, 'users without +1');
+        console.log('[SPACES] Result without +1:', { foundUsers: users.length });
       }
       // Try with +1 if it doesn't have it
       if (users.length === 0 && !normalizedPhone.startsWith('+1')) {
         const phoneWithPlusOne = '+1' + normalizedPhone;
-        console.log('[SPACES] Trying with +1:', phoneWithPlusOne);
+        console.log('[SPACES] Trying with +1 prefix:', phoneWithPlusOne);
         users = await getUsersByPhone(phoneWithPlusOne);
-        console.log('[SPACES] Found', users.length, 'users with +1');
+        console.log('[SPACES] Result with +1:', { foundUsers: users.length });
       }
       // Try without any + prefix
       if (users.length === 0 && normalizedPhone.startsWith('+')) {
         const phoneWithoutPlus = normalizedPhone.substring(1);
-        console.log('[SPACES] Trying without +:', phoneWithoutPlus);
+        console.log('[SPACES] Trying without + prefix:', phoneWithoutPlus);
         users = await getUsersByPhone(phoneWithoutPlus);
-        console.log('[SPACES] Found', users.length, 'users without +');
+        console.log('[SPACES] Result without +:', { foundUsers: users.length });
+      }
+      // Special handling for +13853687238 format (starts with +13, not +1)
+      if (users.length === 0 && normalizedPhone === '+13853687238') {
+        console.log('[SPACES] Special handling for +13853687238');
+        // Try as +1 3853687238 (assuming it should be +1 3853687238)
+        users = await getUsersByPhone('+13853687238');
+        console.log('[SPACES] Result for +13853687238:', { foundUsers: users.length });
+        // Try without + prefix
+        if (users.length === 0) {
+          users = await getUsersByPhone('13853687238');
+          console.log('[SPACES] Result for 13853687238:', { foundUsers: users.length });
+        }
+        // Try last 10 digits only
+        if (users.length === 0) {
+          users = await getUsersByPhone('3853687238');
+          console.log('[SPACES] Result for 3853687238:', { foundUsers: users.length });
+        }
       }
     }
     
+    console.log('[SPACES] Final phone lookup:', {
+      searchedPhone: normalizedPhone,
+      foundUsers: users.length,
+      users: users.map(u => ({ id: u.id, phone: u.phone, username: u.username }))
+    });
+    
     // Filter users to only those with usernames (same as verify-code)
     const usersWithUsernames = users.filter(u => u.username && String(u.username).trim().length > 0);
-    console.log('[SPACES] Users with usernames:', usersWithUsernames.length);
+    
+    console.log('[SPACES] Users with usernames:', {
+      count: usersWithUsernames.length,
+      usernames: usersWithUsernames.map(u => ({ id: u.id, username: u.username }))
+    });
     
     const spaces = usersWithUsernames.map(u => ({
       id: u.id,
