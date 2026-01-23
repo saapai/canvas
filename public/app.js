@@ -1812,8 +1812,7 @@ function updateBreadcrumb() {
 
 // Check if a position overlaps with any entry
 function positionOverlapsEntry(wx, wy) {
-  const cursorSize = 4; // Approximate cursor size in world coordinates
-  const padding = 10; // Extra padding to avoid being too close
+  const padding = 20; // Extra padding to avoid being too close to entries
   
   for (const [entryId, entryData] of entries.entries()) {
     if (entryId === 'anchor') continue;
@@ -1823,11 +1822,14 @@ function positionOverlapsEntry(wx, wy) {
     const rect = element.getBoundingClientRect();
     const worldX = parseFloat(element.style.left) || 0;
     const worldY = parseFloat(element.style.top) || 0;
-    const worldWidth = rect.width;
-    const worldHeight = rect.height;
+    // Get world dimensions accounting for zoom
+    const worldWidth = rect.width / cam.z;
+    const worldHeight = rect.height / cam.z;
     
     // Check if cursor position overlaps with entry (with padding)
-    if (wx >= worldX - padding && wx <= worldX + worldWidth + padding &&
+    // Account for editor padding offset (4px) when checking
+    const cursorX = wx + 4; // Add back the padding offset for accurate check
+    if (cursorX >= worldX - padding && cursorX <= worldX + worldWidth + padding &&
         wy >= worldY - padding && wy <= worldY + worldHeight + padding) {
       return true;
     }
@@ -1841,7 +1843,8 @@ function positionOverlapsEntry(wx, wy) {
     const anchorWorldWidth = anchorRect.width / cam.z;
     const anchorWorldHeight = anchorRect.height / cam.z;
     
-    if (wx >= anchorX - padding && wx <= anchorX + anchorWorldWidth + padding &&
+    const cursorX = wx + 4; // Add back the padding offset for accurate check
+    if (cursorX >= anchorX - padding && cursorX <= anchorX + anchorWorldWidth + padding &&
         wy >= anchorY - padding && wy <= anchorY + anchorWorldHeight + padding) {
       return true;
     }
@@ -1921,18 +1924,28 @@ function findRandomEmptySpaceNextToEntry() {
     }
   }
   
-  // If we couldn't find a non-overlapping position after maxAttempts, return the last one
-  // This is a fallback - ideally we'd find a good position
-  const randomEntry = visibleEntries[Math.floor(Math.random() * visibleEntries.length)];
-  const element = randomEntry.element;
-  const rect = element.getBoundingClientRect();
-  const worldX = parseFloat(element.style.left) || 0;
-  const worldY = parseFloat(element.style.top) || 0;
-  const worldWidth = rect.width;
-  const worldHeight = rect.height;
+  // If we couldn't find a non-overlapping position after maxAttempts, try systematic search
+  // Try positions in a grid pattern around the viewport
+  const viewportRect = viewport.getBoundingClientRect();
+  const center = screenToWorld(viewportRect.width / 2, viewportRect.height / 2);
+  const step = 100;
+  const maxRadius = 500;
+  
+  for (let radius = step; radius <= maxRadius; radius += step) {
+    for (let angle = 0; angle < 360; angle += 45) {
+      const rad = (angle * Math.PI) / 180;
+      const testX = center.x + Math.cos(rad) * radius;
+      const testY = center.y + Math.sin(rad) * radius;
+      if (!positionOverlapsEntry(testX, testY)) {
+        return { x: testX, y: testY };
+      }
+    }
+  }
+  
+  // Last resort: return a position far from center (shouldn't overlap)
   return {
-    x: worldX + worldWidth + 40,
-    y: worldY + worldHeight + 40
+    x: center.x + 500,
+    y: center.y + 500
   };
 }
 
@@ -3087,6 +3100,10 @@ viewport.addEventListener('mousedown', (e) => {
   // Don't handle clicks on breadcrumb
   if(e.target.closest('#breadcrumb')) return;
   
+  // Set flag to prevent cursor updates during click handling
+  // This prevents cursor from appearing in random spot when clicking
+  isProcessingClick = true;
+  
   // In read-only mode, only allow panning (no entry dragging)
   if (isReadOnly) {
     const entryEl = findEntryElement(e.target);
@@ -3519,8 +3536,6 @@ window.addEventListener('mouseup', (e) => {
         }
         
         const w = screenToWorld(e.clientX, e.clientY);
-        // Set flag to prevent other cursor updates during click processing
-        isProcessingClick = true;
         
         // Store click position for typing
         lastClickPos = { x: w.x, y: w.y };
@@ -3547,7 +3562,13 @@ window.addEventListener('mouseup', (e) => {
         requestAnimationFrame(() => {
           isProcessingClick = false;
         });
+      } else {
+        // Not a click (was a drag) - clear the flag
+        isProcessingClick = false;
       }
+    } else {
+      // No clickStart - clear the flag
+      isProcessingClick = false;
     }
     clickStart = null;
   } else if(clickStart && clickStart.entryEl) {
