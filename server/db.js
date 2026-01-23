@@ -104,8 +104,20 @@ export async function initDatabase() {
         ALTER TABLE entries 
         ADD COLUMN IF NOT EXISTS text_html TEXT;
       `);
+      // Verify the column was added/exists
+      const checkResult = await db.query(`
+        SELECT column_name 
+        FROM information_schema.columns 
+        WHERE table_name = 'entries' AND column_name = 'text_html';
+      `);
+      if (checkResult.rows.length > 0) {
+        console.log('[DB] text_html column exists and is ready');
+      } else {
+        console.warn('[DB] WARNING: text_html column was not found after migration attempt');
+      }
     } catch (error) {
-      console.log('Note: text_html column check:', error.message);
+      console.error('[DB] ERROR: Failed to add text_html column:', error.message);
+      console.error('[DB] Please manually run: ALTER TABLE entries ADD COLUMN text_html TEXT;');
     }
 
     try {
@@ -140,8 +152,10 @@ export async function getAllEntries(userId) {
       );
     } catch (dbError) {
       // If column doesn't exist, select without it
-      if (dbError.code === '42703' || dbError.message.includes('text_html')) {
-        console.warn('[DB] text_html column does not exist. Please run: ALTER TABLE entries ADD COLUMN text_html TEXT;');
+      if (dbError.code === '42703' || dbError.message.includes('text_html') || (dbError.message.includes('column') && dbError.message.includes('text_html'))) {
+        console.error('[DB] ERROR: text_html column does not exist when loading entries!');
+        console.error('[DB] Error code:', dbError.code, 'Message:', dbError.message);
+        console.error('[DB] Please run: ALTER TABLE entries ADD COLUMN text_html TEXT;');
         result = await db.query(
           `SELECT id, text, position_x, position_y, parent_entry_id, link_cards_data, media_card_data
            FROM entries
@@ -243,9 +257,11 @@ export async function saveEntry(entry) {
       );
     } catch (dbError) {
       // If column doesn't exist, try without text_html
-      if (dbError.code === '42703' || dbError.message.includes('text_html')) {
-        console.warn('[DB] text_html column does not exist. Please run: ALTER TABLE entries ADD COLUMN text_html TEXT;');
-        console.warn('[DB] Saving without text_html for now...');
+      if (dbError.code === '42703' || dbError.message.includes('text_html') || dbError.message.includes('column') && dbError.message.includes('text_html')) {
+        console.error('[DB] ERROR: text_html column does not exist!');
+        console.error('[DB] Error code:', dbError.code, 'Message:', dbError.message);
+        console.error('[DB] Please run: ALTER TABLE entries ADD COLUMN text_html TEXT;');
+        console.warn('[DB] Saving without text_html for now (formatting will be lost)...');
         result = await db.query(
           `INSERT INTO entries (id, text, position_x, position_y, parent_entry_id, user_id, link_cards_data, media_card_data, updated_at, deleted_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, NULL)

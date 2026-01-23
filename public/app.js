@@ -874,6 +874,17 @@ async function updateEntryOnServer(entryData) {
     return null;
   }
   
+  const payload = {
+    text: entryData.text,
+    textHtml: entryData.textHtml || null, // Include HTML formatting
+    position: entryData.position,
+    parentEntryId: entryData.parentEntryId,
+    linkCardsData: entryData.linkCardsData || null,
+    mediaCardData: entryData.mediaCardData || null
+  };
+  
+  console.log('[UPDATE] updateEntryOnServer called for:', entryData.id, 'textHtml:', payload.textHtml ? payload.textHtml.substring(0, 100) : 'null');
+  
   try {
     const response = await fetch(`/api/entries/${entryData.id}`, {
       method: 'PUT',
@@ -881,14 +892,7 @@ async function updateEntryOnServer(entryData) {
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({
-        text: entryData.text,
-        textHtml: entryData.textHtml || null, // Include HTML formatting
-        position: entryData.position,
-        parentEntryId: entryData.parentEntryId,
-        linkCardsData: entryData.linkCardsData || null,
-        mediaCardData: entryData.mediaCardData || null
-      })
+      body: JSON.stringify(payload)
     });
     
     if (!response.ok) {
@@ -2559,6 +2563,7 @@ async function commitEditor(){
       // Save to server - ensure update completes before clearing editing state
       // This prevents duplicates if page reloads before update completes
       try {
+        console.log('[COMMIT] About to updateEntryOnServer, entryData.textHtml:', entryData.textHtml ? entryData.textHtml.substring(0, 100) : 'null');
         await updateEntryOnServer(entryData);
         console.log('[COMMIT] Entry updated successfully:', entryData.id);
       } catch (error) {
