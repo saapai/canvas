@@ -1370,11 +1370,14 @@ function zoomToFitEntries() {
         // Show cursor in default position after navigation/zoom completes
         // Wait for entries to be fully rendered before showing cursor
         if (!isReadOnly) {
-          requestAnimationFrame(() => {
+          // Use setTimeout to ensure entries are fully dimensioned
+          setTimeout(() => {
             requestAnimationFrame(() => {
-              showCursorInDefaultPosition();
+              requestAnimationFrame(() => {
+                showCursorInDefaultPosition();
+              });
             });
-          });
+          }, 100); // Small delay to ensure dimensions are updated
         }
       }
     }
@@ -1387,11 +1390,14 @@ function zoomToFitEntries() {
     if (navigationJustCompleted) {
       navigationJustCompleted = false;
       if (!isReadOnly) {
-        requestAnimationFrame(() => {
+        // Use setTimeout to ensure entries are fully dimensioned
+        setTimeout(() => {
           requestAnimationFrame(() => {
-            showCursorInDefaultPosition();
+            requestAnimationFrame(() => {
+              showCursorInDefaultPosition();
+            });
           });
-        });
+        }, 200); // Small delay to ensure dimensions are updated
       }
     }
   }
