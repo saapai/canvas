@@ -24,7 +24,8 @@ import {
   createUser,
   isUsernameTaken,
   setUsername,
-  getStats
+  getStats,
+  getPool
 } from './db.js';
 import jwt from 'jsonwebtoken';
 
@@ -895,10 +896,11 @@ app.post('/api/entries', async (req, res) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
     
-    const { id, text, position, parentEntryId, linkCardsData, mediaCardData, pageOwnerId } = req.body;
+    const { id, text, textHtml, position, parentEntryId, linkCardsData, mediaCardData, pageOwnerId } = req.body;
     console.log('[API] POST /api/entries - Entry data:', {
       id,
       text: text?.substring(0, 50),
+      textHtml: textHtml ? textHtml.substring(0, 50) : 'null',
       hasPosition: !!position,
       hasMedia: !!mediaCardData,
       hasLink: !!linkCardsData,
@@ -938,6 +940,7 @@ app.post('/api/entries', async (req, res) => {
     const entry = {
       id,
       text,
+      textHtml: textHtml || null,
       position: { x: position.x, y: position.y },
       parentEntryId: parentEntryId || null,
       linkCardsData: linkCardsData || null,
@@ -945,7 +948,7 @@ app.post('/api/entries', async (req, res) => {
       userId: targetUserId
     };
 
-    console.log('[API] POST /api/entries - Calling saveEntry for:', entry.id, 'with userId:', targetUserId);
+    console.log('[API] POST /api/entries - Calling saveEntry for:', entry.id, 'with userId:', targetUserId, 'textHtml:', entry.textHtml ? entry.textHtml.substring(0, 50) : 'null');
     const savedEntry = await saveEntry(entry);
     console.log('[API] POST /api/entries - Save successful:', savedEntry.id);
     res.json(savedEntry);
@@ -961,7 +964,9 @@ app.put('/api/entries/:id', async (req, res) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
     const { id } = req.params;
-    const { text, position, parentEntryId, linkCardsData, mediaCardData, pageOwnerId } = req.body;
+    const { text, textHtml, position, parentEntryId, linkCardsData, mediaCardData, pageOwnerId } = req.body;
+    
+    console.log(`[API] PUT /api/entries/${id} - Received textHtml:`, textHtml ? textHtml.substring(0, 50) : 'null');
     
     if (text === undefined || !position) {
       return res.status(400).json({ error: 'text and position are required' });
@@ -992,12 +997,15 @@ app.put('/api/entries/:id', async (req, res) => {
     const entry = {
       id,
       text,
+      textHtml: textHtml || null,
       position: { x: position.x, y: position.y },
       parentEntryId: parentEntryId || null,
       linkCardsData: linkCardsData || null,
       mediaCardData: mediaCardData || null,
       userId: targetUserId
     };
+    
+    console.log(`[API] PUT /api/entries/${id} - Entry object textHtml:`, entry.textHtml ? entry.textHtml.substring(0, 50) : 'null');
 
     const savedEntry = await saveEntry(entry);
     res.json(savedEntry);
@@ -1372,6 +1380,47 @@ app.get('/:username/*', async (req, res) => {
   } catch (error) {
     console.error('Error serving user page:', error);
     res.status(500).send('Error loading page');
+  }
+});
+
+// Debug endpoint to check text_html column status
+app.get('/api/debug/text-html', async (req, res) => {
+  try {
+    const db = getPool();
+    
+    // Check if column exists
+    const columnCheck = await db.query(`
+      SELECT column_name 
+      FROM information_schema.columns 
+      WHERE table_name = 'entries' AND column_name = 'text_html';
+    `);
+    
+    const columnExists = columnCheck.rows.length > 0;
+    
+    // Check entries with text_html
+    let entriesWithHtml = [];
+    if (columnExists) {
+      const result = await db.query(`
+        SELECT id, text, text_html, LENGTH(text_html) as html_length
+        FROM entries 
+        WHERE text_html IS NOT NULL AND text_html != ''
+        LIMIT 10
+      `);
+      entriesWithHtml = result.rows.map(row => ({
+        id: row.id,
+        text: row.text.substring(0, 30),
+        textHtml: row.text_html ? row.text_html.substring(0, 50) : null,
+        htmlLength: row.html_length
+      }));
+    }
+    
+    res.json({
+      columnExists,
+      entriesWithHtmlCount: entriesWithHtml.length,
+      sampleEntries: entriesWithHtml
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
