@@ -606,8 +606,15 @@ async function loadUserEntries(username, editable) {
       // Process text with links
       const { processedText, urls } = processTextWithLinks(entryData.text);
       
+      // Use textHtml if available (preserves formatting), otherwise use processedText
       if (processedText) {
-        entry.innerHTML = meltify(processedText);
+        if (entryData.textHtml && /<(strong|b|em|i|u)>/i.test(entryData.textHtml)) {
+          // Has formatting, use HTML version
+          entry.innerHTML = meltifyHtml(entryData.textHtml);
+        } else {
+          // No formatting, use regular meltify
+          entry.innerHTML = meltify(processedText);
+        }
       } else {
         entry.innerHTML = '';
       }
@@ -627,6 +634,7 @@ async function loadUserEntries(username, editable) {
         id: entryData.id,
         element: entry,
         text: entryData.text,
+        textHtml: entryData.textHtml, // Preserve HTML formatting
         position: entryData.position,
         parentEntryId: entryData.parentEntryId,
         linkCardsData: entryData.linkCardsData || [],
@@ -1099,8 +1107,15 @@ async function loadEntriesFromServer() {
       // Process text with links
       const { processedText, urls } = processTextWithLinks(entryData.text);
       
+      // Use textHtml if available (preserves formatting), otherwise use processedText
       if (processedText) {
-        entry.innerHTML = meltify(processedText);
+        if (entryData.textHtml && /<(strong|b|em|i|u)>/i.test(entryData.textHtml)) {
+          // Has formatting, use HTML version
+          entry.innerHTML = meltifyHtml(entryData.textHtml);
+        } else {
+          // No formatting, use regular meltify
+          entry.innerHTML = meltify(processedText);
+        }
       } else {
         entry.innerHTML = '';
       }
@@ -1115,6 +1130,7 @@ async function loadEntriesFromServer() {
         id: entryData.id,
         element: entry,
         text: entryData.text,
+        textHtml: entryData.textHtml, // Preserve HTML formatting
         position: entryData.position,
         parentEntryId: entryData.parentEntryId
       };
@@ -2300,7 +2316,18 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
   // Account for editor's left padding (4px) so cursor appears exactly where clicked
   editor.style.left = `${wx - 4}px`;
   editor.style.top  = `${wy}px`;
-  editor.textContent = text;
+  
+  // Restore HTML formatting if available, otherwise use plain text
+  if(entryId && entryId !== 'anchor'){
+    const entryData = entries.get(entryId);
+    if(entryData && entryData.textHtml){
+      editor.innerHTML = entryData.textHtml;
+    } else {
+      editor.textContent = text;
+    }
+  } else {
+    editor.textContent = text;
+  }
   // Always remove idle-cursor when placing editor (will be focused, so native caret shows)
   editor.classList.remove('idle-cursor');
   // Ensure editor is visible (in case it was hidden during navigation)
@@ -2364,8 +2391,15 @@ async function commitEditor(){
   isCommitting = true;
   console.log('[COMMIT] Processing entry, editingEntryId:', editingEntryId);
   
+  // Get HTML content to preserve formatting (bold, etc.)
+  const htmlContent = editor.innerHTML;
+  // Get plain text for URL extraction and storage
   const raw = editor.innerText;
   const trimmedRight = raw.replace(/\s+$/g,'');
+  
+  // Check if HTML has formatting tags - if so, preserve HTML; otherwise use plain text
+  const hasFormatting = /<(strong|b|em|i|u)>/i.test(htmlContent);
+  const trimmedHtml = hasFormatting ? htmlContent : null;
 
   // If editing an existing entry
   if(editingEntryId && editingEntryId !== 'anchor'){
@@ -2440,6 +2474,8 @@ async function commitEditor(){
 
       // Update entry text FIRST before any DOM changes
       entryData.text = trimmedRight;
+      // Store HTML content to preserve formatting (only if it has formatting)
+      entryData.textHtml = trimmedHtml;
       
       // Remove editing class first so content is visible for melt animation
       entryData.element.classList.remove('editing');
@@ -2447,9 +2483,15 @@ async function commitEditor(){
       // Add melt class for animation
       entryData.element.classList.add('melt');
       
-      // Update entry content with melt animation
+      // Update entry content with melt animation, preserving HTML formatting
       if(processedText){
-        entryData.element.innerHTML = meltify(processedText);
+        if (trimmedHtml) {
+          // Has formatting, process HTML with formatting preserved
+          entryData.element.innerHTML = meltifyHtml(trimmedHtml);
+        } else {
+          // No formatting, use regular meltify
+          entryData.element.innerHTML = meltify(processedText);
+        }
       } else {
         entryData.element.innerHTML = '';
       }
@@ -2571,7 +2613,13 @@ async function commitEditor(){
 
   // Only render text if there is any
   if(processedText){
-    entry.innerHTML = meltify(processedText);
+    if (trimmedHtml) {
+      // Has formatting, process HTML with formatting preserved
+      entry.innerHTML = meltifyHtml(trimmedHtml);
+    } else {
+      // No formatting, use regular meltify
+      entry.innerHTML = meltify(processedText);
+    }
   } else {
     entry.innerHTML = '';
   }
@@ -2588,6 +2636,7 @@ async function commitEditor(){
     id: entryId,
     element: entry,
     text: trimmedRight,
+    textHtml: trimmedHtml || null, // Store HTML to preserve formatting (null if no formatting)
     position: { x: editorWorldPos.x, y: editorWorldPos.y },
     parentEntryId: currentViewEntryId
   };
@@ -2962,6 +3011,70 @@ function escapeHtml(s){
     .replaceAll('>','&gt;')
     .replaceAll('"','&quot;')
     .replaceAll("'","&#039;");
+}
+
+// Meltify HTML while preserving formatting tags (like <strong>, <b>)
+function meltifyHtml(html){
+  if (!html) return '';
+  
+  // Create a temporary container to parse HTML
+  const temp = document.createElement('div');
+  temp.innerHTML = html;
+  
+  // Process each text node recursively, preserving formatting elements
+  function processNode(node, idxRef) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const text = node.textContent;
+      if (!text) return;
+      
+      const chars = [...text];
+      let out = '';
+      
+      for(const ch of chars){
+        if(ch === '\n'){
+          out += '<br>';
+          idxRef.idx++;
+          continue;
+        }
+        if(ch === ' '){
+          out += '&nbsp;';
+          idxRef.idx++;
+          continue;
+        }
+
+        const animateThis = Math.random() > 0.18;
+        const baseDelay = idxRef.idx * 8;
+        const jitter = (Math.random() * 140) | 0;
+        const delay = animateThis ? (baseDelay + jitter) : (baseDelay + 20);
+        const dur = 720 + ((Math.random() * 520) | 0);
+        const safe = escapeHtml(ch);
+
+        const dripThis = animateThis && Math.random() < 0.10;
+        if(animateThis){
+          out += `<span ${dripThis ? 'class="drip"' : ''} data-ch="${safe}" style="animation-delay:${delay}ms;animation-duration:${dur}ms">${safe}</span>`;
+        }else{
+          out += `<span data-ch="${safe}" style="animation:none;opacity:1">${safe}</span>`;
+        }
+        idxRef.idx++;
+      }
+      
+      // Replace text node with a document fragment containing the HTML
+      const fragment = document.createRange().createContextualFragment(out);
+      if (node.parentNode) {
+        node.parentNode.replaceChild(fragment, node);
+      }
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      // Recursively process child nodes, preserving formatting elements (strong, b, em, i, u)
+      const children = Array.from(node.childNodes);
+      children.forEach(child => processNode(child, idxRef));
+    }
+  }
+  
+  const idxRef = { idx: 0 };
+  const children = Array.from(temp.childNodes);
+  children.forEach(child => processNode(child, idxRef));
+  
+  return temp.innerHTML;
 }
 
 // URL detection regex
