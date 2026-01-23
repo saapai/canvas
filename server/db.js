@@ -62,10 +62,19 @@ export async function initDatabase() {
       await db.query(`
         CREATE INDEX IF NOT EXISTS idx_users_phone_normalized ON users(phone_normalized);
       `);
-      // Backfill existing records
+      // Backfill existing records - normalize to match lookup logic
+      // Remove spaces, dashes, parentheses, then remove +1 or leading 1
       await db.query(`
         UPDATE users 
-        SET phone_normalized = REPLACE(REPLACE(phone, ' ', ''), '-', '')
+        SET phone_normalized = REGEXP_REPLACE(
+          REGEXP_REPLACE(
+            REGEXP_REPLACE(phone, '[\\s\\-\\(\\)]', '', 'g'),
+            '^\\+1',
+            ''
+          ),
+          '^1',
+          ''
+        )
         WHERE phone_normalized IS NULL;
       `);
     } catch (error) {
