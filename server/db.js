@@ -510,18 +510,25 @@ export async function getUserByUsername(username) {
   }
 }
 
-export async function getEntriesByUsername(username) {
+export async function getEntriesByUsername(username, options = {}) {
   try {
     const db = getPool();
-    const result = await db.query(
-      `SELECT e.id, e.text, e.position_x, e.position_y, e.parent_entry_id, e.link_cards_data, e.media_card_data, e.created_at
+    const { limit, offset } = options;
+    const hasPagination = limit !== undefined && offset !== undefined;
+    
+    let query = `SELECT e.id, e.text, e.position_x, e.position_y, e.parent_entry_id, e.link_cards_data, e.media_card_data, e.created_at
        FROM entries e
        JOIN users u ON e.user_id = u.id
        WHERE u.username = $1 AND e.deleted_at IS NULL
-       ORDER BY e.created_at ASC`,
-      [username]
-    );
-    // Removed verbose logging
+       ORDER BY e.created_at ASC`;
+    
+    const params = [username];
+    if (hasPagination) {
+      query += ` LIMIT $2 OFFSET $3`;
+      params.push(limit, offset);
+    }
+    
+    const result = await db.query(query, params);
     return result.rows.map(row => ({
       id: row.id,
       text: row.text,
@@ -533,6 +540,23 @@ export async function getEntriesByUsername(username) {
     }));
   } catch (error) {
     console.error('Error fetching entries by username:', error);
+    throw error;
+  }
+}
+
+export async function getEntriesCountByUsername(username) {
+  try {
+    const db = getPool();
+    const result = await db.query(
+      `SELECT COUNT(*)::int AS count
+       FROM entries e
+       JOIN users u ON e.user_id = u.id
+       WHERE u.username = $1 AND e.deleted_at IS NULL`,
+      [username]
+    );
+    return result.rows[0]?.count || 0;
+  } catch (error) {
+    console.error('Error counting entries by username:', error);
     throw error;
   }
 }

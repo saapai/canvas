@@ -22,6 +22,7 @@ import {
   getUsersByPhone,
   getUserByUsername,
   getEntriesByUsername,
+  getEntriesCountByUsername,
   getEntryPath,
   createUser,
   isUsernameTaken,
@@ -975,7 +976,7 @@ app.post('/api/entries/batch', async (req, res) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });
     }
-    const { entries } = req.body;
+    const { entries, pageOwnerId } = req.body;
     
     if (!Array.isArray(entries)) {
       return res.status(400).json({ error: 'entries must be an array' });
@@ -986,7 +987,29 @@ app.post('/api/entries/batch', async (req, res) => {
       return res.status(400).json({ error: 'Batch size cannot exceed 1000 entries' });
     }
 
-    const savedEntries = await saveAllEntries(entries, req.user.id);
+    // Determine which user ID to use for saving
+    let targetUserId = req.user.id;
+    
+    // If pageOwnerId is provided and different from logged-in user, verify permission
+    if (pageOwnerId && pageOwnerId !== req.user.id) {
+      const pageOwner = await getUserById(pageOwnerId);
+      if (!pageOwner) {
+        return res.status(403).json({ error: 'Invalid page owner' });
+      }
+      
+      // Verify that logged-in user and page owner have the same phone number
+      const loggedInPhone = req.user.phone.replace(/\s/g, '');
+      const pageOwnerPhone = pageOwner.phone.replace(/\s/g, '');
+      
+      if (loggedInPhone !== pageOwnerPhone) {
+        return res.status(403).json({ error: 'Not authorized to edit this page' });
+      }
+      
+      // Permission verified - use pageOwnerId
+      targetUserId = pageOwnerId;
+    }
+
+    const savedEntries = await saveAllEntries(entries, targetUserId);
     res.json(savedEntries);
   } catch (error) {
     console.error('Error saving entries:', error);
@@ -1003,15 +1026,37 @@ app.get('/api/public/:username/entries', async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
     
-    const entries = await getEntriesByUsername(username);
+    // Parse pagination parameters
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 1000; // Default to 1000 for backward compatibility
+    const offset = (page - 1) * limit;
     
-    // Log entry statistics for debugging
-    debugLog(`[DEBUG] User: ${username}, Total entries: ${entries.length}`);
-    const rootEntries = entries.filter(e => !e.parentEntryId);
-    const childEntries = entries.filter(e => e.parentEntryId);
-    debugLog(`[DEBUG] Root entries: ${rootEntries.length}, Child entries: ${childEntries.length}`);
+    // Validate pagination
+    if (limit > 5000) {
+      return res.status(400).json({ error: 'Limit cannot exceed 5000' });
+    }
+    if (limit < 1) {
+      return res.status(400).json({ error: 'Limit must be at least 1' });
+    }
     
-    res.json({ user: { username: user.username }, entries });
+    const [entries, totalCount] = await Promise.all([
+      getEntriesByUsername(username, { limit, offset }),
+      getEntriesCountByUsername(username)
+    ]);
+    
+    debugLog(`[DEBUG] User: ${username}, Total entries: ${totalCount}, Loaded: ${entries.length}`);
+    
+    res.json({ 
+      user: { username: user.username }, 
+      entries,
+      pagination: {
+        page,
+        limit,
+        total: totalCount,
+        totalPages: Math.ceil(totalCount / limit),
+        hasMore: offset + entries.length < totalCount
+      }
+    });
   } catch (error) {
     console.error('Error fetching public entries:', error);
     res.status(500).json({ error: error.message });
@@ -1028,21 +1073,35 @@ app.get('/api/public/:username/path/*', async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
     
+    // Load all entries (path navigation needs full tree)
+    // For very large datasets, consider optimizing this endpoint separately
     const allEntries = await getEntriesByUsername(username);
+    
+    // Use Maps for O(1) lookups instead of O(n) filters
     const entriesMap = new Map(allEntries.map(e => [e.id, e]));
+    const entriesByParent = new Map();
+    
+    // Build parent->children map for efficient lookups
+    allEntries.forEach(entry => {
+      const parentId = entry.parentEntryId || 'root';
+      if (!entriesByParent.has(parentId)) {
+        entriesByParent.set(parentId, []);
+      }
+      entriesByParent.get(parentId).push(entry);
+    });
     
     // Build path from root to target entry
     let currentEntry = null;
     const path = [];
     
-    // Find root entries (no parent)
-    const rootEntries = allEntries.filter(e => !e.parentEntryId);
+    // Get root entries (no parent)
+    const rootEntries = entriesByParent.get('root') || [];
     
     // Navigate through path
     for (const pathPart of pathParts) {
       // Find entry with matching slug in current level
       const candidates = currentEntry 
-        ? allEntries.filter(e => e.parentEntryId === currentEntry.id)
+        ? (entriesByParent.get(currentEntry.id) || [])
         : rootEntries;
       
       // Create slug from path part (normalize)
@@ -1067,9 +1126,9 @@ app.get('/api/public/:username/path/*', async (req, res) => {
       currentEntry = found;
     }
     
-    // Get children of current entry (or root entries if at root)
+    // Get children of current entry (or root entries if at root) - use Map for O(1) lookup
     const children = currentEntry
-      ? allEntries.filter(e => e.parentEntryId === currentEntry.id)
+      ? (entriesByParent.get(currentEntry.id) || [])
       : rootEntries;
     
     res.json({

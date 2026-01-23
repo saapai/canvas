@@ -555,13 +555,47 @@ async function bootstrap() {
 
 async function loadUserEntries(username, editable) {
   try {
-    const response = await fetch(`/api/public/${username}/entries`);
-    if (!response.ok) {
-      throw new Error('Failed to load entries');
+    // Load entries with pagination - start with first 1000, then load more if needed
+    let allEntries = [];
+    let page = 1;
+    const limit = 1000;
+    let hasMore = true;
+    
+    while (hasMore) {
+      const response = await fetch(`/api/public/${username}/entries?page=${page}&limit=${limit}`);
+      if (!response.ok) {
+        throw new Error('Failed to load entries');
+      }
+      
+      const data = await response.json();
+      
+      // Handle both old format (entries array) and new format (object with pagination)
+      let pageEntries = [];
+      if (Array.isArray(data)) {
+        // Backward compatibility: old format returns array directly
+        pageEntries = data;
+        hasMore = false;
+      } else if (data.entries && Array.isArray(data.entries)) {
+        // New format with pagination
+        pageEntries = data.entries;
+        hasMore = data.pagination?.hasMore || false;
+        page++;
+        
+        // Safety limit: don't load more than 10,000 entries at once
+        if (allEntries.length + pageEntries.length >= 10000) {
+          console.warn('[LOAD] Reached safety limit of 10,000 entries');
+          hasMore = false;
+        }
+      } else {
+        // Fallback: try to extract entries from response
+        pageEntries = data.entries || [];
+        hasMore = false;
+      }
+      
+      allEntries = allEntries.concat(pageEntries);
     }
     
-    const data = await response.json();
-    const entriesData = data.entries || [];
+    const entriesData = allEntries;
     
     console.log(`[LOAD] Fetched ${entriesData.length} entries for ${username}`);
     
@@ -815,7 +849,67 @@ function handleAuthFailure(response) {
   }
 }
 
-async function saveEntryToServer(entryData) {
+// Debounce queue for entry saves
+let saveQueue = new Map();
+let saveDebounceTimer = null;
+const SAVE_DEBOUNCE_MS = 500;
+
+function flushSaveQueue() {
+  if (saveQueue.size === 0) return;
+  
+  const entriesToSave = Array.from(saveQueue.values());
+  saveQueue.clear();
+  
+  // Use batch endpoint for multiple entries, individual for single
+  if (entriesToSave.length === 1) {
+    saveEntryImmediate(entriesToSave[0]);
+  } else {
+    saveEntriesBatch(entriesToSave);
+  }
+}
+
+async function saveEntriesBatch(entriesToSave) {
+  if (isReadOnly) {
+    console.warn('[SAVE] Cannot save entries: read-only mode');
+    return null;
+  }
+  
+  try {
+    const response = await fetch('/api/entries/batch', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ 
+        entries: entriesToSave.map(entryData => ({
+          id: entryData.id,
+          text: entryData.text,
+          textHtml: entryData.textHtml || null,
+          position: entryData.position,
+          parentEntryId: entryData.parentEntryId,
+          linkCardsData: entryData.linkCardsData || null,
+          mediaCardData: entryData.mediaCardData || null
+        })),
+        pageOwnerId: window.PAGE_OWNER_ID
+      })
+    });
+    
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error('[SAVE] Batch save failed:', response.status, errorData);
+      handleAuthFailure(response);
+      throw new Error(errorData.error || 'Failed to save entries');
+    }
+    
+    return await response.json();
+  } catch (error) {
+    console.error('[SAVE] Error saving entries batch:', error);
+    return null;
+  }
+}
+
+async function saveEntryImmediate(entryData) {
   if (isReadOnly) {
     console.warn('[SAVE] Cannot save entry: read-only mode');
     return null;
@@ -824,20 +918,13 @@ async function saveEntryToServer(entryData) {
   const payload = {
     id: entryData.id,
     text: entryData.text,
-    textHtml: entryData.textHtml || null, // Include HTML formatting
+    textHtml: entryData.textHtml || null,
     position: entryData.position,
     parentEntryId: entryData.parentEntryId,
     linkCardsData: entryData.linkCardsData || null,
     mediaCardData: entryData.mediaCardData || null,
-    pageOwnerId: window.PAGE_OWNER_ID // Include page owner's user ID
+    pageOwnerId: window.PAGE_OWNER_ID
   };
-  
-  console.log('[SAVE] Saving entry to server:', {
-    id: payload.id,
-    text: payload.text?.substring(0, 50),
-    hasMedia: !!payload.mediaCardData,
-    hasLink: !!payload.linkCardsData
-  });
   
   try {
     const response = await fetch('/api/entries', {
@@ -849,8 +936,6 @@ async function saveEntryToServer(entryData) {
       body: JSON.stringify(payload)
     });
     
-    console.log('[SAVE] Response status:', response.status, response.statusText);
-    
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       console.error('[SAVE] Save failed:', response.status, errorData);
@@ -858,14 +943,30 @@ async function saveEntryToServer(entryData) {
       throw new Error(errorData.error || 'Failed to save entry');
     }
     
-    const result = await response.json();
-    console.log('[SAVE] Save successful:', result.id);
-    return result;
+    return await response.json();
   } catch (error) {
     console.error('[SAVE] Error saving entry to server:', error);
-    // Don't throw - allow app to continue working offline
     return null;
   }
+}
+
+async function saveEntryToServer(entryData) {
+  // Add to debounce queue
+  saveQueue.set(entryData.id, entryData);
+  
+  // Clear existing timer
+  if (saveDebounceTimer) {
+    clearTimeout(saveDebounceTimer);
+  }
+  
+  // Set new timer
+  saveDebounceTimer = setTimeout(() => {
+    flushSaveQueue();
+    saveDebounceTimer = null;
+  }, SAVE_DEBOUNCE_MS);
+  
+  // Return immediately (optimistic update)
+  return { id: entryData.id };
 }
 
 async function updateEntryOnServer(entryData) {
@@ -1087,13 +1188,45 @@ async function deleteEntryWithConfirmation(entryId, skipConfirmation = false, sk
 
 async function loadEntriesFromServer() {
   try {
-    const response = await fetch('/api/entries', { credentials: 'include' });
+    // Load entries with pagination - start with first 1000, then load more if needed
+    let allEntries = [];
+    let page = 1;
+    const limit = 1000;
+    let hasMore = true;
     
-    if (!response.ok) {
-      throw new Error('Failed to load entries');
+    while (hasMore) {
+      const response = await fetch(`/api/entries?page=${page}&limit=${limit}`, { 
+        credentials: 'include' 
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to load entries');
+      }
+      
+      const data = await response.json();
+      
+      // Handle both old format (array) and new format (object with pagination)
+      if (Array.isArray(data)) {
+        // Backward compatibility: old format returns array directly
+        allEntries = data;
+        hasMore = false;
+      } else if (data.entries && Array.isArray(data.entries)) {
+        // New format with pagination
+        allEntries = allEntries.concat(data.entries);
+        hasMore = data.pagination?.hasMore || false;
+        page++;
+        
+        // Safety limit: don't load more than 10,000 entries at once
+        if (allEntries.length >= 10000) {
+          console.warn('[LOAD] Reached safety limit of 10,000 entries');
+          hasMore = false;
+        }
+      } else {
+        throw new Error('Unexpected response format');
+      }
     }
     
-    const entriesData = await response.json();
+    const entriesData = allEntries;
     
     // Find the highest entry ID counter
     let maxCounter = 0;
