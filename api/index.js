@@ -70,6 +70,7 @@ function generateUserPageHTML(user, isOwner = false, pathParts = []) {
   <script>
     window.PAGE_USERNAME = '${user.username}';
     window.PAGE_IS_OWNER = ${isOwner};
+    window.PAGE_OWNER_ID = '${user.id}';
     window.PAGE_PATH = ${JSON.stringify(pathParts)};
   </script>`;
     html = html.replace('<script src="app.js"></script>', `${contextScript}\n  <script src="app.js"></script>`);
@@ -894,19 +895,44 @@ app.post('/api/entries', async (req, res) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
     
-    const { id, text, position, parentEntryId, linkCardsData, mediaCardData } = req.body;
+    const { id, text, position, parentEntryId, linkCardsData, mediaCardData, pageOwnerId } = req.body;
     console.log('[API] POST /api/entries - Entry data:', {
       id,
       text: text?.substring(0, 50),
       hasPosition: !!position,
       hasMedia: !!mediaCardData,
       hasLink: !!linkCardsData,
-      userId: req.user.id
+      loggedInUserId: req.user.id,
+      pageOwnerId: pageOwnerId
     });
     
     if (!id || text === undefined || !position) {
       console.log('[API] POST /api/entries - Missing required fields');
       return res.status(400).json({ error: 'id, text, and position are required' });
+    }
+
+    // Determine which user ID to use for saving
+    let targetUserId = req.user.id;
+    
+    // If pageOwnerId is provided and different from logged-in user, verify permission
+    if (pageOwnerId && pageOwnerId !== req.user.id) {
+      const pageOwner = await getUserById(pageOwnerId);
+      if (!pageOwner) {
+        return res.status(403).json({ error: 'Invalid page owner' });
+      }
+      
+      // Verify that logged-in user and page owner have the same phone number
+      const loggedInPhone = req.user.phone.replace(/\s/g, '');
+      const pageOwnerPhone = pageOwner.phone.replace(/\s/g, '');
+      
+      if (loggedInPhone !== pageOwnerPhone) {
+        console.log('[API] POST /api/entries - Phone mismatch:', loggedInPhone, pageOwnerPhone);
+        return res.status(403).json({ error: 'Not authorized to edit this page' });
+      }
+      
+      // Permission verified - use pageOwnerId
+      targetUserId = pageOwnerId;
+      console.log('[API] POST /api/entries - Using pageOwnerId:', targetUserId);
     }
 
     const entry = {
@@ -916,10 +942,10 @@ app.post('/api/entries', async (req, res) => {
       parentEntryId: parentEntryId || null,
       linkCardsData: linkCardsData || null,
       mediaCardData: mediaCardData || null,
-      userId: req.user.id
+      userId: targetUserId
     };
 
-    console.log('[API] POST /api/entries - Calling saveEntry for:', entry.id);
+    console.log('[API] POST /api/entries - Calling saveEntry for:', entry.id, 'with userId:', targetUserId);
     const savedEntry = await saveEntry(entry);
     console.log('[API] POST /api/entries - Save successful:', savedEntry.id);
     res.json(savedEntry);
@@ -935,10 +961,32 @@ app.put('/api/entries/:id', async (req, res) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
     const { id } = req.params;
-    const { text, position, parentEntryId, linkCardsData, mediaCardData } = req.body;
+    const { text, position, parentEntryId, linkCardsData, mediaCardData, pageOwnerId } = req.body;
     
     if (text === undefined || !position) {
       return res.status(400).json({ error: 'text and position are required' });
+    }
+
+    // Determine which user ID to use for saving
+    let targetUserId = req.user.id;
+    
+    // If pageOwnerId is provided and different from logged-in user, verify permission
+    if (pageOwnerId && pageOwnerId !== req.user.id) {
+      const pageOwner = await getUserById(pageOwnerId);
+      if (!pageOwner) {
+        return res.status(403).json({ error: 'Invalid page owner' });
+      }
+      
+      // Verify that logged-in user and page owner have the same phone number
+      const loggedInPhone = req.user.phone.replace(/\s/g, '');
+      const pageOwnerPhone = pageOwner.phone.replace(/\s/g, '');
+      
+      if (loggedInPhone !== pageOwnerPhone) {
+        return res.status(403).json({ error: 'Not authorized to edit this page' });
+      }
+      
+      // Permission verified - use pageOwnerId
+      targetUserId = pageOwnerId;
     }
 
     const entry = {
@@ -948,7 +996,7 @@ app.put('/api/entries/:id', async (req, res) => {
       parentEntryId: parentEntryId || null,
       linkCardsData: linkCardsData || null,
       mediaCardData: mediaCardData || null,
-      userId: req.user.id
+      userId: targetUserId
     };
 
     const savedEntry = await saveEntry(entry);
@@ -965,7 +1013,31 @@ app.delete('/api/entries/:id', async (req, res) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
     const { id } = req.params;
-    await deleteEntry(id, req.user.id);
+    const { pageOwnerId } = req.query;
+    
+    // Determine which user ID to use for deletion
+    let targetUserId = req.user.id;
+    
+    // If pageOwnerId is provided and different from logged-in user, verify permission
+    if (pageOwnerId && pageOwnerId !== req.user.id) {
+      const pageOwner = await getUserById(pageOwnerId);
+      if (!pageOwner) {
+        return res.status(403).json({ error: 'Invalid page owner' });
+      }
+      
+      // Verify that logged-in user and page owner have the same phone number
+      const loggedInPhone = req.user.phone.replace(/\s/g, '');
+      const pageOwnerPhone = pageOwner.phone.replace(/\s/g, '');
+      
+      if (loggedInPhone !== pageOwnerPhone) {
+        return res.status(403).json({ error: 'Not authorized to edit this page' });
+      }
+      
+      // Permission verified - use pageOwnerId
+      targetUserId = pageOwnerId;
+    }
+    
+    await deleteEntry(id, targetUserId);
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting entry:', error);

@@ -807,7 +807,8 @@ async function saveEntryToServer(entryData) {
     position: entryData.position,
     parentEntryId: entryData.parentEntryId,
     linkCardsData: entryData.linkCardsData || null,
-    mediaCardData: entryData.mediaCardData || null
+    mediaCardData: entryData.mediaCardData || null,
+    pageOwnerId: window.PAGE_OWNER_ID // Include page owner's user ID
   };
   
   console.log('[SAVE] Saving entry to server:', {
@@ -899,7 +900,7 @@ function showDeleteConfirmation(entryId, childCount) {
       childCountEl.textContent = '';
     } else {
       if (entryId) {
-        message.innerHTML = `This entry has <strong id="delete-child-count">${childCount}</strong> child ${childCount === 1 ? 'entry' : 'entries'} that will also be deleted.`;
+      message.innerHTML = `This entry has <strong id="delete-child-count">${childCount}</strong> child ${childCount === 1 ? 'entry' : 'entries'} that will also be deleted.`;
       } else {
         message.innerHTML = `The selected entries have <strong id="delete-child-count">${childCount}</strong> child ${childCount === 1 ? 'entry' : 'entries'} that will also be deleted.`;
       }
@@ -943,7 +944,9 @@ async function deleteEntryFromServer(entryId) {
   }
   
   try {
-    const response = await fetch(`/api/entries/${entryId}`, {
+    const pageOwnerId = window.PAGE_OWNER_ID;
+    const url = pageOwnerId ? `/api/entries/${entryId}?pageOwnerId=${encodeURIComponent(pageOwnerId)}` : `/api/entries/${entryId}`;
+    const response = await fetch(url, {
       method: 'DELETE',
       credentials: 'include'
     });
@@ -2761,7 +2764,7 @@ viewport.addEventListener('mousedown', (e) => {
       }
       
       // Prepare for drag - always allow dragging entries (no shift needed)
-      const isEntrySelected = selectedEntries.has(entryEl.id);
+    const isEntrySelected = selectedEntries.has(entryEl.id);
       e.preventDefault();
       e.stopPropagation(); // Stop event from being handled elsewhere
       draggingEntry = entryEl;
@@ -3155,7 +3158,7 @@ window.addEventListener('mouseup', (e) => {
               window.open(urls[0], '_blank');
             }
           }
-        }
+        } 
         // Regular click on link/media card: navigate to entry (open breadcrumb)
         // But don't navigate if we're currently editing
         else if(entryEl.id !== 'anchor' && entryEl.id && !editingEntryId) {
@@ -3667,11 +3670,11 @@ editor.addEventListener('blur', (e) => {
         if (entryData) {
           // User deleted all text - delete the entry (with confirmation if has children)
           // deleteEntryWithConfirmation already handles undo state
-          const deleted = await deleteEntryWithConfirmation(editingEntryId);
-          if (deleted) {
-            editor.textContent = '';
-            editor.style.display = 'none';
-            editingEntryId = null;
+            const deleted = await deleteEntryWithConfirmation(editingEntryId);
+            if (deleted) {
+              editor.textContent = '';
+              editor.style.display = 'none';
+              editingEntryId = null;
           } else {
             // User cancelled deletion - restore editing state
             entryData.element.classList.add('editing');
@@ -4640,8 +4643,8 @@ function handleAutocompleteSearch() {
   if (!autocomplete || editor.style.display === 'none' || !mediaAutocompleteEnabled) {
     hideAutocomplete();
     autocompleteIsShowing = false;
-    return;
-  }
+      return;
+    }
 
   const text = editor.innerText || editor.textContent || '';
   const trimmed = text.trim();
@@ -4650,8 +4653,8 @@ function handleAutocompleteSearch() {
   if (trimmed.length < 3) {
     hideAutocomplete();
     autocompleteIsShowing = false;
-    return;
-  }
+      return;
+    }
 
   // Debounce search
   clearTimeout(autocompleteSearchTimeout);
@@ -5324,13 +5327,13 @@ async function deleteSelectedEntries() {
     if (!entryData) return;
     
     allEntriesToDelete.push({
-      id: entryData.id,
-      text: entryData.text,
-      position: entryData.position,
-      parentEntryId: entryData.parentEntryId,
-      mediaCardData: entryData.mediaCardData,
-      linkCardsData: entryData.linkCardsData
-    });
+        id: entryData.id,
+        text: entryData.text,
+        position: entryData.position,
+        parentEntryId: entryData.parentEntryId,
+        mediaCardData: entryData.mediaCardData,
+        linkCardsData: entryData.linkCardsData
+      });
     
     // Collect children recursively
     const children = Array.from(entries.values()).filter(e => e.parentEntryId === entryId);
