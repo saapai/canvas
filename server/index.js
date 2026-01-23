@@ -583,6 +583,14 @@ app.post('/api/auth/logout', (req, res) => {
   return res.json({ success: true });
 });
 
+// Diagnostic: Log any unmatched API routes
+app.use('/api/*', (req, res, next) => {
+  console.log('[API] Unmatched API route:', req.method, req.path);
+  console.log('[API] Full URL:', req.originalUrl);
+  console.log('[API] Headers:', req.headers);
+  res.status(404).json({ error: 'API endpoint not found', path: req.path });
+});
+
 app.post('/api/process-text', async (req, res) => {
   try {
     const { text, existingCards } = req.body;
