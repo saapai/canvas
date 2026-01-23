@@ -1887,7 +1887,8 @@ function showCursorAtWorld(wx, wy, force = false) {
   editor.style.width = '4px';
   editor.classList.add('idle-cursor');
   editor.classList.remove('has-content');
-  // Don't focus - just show the cursor
+  // Don't focus - let the typing handler or click handle focusing
+  // This way the CSS cursor shows, and typing will work via the keydown handler
   editor.blur();
 }
 
@@ -1917,8 +1918,9 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
   
   console.log('[EDITOR] placeEditorAtWorld called with entryId:', entryId, 'type:', typeof entryId, 'force:', force);
   
-  // Store cursor position before entering edit mode (if not already editing)
-  if (!editingEntryId && !text) {
+  // Store cursor position before entering edit mode (if not already editing and we have a valid position)
+  if (!editingEntryId && !text && editorWorldPos && (editorWorldPos.x !== 0 || editorWorldPos.y !== 0)) {
+    // Only store if we have a meaningful position (not default 0,0)
     cursorPosBeforeEdit = { x: editorWorldPos.x, y: editorWorldPos.y };
   }
   
@@ -1946,6 +1948,7 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
   editor.style.left = `${wx}px`;
   editor.style.top  = `${wy}px`;
   editor.textContent = text;
+  // Always remove idle-cursor when placing editor (will be focused, so native caret shows)
   editor.classList.remove('idle-cursor');
   
   // Set editor width based on actual content, not fixed entry width
@@ -2016,11 +2019,8 @@ async function commitEditor(){
     if(!entryData){
       console.warn('[COMMIT] Missing entry data for edit. Aborting edit to avoid duplicate:', editingEntryId);
       console.warn('[COMMIT] Entry not found in Map. Available entries:', Array.from(entries.keys()).filter(id => id.includes('83')));
-      if (editorWorldPos) {
-        showCursorAtWorld(editorWorldPos.x, editorWorldPos.y);
-      } else {
-        hideCursor();
-      }
+      // After committing, show cursor in default position (restore previous or find empty space)
+      showCursorInDefaultPosition();
       editingEntryId = null;
       isCommitting = false;
       return;
@@ -2128,11 +2128,8 @@ async function commitEditor(){
         return;
       }
       
-      if (editorWorldPos) {
-        showCursorAtWorld(editorWorldPos.x, editorWorldPos.y);
-      } else {
-        hideCursor();
-      }
+      // After committing, show cursor in default position (restore previous or find empty space)
+      showCursorInDefaultPosition();
       editingEntryId = null;
       isCommitting = false;
       return;
@@ -3853,6 +3850,11 @@ editor.addEventListener('input', () => {
   
   // Enable autocomplete for text input
   handleAutocompleteSearch();
+});
+
+// Ensure idle-cursor is removed when editor gets focus (native caret will show)
+editor.addEventListener('focus', (e) => {
+  editor.classList.remove('idle-cursor');
 });
 
 editor.addEventListener('blur', (e) => {
@@ -5597,11 +5599,11 @@ async function deleteSelectedEntries() {
   clearSelection();
 }
 
-// Handle typing without clicking - start typing at hover position if editor is not visible
+// Handle typing without clicking - start typing at hover position if editor is in idle mode
 window.addEventListener('keydown', (e) => {
-  // Only handle if editor is not visible and we're in edit mode
+  // Only handle if editor is in idle mode (showing cursor but not actively editing) and we're in edit mode
   // Also check that the event target is not the editor (to avoid double-handling)
-  if (editor.style.display === 'none' && !isReadOnly && !isNavigating && !navigationJustCompleted && e.target !== editor) {
+  if (editor.classList.contains('idle-cursor') && !isReadOnly && !isNavigating && !navigationJustCompleted && e.target !== editor) {
     // Check if this is a printable character (not a modifier key)
     // Allow letters, numbers, punctuation, space, etc.
     // Exclude special keys like Escape, Enter, Arrow keys, etc.
@@ -5622,13 +5624,12 @@ window.addEventListener('keydown', (e) => {
         targetPos = { x: w.x, y: w.y };
       }
       
-      // Place editor at determined position
+      // Place editor at determined position (this will remove idle-cursor and focus)
       placeEditorAtWorld(targetPos.x, targetPos.y);
       
       // If it's a printable character, insert it into the editor
       if (isPrintable) {
-        // Focus the editor and insert the character
-        editor.focus();
+        // Editor is already focused by placeEditorAtWorld, just insert the character
         // Insert the character at cursor position
         const selection = window.getSelection();
         if (selection.rangeCount > 0) {

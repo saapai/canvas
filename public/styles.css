@@ -185,7 +185,8 @@ body::before{
 }
 
 #editor:focus,
-#editor.has-content {
+#editor.has-content,
+#editor.idle-cursor {
   pointer-events: auto;
 }
 
@@ -193,8 +194,7 @@ body::before{
   outline: none;
 }
 
-/* Show blinking cursor when editor is empty/idle */
-#editor:empty::after,
+/* Show blinking cursor when editor is idle (not focused) */
 #editor.idle-cursor::after {
   content: '';
   display: inline-block;
@@ -205,6 +205,11 @@ body::before{
   animation: blink 1s infinite;
   vertical-align: baseline;
   opacity: 0.8;
+}
+
+/* Hide CSS cursor when editor is focused (native caret will show) */
+#editor:focus::after {
+  display: none;
 }
 
 #editor.idle-cursor {
