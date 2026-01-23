@@ -828,6 +828,10 @@ app.post('/api/entries', async (req, res) => {
     }
     const { id, text, textHtml, position, parentEntryId, linkCardsData, mediaCardData, pageOwnerId } = req.body;
     
+    console.log(`[SAVE] Received request for entry ${id}`);
+    console.log(`[SAVE] Request body textHtml:`, textHtml ? textHtml.substring(0, 100) : 'null');
+    console.log(`[SAVE] Request body keys:`, Object.keys(req.body));
+    
     if (!id || !text || !position) {
       return res.status(400).json({ error: 'id, text, and position are required' });
     }
@@ -868,6 +872,14 @@ app.post('/api/entries', async (req, res) => {
       mediaCardData: mediaCardData || null,
       userId: targetUserId
     };
+    
+    console.log(`[SAVE] Entry object created:`, {
+      id: entry.id,
+      text: entry.text.substring(0, 30),
+      textHtml: entry.textHtml ? entry.textHtml.substring(0, 50) : 'null',
+      textHtmlLength: entry.textHtml ? entry.textHtml.length : 0,
+      hasTextHtml: !!entry.textHtml
+    });
 
     const savedEntry = await saveEntry(entry);
     console.log(`[SAVE] Successfully saved entry ${id}`);
@@ -885,6 +897,10 @@ app.put('/api/entries/:id', async (req, res) => {
     }
     const { id } = req.params;
     const { text, textHtml, position, parentEntryId, linkCardsData, mediaCardData, pageOwnerId } = req.body;
+    
+    console.log(`[UPDATE] Received request for entry ${id}`);
+    console.log(`[UPDATE] Request body textHtml:`, textHtml ? textHtml.substring(0, 100) : 'null');
+    console.log(`[UPDATE] Request body keys:`, Object.keys(req.body));
     
     if (!text || !position) {
       return res.status(400).json({ error: 'text and position are required' });
@@ -925,7 +941,13 @@ app.put('/api/entries/:id', async (req, res) => {
       userId: targetUserId
     };
     
-    console.log(`[UPDATE] Entry object textHtml: ${entry.textHtml ? entry.textHtml.substring(0, 50) : 'null'}`);
+    console.log(`[UPDATE] Entry object created:`, {
+      id: entry.id,
+      text: entry.text.substring(0, 30),
+      textHtml: entry.textHtml ? entry.textHtml.substring(0, 50) : 'null',
+      textHtmlLength: entry.textHtml ? entry.textHtml.length : 0,
+      hasTextHtml: !!entry.textHtml
+    });
 
     const savedEntry = await saveEntry(entry);
     console.log(`[UPDATE] Successfully updated entry ${id}`);
