@@ -1934,8 +1934,12 @@ function showCursorInDefaultPosition(entryId = null) {
     return;
   }
   
-  // PRIORITY 1: If user just clicked, use that click position (handled in click handler, not here)
-  // This function should not override user clicks
+  // PRIORITY 1: If user just clicked, use that click position (superceding rule)
+  // Check lastClickPos first - if user clicked, always use that position
+  if (lastClickPos && hasClickedRecently) {
+    showCursorAtWorld(lastClickPos.x, lastClickPos.y);
+    return;
+  }
   
   // PRIORITY 2: If we have an entry ID, place cursor at bottom-right of that entry
   if (entryId) {
