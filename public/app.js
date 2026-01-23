@@ -1810,9 +1810,19 @@ function updateBreadcrumb() {
 }
 
 
-// Check if a position overlaps with any entry
+// Check if a position overlaps with any entry (requires 5px empty space in all directions)
 function positionOverlapsEntry(wx, wy) {
-  const padding = 20; // Extra padding to avoid being too close to entries
+  const requiredClearance = 5; // Required empty space in all directions (in world coordinates)
+  const cursorWidth = 4; // Approximate cursor width in world coordinates
+  const cursorHeight = 20; // Approximate cursor height in world coordinates (line height)
+  
+  // Calculate the bounding box of the cursor area (with required clearance)
+  // Account for editor padding offset (4px) - cursor appears 4px to the right of editor.left
+  const cursorX = wx + 4; // Actual cursor X position (accounting for editor padding)
+  const cursorLeft = cursorX - requiredClearance;
+  const cursorRight = cursorX + cursorWidth + requiredClearance;
+  const cursorTop = wy - requiredClearance;
+  const cursorBottom = wy + cursorHeight + requiredClearance;
   
   for (const [entryId, entryData] of entries.entries()) {
     if (entryId === 'anchor') continue;
@@ -1826,12 +1836,11 @@ function positionOverlapsEntry(wx, wy) {
     const worldWidth = rect.width / cam.z;
     const worldHeight = rect.height / cam.z;
     
-    // Check if cursor position overlaps with entry (with padding)
-    // Account for editor padding offset (4px) when checking
-    const cursorX = wx + 4; // Add back the padding offset for accurate check
-    if (cursorX >= worldX - padding && cursorX <= worldX + worldWidth + padding &&
-        wy >= worldY - padding && wy <= worldY + worldHeight + padding) {
-      return true;
+    // Check if cursor area (with clearance) overlaps with entry
+    // Check for any overlap between cursor area and entry using bounding box intersection
+    if (!(cursorRight < worldX || cursorLeft > worldX + worldWidth || 
+          cursorBottom < worldY || cursorTop > worldY + worldHeight)) {
+      return true; // Overlaps
     }
   }
   
@@ -1843,10 +1852,10 @@ function positionOverlapsEntry(wx, wy) {
     const anchorWorldWidth = anchorRect.width / cam.z;
     const anchorWorldHeight = anchorRect.height / cam.z;
     
-    const cursorX = wx + 4; // Add back the padding offset for accurate check
-    if (cursorX >= anchorX - padding && cursorX <= anchorX + anchorWorldWidth + padding &&
-        wy >= anchorY - padding && wy <= anchorY + anchorWorldHeight + padding) {
-      return true;
+    // Check if cursor area overlaps with anchor
+    if (!(cursorRight < anchorX || cursorLeft > anchorX + anchorWorldWidth || 
+          cursorBottom < anchorY || cursorTop > anchorY + anchorWorldHeight)) {
+      return true; // Overlaps
     }
   }
   
