@@ -2432,6 +2432,9 @@ async function commitEditor(){
       // Remove editing class first so content is visible for melt animation
       entryData.element.classList.remove('editing');
       
+      // Add melt class for animation
+      entryData.element.classList.add('melt');
+      
       // Update entry content with melt animation
       if(processedText){
         entryData.element.innerHTML = meltify(processedText);
@@ -2488,6 +2491,20 @@ async function commitEditor(){
         isCommitting = false;
         return;
       }
+      
+      // Remove melt class after animation completes and reset styles
+      const maxDuration = 1500; // Maximum animation duration
+      setTimeout(() => {
+        entryData.element.classList.remove('melt');
+        // Reset any inline styles from animation
+        const spans = entryData.element.querySelectorAll('span');
+        spans.forEach(span => {
+          span.style.animation = 'none';
+          span.style.transform = '';
+          span.style.filter = '';
+          span.style.opacity = '';
+        });
+      }, maxDuration);
       
       // After committing, show cursor at bottom-right of edited entry
       showCursorInDefaultPosition(editingEntryId);
