@@ -2003,8 +2003,9 @@ function showCursorInDefaultPosition(entryId = null) {
   
   // PRIORITY 1: If user just clicked, use that click position (superceding rule)
   // Check lastClickPos first - if user clicked, always use that position
+  // Note: We don't check for overlaps here because user explicitly clicked there
   if (lastClickPos && hasClickedRecently) {
-    showCursorAtWorld(lastClickPos.x, lastClickPos.y);
+    showCursorAtWorld(lastClickPos.x, lastClickPos.y, true); // force = true to override isProcessingClick
     return;
   }
   
@@ -2027,7 +2028,14 @@ function showCursorInDefaultPosition(entryId = null) {
   // PRIORITY 3: If we have a stored position from before edit mode, use it
   // BUT: Only if user didn't click (hasClickedRecently would be true if they did)
   if (cursorPosBeforeEdit && !hasClickedRecently) {
-    showCursorAtWorld(cursorPosBeforeEdit.x, cursorPosBeforeEdit.y);
+    // Check if stored position overlaps with any entry
+    if (positionOverlapsEntry(cursorPosBeforeEdit.x, cursorPosBeforeEdit.y)) {
+      // Position overlaps, find a new empty space
+      const newPos = findRandomEmptySpaceNextToEntry();
+      showCursorAtWorld(newPos.x, newPos.y);
+    } else {
+      showCursorAtWorld(cursorPosBeforeEdit.x, cursorPosBeforeEdit.y);
+    }
     cursorPosBeforeEdit = null; // Clear after using
     return;
   }
