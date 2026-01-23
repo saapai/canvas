@@ -3144,6 +3144,7 @@ function createLinkCard(cardData) {
     }
   });
   
+  // Single click: Command/Ctrl + click opens link in new tab
   card.addEventListener('click', (e) => {
     // Don't handle click if shift was held (shift+click is for dragging)
     // Also don't handle if we just finished dragging (prevents navigation after drag)
@@ -3161,7 +3162,15 @@ function createLinkCard(cardData) {
       return;
     }
     
-    // Regular click: create entry and navigate to it
+    // Regular single click does nothing (allows dragging)
+  });
+  
+  // Double click: create entry and navigate to it (like text entries)
+  card.addEventListener('dblclick', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Regular double-click: create entry and navigate to it
     const entryText = cardData.url;
     
     // Check for duplicate entry at the same directory level
@@ -3222,13 +3231,9 @@ function createLinkCard(cardData) {
     }, maxDuration);
   });
   card.addEventListener('mousedown', (e) => {
-    // For shift+click, allow event to bubble up to viewport handler for dragging
-    // Only stop propagation for non-shift clicks (to prevent navigation)
-    if (e.shiftKey) {
-      // Let shift+click propagate - don't stop it
-      return;
-    }
-    e.stopPropagation();
+    // Allow mousedown to bubble for dragging (both regular and shift+click)
+    // The entry handler will handle the drag, and we prevent unwanted click behavior in the click handler
+    // Don't stop propagation here - let dragging work
   });
   card.addEventListener('contextmenu', (e) => {
     e.preventDefault();
@@ -3345,24 +3350,24 @@ viewport.addEventListener('mousedown', (e) => {
   }
   
   if(entryEl) {
-    // Don't start drag if clicking on link card or media card (let them handle it)
+    // Allow dragging when clicking on link card or media card too
     const isLinkCard = e.target.closest('.link-card, .link-card-placeholder');
     const isMediaCard = e.target.closest('.media-card');
     
-    if (!isLinkCard && !isMediaCard) {
-      // Cancel any pending edit timeout since we're starting to drag
-      if (pendingEditTimeout) {
-        clearTimeout(pendingEditTimeout);
-        pendingEditTimeout = null;
-      }
-      
-      // Prepare for drag - always allow dragging entries (no shift needed)
+    // Cancel any pending edit timeout since we're starting to drag
+    if (pendingEditTimeout) {
+      clearTimeout(pendingEditTimeout);
+      pendingEditTimeout = null;
+    }
+    
+    // Prepare for drag - always allow dragging entries (no shift needed)
+    // This works for both regular entry clicks and card clicks
     const isEntrySelected = selectedEntries.has(entryEl.id);
-      e.preventDefault();
-      e.stopPropagation(); // Stop event from being handled elsewhere
-      draggingEntry = entryEl;
-      isClick = false;
-      hasMoved = false;
+    e.preventDefault();
+    e.stopPropagation(); // Stop event from being handled elsewhere
+    draggingEntry = entryEl;
+    isClick = false;
+    hasMoved = false;
       
       // Save initial positions for undo (for single entry and selected entries)
       dragStartPositions.clear();
@@ -3883,6 +3888,15 @@ editor.addEventListener('keydown', (e) => {
     }
   }
 
+  // Command/Ctrl+B to toggle bold
+  if ((e.metaKey || e.ctrlKey) && e.key === 'b' && !e.shiftKey && !e.altKey) {
+    e.preventDefault();
+    e.stopPropagation();
+    // Toggle bold using execCommand
+    document.execCommand('bold', false, null);
+    return;
+  }
+  
   // Allow Command/Ctrl+Shift+1 to navigate home even when editor is focused
   const isOneKey = e.key === '1' || e.key === 'Digit1' || e.code === 'Digit1';
   if ((e.metaKey || e.ctrlKey) && e.shiftKey && isOneKey) {
@@ -5654,7 +5668,7 @@ function createMediaCard(mediaData) {
 
   card.innerHTML = cardContent;
 
-  // Handle click - same behavior as link cards
+  // Single click: Command/Ctrl+click opens in new tab
   card.addEventListener('click', (e) => {
     // Don't handle click if shift was held (shift+click is for dragging)
     // Also don't handle if we just finished dragging (prevents navigation after drag)
@@ -5677,19 +5691,27 @@ function createMediaCard(mediaData) {
       return;
     }
     
-    // Regular click navigates into the card (like link cards)
+    // Regular single click does nothing (allows dragging)
+  });
+  
+  // Double click: navigate into the entry (like text entries)
+  card.addEventListener('dblclick', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    // Regular double-click navigates into the entry
     const entryEl = card.closest('.entry');
     if (entryEl && entryEl.id) {
-      e.preventDefault();
       navigateToEntry(entryEl.id);
     }
   });
   
-  // Also prevent mousedown from bubbling to prevent entry click detection
+  // Allow mousedown to bubble for dragging, but prevent click from bubbling
+  // This allows dragging cards while still preventing unwanted click behavior
   card.addEventListener('mousedown', (e) => {
-    if (!e.shiftKey) {
-      e.stopPropagation();
-    }
+    // Allow shift+click to bubble for dragging
+    // For regular clicks, we still want to allow dragging, so don't stop propagation
+    // The entry handler will handle the drag
   });
 
   // Right-click to edit the media card's link (similar to link cards)
