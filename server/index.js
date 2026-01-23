@@ -1071,5 +1071,10 @@ export default app;
 if (process.env.VERCEL !== '1') {
   app.listen(PORT, () => {
     console.log(`Server running on http://localhost:${PORT}`);
+    console.log('Registered routes:');
+    console.log('  GET /api/auth/spaces');
+    console.log('  POST /api/auth/create-space');
+    console.log('  PUT /api/auth/update-username');
+    console.log('  POST /api/auth/logout');
   });
 }
