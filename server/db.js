@@ -17,9 +17,19 @@ export function getPool() {
     }
 
     // Always enable SSL but do not reject self-signed certificates.
+    // Configure connection pool for scale: max 20 connections, timeout after 30s idle
     pool = new Pool({
       connectionString,
-      ssl: { rejectUnauthorized: false }
+      ssl: { rejectUnauthorized: false },
+      max: 20, // Maximum number of clients in the pool
+      idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
+      connectionTimeoutMillis: 2000, // Return an error after 2 seconds if connection could not be established
+      allowExitOnIdle: false // Keep pool alive even when idle
+    });
+
+    // Handle pool errors
+    pool.on('error', (err) => {
+      console.error('Unexpected error on idle client', err);
     });
   }
   return pool;
@@ -36,10 +46,40 @@ export async function initDatabase() {
       CREATE TABLE IF NOT EXISTS users (
         id TEXT PRIMARY KEY,
         phone TEXT NOT NULL,
+        phone_normalized TEXT,
         username TEXT UNIQUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
     `);
+
+    // Add phone_normalized column if it doesn't exist (migration)
+    try {
+      await db.query(`
+        ALTER TABLE users 
+        ADD COLUMN IF NOT EXISTS phone_normalized TEXT;
+      `);
+      // Create index on normalized phone for fast lookups
+      await db.query(`
+        CREATE INDEX IF NOT EXISTS idx_users_phone_normalized ON users(phone_normalized);
+      `);
+      // Backfill existing records - normalize to match lookup logic
+      // Remove spaces, dashes, parentheses, then remove +1 or leading 1
+      await db.query(`
+        UPDATE users 
+        SET phone_normalized = REGEXP_REPLACE(
+          REGEXP_REPLACE(
+            REGEXP_REPLACE(phone, '[\\s\\-\\(\\)]', '', 'g'),
+            '^\\+1',
+            ''
+          ),
+          '^1',
+          ''
+        )
+        WHERE phone_normalized IS NULL;
+      `);
+    } catch (error) {
+      console.log('Note: phone_normalized column/index check:', error.message);
+    }
 
     await db.query(`
       CREATE TABLE IF NOT EXISTS entries (
@@ -78,6 +118,16 @@ export async function initDatabase() {
     `);
     await db.query(`
       CREATE INDEX IF NOT EXISTS idx_phone_verification_phone ON phone_verification_codes(phone);
+    `);
+    
+    // Add index on deleted_at for efficient soft delete filtering
+    await db.query(`
+      CREATE INDEX IF NOT EXISTS idx_entries_deleted_at ON entries(deleted_at) WHERE deleted_at IS NULL;
+    `);
+    
+    // Add index on username for faster lookups
+    await db.query(`
+      CREATE INDEX IF NOT EXISTS idx_users_username ON users(username) WHERE username IS NOT NULL;
     `);
 
     // Add columns if they don't exist (migration for existing databases)
@@ -137,32 +187,45 @@ export async function initDatabase() {
   }
 }
 
-export async function getAllEntries(userId) {
+export async function getAllEntries(userId, options = {}) {
   try {
     const db = getPool();
+    const { limit, offset } = options;
+    const hasPagination = limit !== undefined && offset !== undefined;
+    
     let result;
     try {
       // Try to select with text_html column
-      result = await db.query(
-        `SELECT id, text, text_html, position_x, position_y, parent_entry_id, link_cards_data, media_card_data
+      let query = `SELECT id, text, text_html, position_x, position_y, parent_entry_id, link_cards_data, media_card_data
          FROM entries
          WHERE user_id = $1 AND deleted_at IS NULL
-         ORDER BY created_at ASC`,
-        [userId]
-      );
+         ORDER BY created_at ASC`;
+      
+      const params = [userId];
+      if (hasPagination) {
+        query += ` LIMIT $2 OFFSET $3`;
+        params.push(limit, offset);
+      }
+      
+      result = await db.query(query, params);
     } catch (dbError) {
       // If column doesn't exist, select without it
       if (dbError.code === '42703' || dbError.message.includes('text_html') || (dbError.message.includes('column') && dbError.message.includes('text_html'))) {
-        console.error('[DB] ERROR: text_html column does not exist when loading entries!');
-        console.error('[DB] Error code:', dbError.code, 'Message:', dbError.message);
-        console.error('[DB] Please run: ALTER TABLE entries ADD COLUMN text_html TEXT;');
-        result = await db.query(
-          `SELECT id, text, position_x, position_y, parent_entry_id, link_cards_data, media_card_data
+        if (process.env.NODE_ENV === 'development') {
+          console.error('[DB] ERROR: text_html column does not exist when loading entries!');
+        }
+        let query = `SELECT id, text, position_x, position_y, parent_entry_id, link_cards_data, media_card_data
            FROM entries
            WHERE user_id = $1 AND deleted_at IS NULL
-           ORDER BY created_at ASC`,
-          [userId]
-        );
+           ORDER BY created_at ASC`;
+        
+        const params = [userId];
+        if (hasPagination) {
+          query += ` LIMIT $2 OFFSET $3`;
+          params.push(limit, offset);
+        }
+        
+        result = await db.query(query, params);
       } else {
         throw dbError;
       }
@@ -177,19 +240,25 @@ export async function getAllEntries(userId) {
       mediaCardData: row.media_card_data || null
     }));
     
-    const withHtml = mapped.filter(e => e.textHtml);
-    console.log(`[DB] getAllEntries: ${mapped.length} total, ${withHtml.length} with textHtml`);
-    if (withHtml.length > 0) {
-      console.log('[DB] Sample entry with textHtml:', {
-        id: withHtml[0].id,
-        textHtmlLength: withHtml[0].textHtml?.length,
-        textHtmlSample: withHtml[0].textHtml?.substring(0, 100)
-      });
-    }
-    
     return mapped;
   } catch (error) {
     console.error('Error fetching entries:', error);
+    throw error;
+  }
+}
+
+export async function getEntriesCount(userId) {
+  try {
+    const db = getPool();
+    const result = await db.query(
+      `SELECT COUNT(*)::int AS count
+       FROM entries
+       WHERE user_id = $1 AND deleted_at IS NULL`,
+      [userId]
+    );
+    return result.rows[0]?.count || 0;
+  } catch (error) {
+    console.error('Error counting entries:', error);
     throw error;
   }
 }
@@ -221,15 +290,7 @@ export async function getEntryById(id, userId) {
 
 export async function saveEntry(entry) {
   try {
-    console.log('[DB] saveEntry called:', {
-      id: entry.id,
-      text: entry.text?.substring(0, 50),
-      textHtml: entry.textHtml ? entry.textHtml.substring(0, 100) : null,
-      textHtmlLength: entry.textHtml ? entry.textHtml.length : 0,
-      userId: entry.userId,
-      hasMedia: !!entry.mediaCardData,
-      hasLink: !!entry.linkCardsData
-    });
+    // Removed verbose logging - use DEBUG env var if needed
     
     const db = getPool();
     const linkCardsData = entry.linkCardsData ? JSON.stringify(entry.linkCardsData) : null;
@@ -257,7 +318,6 @@ export async function saveEntry(entry) {
         [entry.id, entry.text, entry.textHtml || null, entry.position.x, entry.position.y, entry.parentEntryId || null, entry.userId, linkCardsData, mediaCardData]
       );
       textHtmlActuallySaved = !!entry.textHtml; // Successfully saved with text_html column
-      console.log('[DB] Successfully saved with text_html column');
     } catch (dbError) {
       // If column doesn't exist, try without text_html
       // PostgreSQL error code 42703 = undefined_column
@@ -292,28 +352,7 @@ export async function saveEntry(entry) {
       }
     }
     
-    console.log('[DB] saveEntry successful:', entry.id, 'rowCount:', result.rowCount, 'textHtml in request:', !!entry.textHtml, 'textHtml actually saved to DB:', textHtmlActuallySaved);
-    
-    // Verify the save by querying back (only if we tried to save with text_html)
-    if (entry.textHtml && textHtmlActuallySaved) {
-      try {
-        const verifyResult = await db.query(
-          `SELECT text_html FROM entries WHERE id = $1`,
-          [entry.id]
-        );
-        if (verifyResult.rows.length > 0) {
-          const savedHtml = verifyResult.rows[0].text_html;
-          console.log('[DB] Verification: text_html in DB:', savedHtml ? savedHtml.substring(0, 50) : 'NULL', 'matches:', savedHtml === entry.textHtml);
-          if (!savedHtml) {
-            console.error('[DB] WARNING: textHtml was sent but is NULL in database! Save may have failed.');
-          }
-        }
-      } catch (verifyError) {
-        console.error('[DB] Could not verify text_html save:', verifyError.message);
-      }
-    } else if (entry.textHtml && !textHtmlActuallySaved) {
-      console.error('[DB] CRITICAL: textHtml was provided but could NOT be saved because column does not exist!');
-    }
+    // Removed verbose verification logging - use DEBUG env var if needed
     
     return entry;
   } catch (error) {
@@ -332,7 +371,6 @@ export async function saveEntry(entry) {
 export async function deleteEntry(id, userId) {
   try {
     const db = getPool();
-    console.log('[DB] SOFT DELETING entry:', id, 'for user:', userId);
     
     // Soft delete: set deleted_at timestamp instead of actually deleting
     const result = await db.query(
@@ -342,12 +380,6 @@ export async function deleteEntry(id, userId) {
        RETURNING id, text`,
       [id, userId]
     );
-    
-    if (result.rows.length > 0) {
-      console.log('[DB] Successfully soft-deleted:', result.rows[0]);
-    } else {
-      console.log('[DB] Entry not found or already deleted:', id);
-    }
     
     return true;
   } catch (error) {
@@ -421,12 +453,15 @@ export async function getUserById(id) {
 export async function getUserByPhone(phone) {
   try {
     const db = getPool();
-    const normalizedPhone = phone.replace(/\s/g, '');
+    // Normalize phone: remove spaces, dashes, and ensure consistent format
+    const normalizedPhone = phone.replace(/[\s\-\(\)]/g, '').replace(/^\+1/, '').replace(/^1/, '');
     
+    // Use indexed phone_normalized column for fast lookup
     const result = await db.query(
       `SELECT id, phone, username
        FROM users
-       WHERE REPLACE(phone, ' ', '') = $1`,
+       WHERE phone_normalized = $1
+       LIMIT 1`,
       [normalizedPhone]
     );
     if (result.rows.length === 0) return null;
@@ -440,12 +475,14 @@ export async function getUserByPhone(phone) {
 export async function getUsersByPhone(phone) {
   try {
     const db = getPool();
-    const normalizedPhone = phone.replace(/\s/g, '');
+    // Normalize phone: remove spaces, dashes, and ensure consistent format
+    const normalizedPhone = phone.replace(/[\s\-\(\)]/g, '').replace(/^\+1/, '').replace(/^1/, '');
     
+    // Use indexed phone_normalized column for fast lookup
     const result = await db.query(
       `SELECT id, phone, username, created_at
        FROM users
-       WHERE REPLACE(phone, ' ', '') = $1
+       WHERE phone_normalized = $1
        ORDER BY created_at ASC`,
       [normalizedPhone]
     );
@@ -484,7 +521,7 @@ export async function getEntriesByUsername(username) {
        ORDER BY e.created_at ASC`,
       [username]
     );
-    console.log(`[DB] getEntriesByUsername(${username}) found ${result.rows.length} entries`);
+    // Removed verbose logging
     return result.rows.map(row => ({
       id: row.id,
       text: row.text,
@@ -549,10 +586,12 @@ export async function createUser(phone) {
   try {
     const db = getPool();
     const id = crypto.randomUUID();
+    // Normalize phone on insert for consistent lookups
+    const normalizedPhone = phone.replace(/[\s\-\(\)]/g, '').replace(/^\+1/, '').replace(/^1/, '');
     await db.query(
-      `INSERT INTO users (id, phone)
-       VALUES ($1, $2)`,
-      [id, phone]
+      `INSERT INTO users (id, phone, phone_normalized)
+       VALUES ($1, $2, $3)`,
+      [id, phone, normalizedPhone]
     );
     return { id, phone, username: null };
   } catch (error) {
