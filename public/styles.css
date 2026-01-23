@@ -330,6 +330,7 @@ body::before{
   line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  transition: font-style 0.15s ease;
 }
 
 .link-card-description{
@@ -341,6 +342,13 @@ body::before{
   line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  transition: font-style 0.15s ease;
+}
+
+/* Make link card text italic on hover */
+.link-card:hover .link-card-title,
+.link-card:hover .link-card-description {
+  font-style: italic;
 }
 
 /* Link card without image */
@@ -1282,6 +1290,7 @@ body::before{
   -webkit-box-orient: vertical;
   overflow: hidden;
   word-break: break-word;
+  transition: font-style 0.15s ease;
 }
 
 .media-card-subtitle {
@@ -1293,6 +1302,13 @@ body::before{
   line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  transition: font-style 0.15s ease;
+}
+
+/* Make media card text italic on hover */
+.media-card:hover .media-card-title,
+.media-card:hover .media-card-subtitle {
+  font-style: italic;
 }
 
 .media-card-no-image .media-card-content {

@@ -3019,6 +3019,10 @@ window.addEventListener('mouseup', (e) => {
             const rect = draggingEntry.getBoundingClientRect();
             const worldPos = screenToWorld(rect.left, rect.top);
             
+            // Capture entryId before timeout (draggingEntry will be cleared)
+            const entryIdToEdit = draggingEntry.id;
+            const textToEdit = entryData.text;
+            
             // Clear any existing pending edit
             if (pendingEditTimeout) {
               clearTimeout(pendingEditTimeout);
@@ -3028,8 +3032,8 @@ window.addEventListener('mouseup', (e) => {
             pendingEditTimeout = setTimeout(() => {
               pendingEditTimeout = null;
               // Double-check we're still not editing (double-click might have happened)
-              if (!editingEntryId && draggingEntry.id !== 'anchor') {
-                placeEditorAtWorld(worldPos.x, worldPos.y, entryData.text, draggingEntry.id);
+              if (!editingEntryId && entryIdToEdit !== 'anchor') {
+                placeEditorAtWorld(worldPos.x, worldPos.y, textToEdit, entryIdToEdit);
               }
             }, 300); // Wait 300ms to detect double-click
           }
