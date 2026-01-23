@@ -1934,7 +1934,10 @@ function showCursorInDefaultPosition(entryId = null) {
     return;
   }
   
-  // If we have an entry ID, place cursor at bottom-right of that entry
+  // PRIORITY 1: If user just clicked, use that click position (handled in click handler, not here)
+  // This function should not override user clicks
+  
+  // PRIORITY 2: If we have an entry ID, place cursor at bottom-right of that entry
   if (entryId) {
     const pos = getEntryBottomRightPosition(entryId);
     if (pos) {
@@ -1943,14 +1946,15 @@ function showCursorInDefaultPosition(entryId = null) {
     }
   }
   
-  // If we have a stored position from before edit mode, use it
-  if (cursorPosBeforeEdit) {
+  // PRIORITY 3: If we have a stored position from before edit mode, use it
+  // BUT: Only if user didn't click (hasClickedRecently would be true if they did)
+  if (cursorPosBeforeEdit && !hasClickedRecently) {
     showCursorAtWorld(cursorPosBeforeEdit.x, cursorPosBeforeEdit.y);
     cursorPosBeforeEdit = null; // Clear after using
     return;
   }
   
-  // Otherwise, find a random empty space next to an entry
+  // PRIORITY 4: Otherwise, find a random empty space next to an entry
   const pos = findRandomEmptySpaceNextToEntry();
   showCursorAtWorld(pos.x, pos.y);
 }
@@ -1964,8 +1968,9 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
   console.log('[EDITOR] placeEditorAtWorld called with entryId:', entryId, 'type:', typeof entryId, 'force:', force);
   
   // Store cursor position before entering edit mode (if not already editing and we have a valid position)
-  if (!editingEntryId && !text && editorWorldPos && (editorWorldPos.x !== 0 || editorWorldPos.y !== 0)) {
-    // Only store if we have a meaningful position (not default 0,0)
+  // BUT: Don't store if user just clicked (hasClickedRecently) - clicking should override stored position
+  if (!editingEntryId && !text && !hasClickedRecently && editorWorldPos && (editorWorldPos.x !== 0 || editorWorldPos.y !== 0)) {
+    // Only store if we have a meaningful position (not default 0,0) and user didn't just click
     cursorPosBeforeEdit = { x: editorWorldPos.x, y: editorWorldPos.y };
   }
   
@@ -3406,13 +3411,14 @@ window.addEventListener('mouseup', (e) => {
         lastClickPos = { x: w.x, y: w.y };
         // Mark that user clicked - typing should happen at click position, not hover
         hasClickedRecently = true;
+        // Clear stored cursor position - user clicked, so don't restore old position
+        cursorPosBeforeEdit = null;
         // Clear the flag after a short delay to allow hover typing again
         setTimeout(() => {
           hasClickedRecently = false;
         }, 100);
         
-        // Always place editor/cursor at click position, even during navigation
-        // This allows user to click during navigation to set cursor position
+        // ALWAYS place editor/cursor at exact click position - this is the superceding rule
         // Clear navigation flags so user can type immediately
         if (isNavigating || navigationJustCompleted) {
           navigationJustCompleted = false;
