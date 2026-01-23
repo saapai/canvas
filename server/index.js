@@ -1086,7 +1086,9 @@ app.get('/:username/*', async (req, res) => {
     const { username } = req.params;
     
     // Skip API routes - they should have been handled already
-    if (username === 'api' || username.startsWith('api')) {
+    // This check must come FIRST before any other processing
+    if (username === 'api') {
+      console.log('[USER ROUTE] Blocked API route in nested path, username:', username);
       return res.status(404).send('Not found');
     }
     
