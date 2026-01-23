@@ -442,13 +442,44 @@ app.get('/api/auth/me', async (req, res) => {
 // Get all spaces/usernames for the current user
 app.get('/api/auth/spaces', requireAuth, async (req, res) => {
   try {
-    const users = await getUsersByPhone(req.user.phone);
-    const spaces = users
-      .filter(u => u.username && u.username.trim().length > 0)
-      .map(u => ({
-        id: u.id,
-        username: u.username
-      }));
+    if (!req.user || !req.user.phone) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+    
+    const normalizedPhone = String(req.user.phone).trim();
+    
+    // Use the same phone matching logic as verify-code
+    let users = await getUsersByPhone(normalizedPhone);
+    
+    // If not found, try alternative phone formats (with/without +1, with/without spaces)
+    if (users.length === 0) {
+      // Try without +1 prefix if it starts with +1
+      if (normalizedPhone.startsWith('+1')) {
+        const phoneWithoutPlus = normalizedPhone.substring(2).trim();
+        users = await getUsersByPhone(phoneWithoutPlus);
+      }
+      // Try with +1 if it doesn't have it
+      if (users.length === 0 && !normalizedPhone.startsWith('+1')) {
+        const phoneWithPlusOne = '+1' + normalizedPhone;
+        users = await getUsersByPhone(phoneWithPlusOne);
+      }
+      // Try without any + prefix
+      if (users.length === 0 && normalizedPhone.startsWith('+')) {
+        const phoneWithoutPlus = normalizedPhone.substring(1);
+        users = await getUsersByPhone(phoneWithoutPlus);
+      }
+    }
+    
+    // Filter users to only those with usernames (same as verify-code)
+    const usersWithUsernames = users.filter(u => u.username && String(u.username).trim().length > 0);
+    
+    const spaces = usersWithUsernames.map(u => ({
+      id: u.id,
+      username: u.username
+    }));
+    
+    console.log('[SPACES] Found spaces for phone:', normalizedPhone, 'count:', spaces.length);
+    
     return res.json({ spaces });
   } catch (error) {
     console.error('Error fetching spaces:', error);

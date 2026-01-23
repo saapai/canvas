@@ -4220,12 +4220,16 @@ async function loadSpaces() {
   try {
     const response = await fetch('/api/auth/spaces', { credentials: 'include' });
     if (!response.ok) {
-      console.error('Failed to load spaces');
+      const errorData = await response.json().catch(() => ({}));
+      console.error('Failed to load spaces:', response.status, errorData);
+      spacesList.innerHTML = '<div class="space-item" style="padding: 12px 16px; color: rgba(0,0,0,0.5);">No spaces found</div>';
       return;
     }
     
     const data = await response.json();
     spacesList.innerHTML = '';
+    
+    console.log('[USER MENU] Loaded spaces:', data.spaces?.length || 0, data);
     
     if (data.spaces && data.spaces.length > 0) {
       data.spaces.forEach(space => {
@@ -4251,9 +4255,12 @@ async function loadSpaces() {
         
         spacesList.appendChild(spaceItem);
       });
+    } else {
+      spacesList.innerHTML = '<div class="space-item" style="padding: 12px 16px; color: rgba(0,0,0,0.5); font-style: italic;">No spaces yet</div>';
     }
   } catch (error) {
     console.error('Error loading spaces:', error);
+    spacesList.innerHTML = '<div class="space-item" style="padding: 12px 16px; color: #dc2626;">Error loading spaces</div>';
   }
 }
 
