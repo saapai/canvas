@@ -1030,9 +1030,15 @@ app.get('/', async (req, res) => {
 
 // Serve user pages (always canvas view, editable if owner)
 // Exclude requests with file extensions (static files)
+// IMPORTANT: This must come AFTER all /api routes to avoid catching API requests
 app.get('/:username', async (req, res) => {
   try {
     const { username } = req.params;
+    
+    // Skip API routes - they should have been handled already
+    if (username === 'api' || username.startsWith('api')) {
+      return res.status(404).send('Not found');
+    }
     
     // Skip if this looks like a static file request (has extension)
     if (username.includes('.')) {
