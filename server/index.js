@@ -1078,9 +1078,15 @@ app.get('/:username', async (req, res) => {
 
 // Handle nested paths for user pages (same as root - just show canvas)
 // Exclude requests with file extensions (static files)
+// IMPORTANT: This must come AFTER all /api routes to avoid catching API requests
 app.get('/:username/*', async (req, res) => {
   try {
     const { username } = req.params;
+    
+    // Skip API routes - they should have been handled already
+    if (username === 'api' || username.startsWith('api')) {
+      return res.status(404).send('Not found');
+    }
     
     // Skip if this looks like a static file request (has extension)
     if (username.includes('.')) {
