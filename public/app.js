@@ -1380,16 +1380,21 @@ function zoomToFitEntries() {
       
       // Always show cursor after animation completes (whether from navigation or initial load)
       if (!isReadOnly) {
-        // Use setTimeout to ensure entries are fully dimensioned
-        console.log('[ZOOM] Animation completed, showing cursor. wasNavigating:', wasNavigating);
+        // Show cursor immediately and also with delay as fallback
+        console.log('[ZOOM] Animation completed, showing cursor immediately. wasNavigating:', wasNavigating);
+        // Immediate attempt
+        requestAnimationFrame(() => {
+          showCursorInDefaultPosition();
+        });
+        // Delayed attempt to ensure entries are dimensioned
         setTimeout(() => {
           requestAnimationFrame(() => {
             requestAnimationFrame(() => {
-              console.log('[ZOOM] About to call showCursorInDefaultPosition');
+              console.log('[ZOOM] Fallback cursor display after delay');
               showCursorInDefaultPosition();
             });
           });
-        }, 150); // Increased delay to ensure dimensions are updated
+        }, 200); // Fallback delay
       }
     }
   }
@@ -1407,15 +1412,21 @@ function zoomToFitEntries() {
     isNavigating = false;
     
     if (!isReadOnly) {
-      // Use setTimeout to ensure entries are fully dimensioned
+      // Show cursor immediately and with delay as fallback
+      console.log('[ZOOM] Showing cursor (no animation path)');
+      // Immediate attempt
+      requestAnimationFrame(() => {
+        showCursorInDefaultPosition();
+      });
+      // Delayed attempt to ensure entries are dimensioned
       setTimeout(() => {
         requestAnimationFrame(() => {
           requestAnimationFrame(() => {
-            console.log('[ZOOM] About to call showCursorInDefaultPosition (no animation path)');
+            console.log('[ZOOM] Fallback cursor display (no animation path)');
             showCursorInDefaultPosition();
           });
         });
-      }, 250); // Increased delay to ensure dimensions are updated
+      }, 300); // Fallback delay
     }
   }
 }
@@ -3355,11 +3366,12 @@ viewport.addEventListener('mousedown', (e) => {
       clickStart = { x: e.clientX, y: e.clientY, t: performance.now(), entryEl: entryEl, button: e.button };
     }
   } else {
-    // Start panning viewport
+    // Start panning viewport (or prepare for click on empty space)
     dragging = true;
     viewport.classList.add('dragging');
     last = { x: e.clientX, y: e.clientY };
     clickStart = { x: e.clientX, y: e.clientY, t: performance.now() };
+    console.log('[MOUSEDOWN] Click on empty space - dragging set to true');
   }
 });
 
@@ -3685,7 +3697,9 @@ window.addEventListener('mouseup', (e) => {
     if(clickStart) {
       const dist = Math.hypot(e.clientX - clickStart.x, e.clientY - clickStart.y);
       const dt = performance.now() - clickStart.t;
+      console.log('[MOUSEUP] Dragging ended. dist:', dist, 'dt:', dt, 'isClick:', isClick);
       if(dist < 6 && dt < 350 && !isClick){
+        console.log('[MOUSEUP] Detected as click on empty space');
         // Clear selection if clicking on empty space (no shift key)
         if (!e.shiftKey && selectedEntries.size > 0) {
           clearSelection();
