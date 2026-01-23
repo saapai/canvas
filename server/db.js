@@ -237,6 +237,7 @@ export async function saveEntry(entry) {
     
     // Try to save with text_html, but handle case where column might not exist yet
     let result;
+    let textHtmlActuallySaved = false;
     try {
       result = await db.query(
         `INSERT INTO entries (id, text, text_html, position_x, position_y, parent_entry_id, user_id, link_cards_data, media_card_data, updated_at, deleted_at)
@@ -255,13 +256,21 @@ export async function saveEntry(entry) {
            updated_at = CURRENT_TIMESTAMP`,
         [entry.id, entry.text, entry.textHtml || null, entry.position.x, entry.position.y, entry.parentEntryId || null, entry.userId, linkCardsData, mediaCardData]
       );
+      textHtmlActuallySaved = !!entry.textHtml; // Successfully saved with text_html column
+      console.log('[DB] Successfully saved with text_html column');
     } catch (dbError) {
       // If column doesn't exist, try without text_html
-      if (dbError.code === '42703' || dbError.message.includes('text_html') || dbError.message.includes('column') && dbError.message.includes('text_html')) {
+      // PostgreSQL error code 42703 = undefined_column
+      const isColumnError = dbError.code === '42703' || 
+                           (dbError.message && (dbError.message.includes('text_html') || 
+                            (dbError.message.includes('column') && dbError.message.includes('text_html'))));
+      
+      if (isColumnError) {
         console.error('[DB] ERROR: text_html column does not exist!');
         console.error('[DB] Error code:', dbError.code, 'Message:', dbError.message);
         console.error('[DB] Please run: ALTER TABLE entries ADD COLUMN text_html TEXT;');
         console.warn('[DB] Saving without text_html for now (formatting will be lost)...');
+        textHtmlActuallySaved = false; // Column doesn't exist, couldn't save
         result = await db.query(
           `INSERT INTO entries (id, text, position_x, position_y, parent_entry_id, user_id, link_cards_data, media_card_data, updated_at, deleted_at)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, NULL)
@@ -283,7 +292,29 @@ export async function saveEntry(entry) {
       }
     }
     
-    console.log('[DB] saveEntry successful:', entry.id, 'rowCount:', result.rowCount, 'textHtml saved:', !!entry.textHtml);
+    console.log('[DB] saveEntry successful:', entry.id, 'rowCount:', result.rowCount, 'textHtml in request:', !!entry.textHtml, 'textHtml actually saved to DB:', textHtmlActuallySaved);
+    
+    // Verify the save by querying back (only if we tried to save with text_html)
+    if (entry.textHtml && textHtmlActuallySaved) {
+      try {
+        const verifyResult = await db.query(
+          `SELECT text_html FROM entries WHERE id = $1`,
+          [entry.id]
+        );
+        if (verifyResult.rows.length > 0) {
+          const savedHtml = verifyResult.rows[0].text_html;
+          console.log('[DB] Verification: text_html in DB:', savedHtml ? savedHtml.substring(0, 50) : 'NULL', 'matches:', savedHtml === entry.textHtml);
+          if (!savedHtml) {
+            console.error('[DB] WARNING: textHtml was sent but is NULL in database! Save may have failed.');
+          }
+        }
+      } catch (verifyError) {
+        console.error('[DB] Could not verify text_html save:', verifyError.message);
+      }
+    } else if (entry.textHtml && !textHtmlActuallySaved) {
+      console.error('[DB] CRITICAL: textHtml was provided but could NOT be saved because column does not exist!');
+    }
+    
     return entry;
   } catch (error) {
     console.error('[DB] Error saving entry:', entry.id, error);
