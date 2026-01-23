@@ -569,6 +569,18 @@ async function loadUserEntries(username, editable) {
     const rootEntries = entriesData.filter(e => !e.parentEntryId);
     const childEntries = entriesData.filter(e => e.parentEntryId);
     console.log(`[LOAD] Root entries: ${rootEntries.length}, Child entries: ${childEntries.length}`);
+    
+    // Check for entries with textHtml
+    const entriesWithHtml = entriesData.filter(e => e.textHtml);
+    console.log(`[LOAD] Entries with textHtml: ${entriesWithHtml.length}`);
+    if (entriesWithHtml.length > 0) {
+      console.log('[LOAD] Sample entry with textHtml:', {
+        id: entriesWithHtml[0].id,
+        textHtmlLength: entriesWithHtml[0].textHtml?.length,
+        textHtmlSample: entriesWithHtml[0].textHtml?.substring(0, 100)
+      });
+    }
+    
     console.log('[LOAD] Root entries:', rootEntries.map(e => ({ id: e.id, text: e.text.substring(0, 30) })));
     console.log('[LOAD] Child entries:', childEntries.map(e => ({ id: e.id, parent: e.parentEntryId, text: e.text.substring(0, 30) })));
     
@@ -2400,8 +2412,14 @@ async function commitEditor(){
   const trimmedRight = raw.replace(/\s+$/g,'');
   
   // Check if HTML has formatting tags - if so, preserve HTML; otherwise use plain text
-  const hasFormatting = /<(strong|b|em|i|u)>/i.test(htmlContent);
+  // execCommand('bold') can create <strong> or <b> tags, or style="font-weight: bold"
+  const hasFormatting = /<(strong|b|em|i|u|span[^>]*style[^>]*font-weight)/i.test(htmlContent);
   const trimmedHtml = hasFormatting ? htmlContent : null;
+  
+  console.log('[COMMIT] HTML content length:', htmlContent.length, 'hasFormatting:', hasFormatting);
+  if (hasFormatting) {
+    console.log('[COMMIT] HTML sample:', htmlContent.substring(0, 200));
+  }
 
   // If editing an existing entry
   if(editingEntryId && editingEntryId !== 'anchor'){
@@ -2478,6 +2496,8 @@ async function commitEditor(){
       entryData.text = trimmedRight;
       // Store HTML content to preserve formatting (only if it has formatting)
       entryData.textHtml = trimmedHtml;
+      console.log('[COMMIT] Saving entryData.textHtml:', trimmedHtml ? trimmedHtml.substring(0, 200) : 'null');
+      console.log('[COMMIT] entryData.textHtml length:', trimmedHtml ? trimmedHtml.length : 0);
       
       // Remove editing class first so content is visible for melt animation
       entryData.element.classList.remove('editing');

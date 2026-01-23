@@ -855,11 +855,12 @@ app.post('/api/entries', async (req, res) => {
       console.log('[SAVE] Using pageOwnerId:', targetUserId);
     }
 
-    console.log(`[SAVE] Saving entry ${id} for user ${targetUserId}, parent: ${parentEntryId}, text: ${text.substring(0, 30)}`);
+    console.log(`[SAVE] Saving entry ${id} for user ${targetUserId}, parent: ${parentEntryId}, text: ${text.substring(0, 30)}, hasTextHtml: ${!!textHtml}`);
 
     const entry = {
       id,
       text,
+      textHtml: textHtml || null,
       position: { x: position.x, y: position.y },
       parentEntryId: parentEntryId || null,
       linkCardsData: linkCardsData || null,
