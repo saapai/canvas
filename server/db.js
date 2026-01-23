@@ -128,22 +128,52 @@ export async function initDatabase() {
 export async function getAllEntries(userId) {
   try {
     const db = getPool();
-    const result = await db.query(
-      `SELECT id, text, text_html, position_x, position_y, parent_entry_id, link_cards_data, media_card_data
-       FROM entries
-       WHERE user_id = $1 AND deleted_at IS NULL
-       ORDER BY created_at ASC`,
-      [userId]
-    );
-    return result.rows.map(row => ({
+    let result;
+    try {
+      // Try to select with text_html column
+      result = await db.query(
+        `SELECT id, text, text_html, position_x, position_y, parent_entry_id, link_cards_data, media_card_data
+         FROM entries
+         WHERE user_id = $1 AND deleted_at IS NULL
+         ORDER BY created_at ASC`,
+        [userId]
+      );
+    } catch (dbError) {
+      // If column doesn't exist, select without it
+      if (dbError.code === '42703' || dbError.message.includes('text_html')) {
+        console.warn('[DB] text_html column does not exist. Please run: ALTER TABLE entries ADD COLUMN text_html TEXT;');
+        result = await db.query(
+          `SELECT id, text, position_x, position_y, parent_entry_id, link_cards_data, media_card_data
+           FROM entries
+           WHERE user_id = $1 AND deleted_at IS NULL
+           ORDER BY created_at ASC`,
+          [userId]
+        );
+      } else {
+        throw dbError;
+      }
+    }
+    const mapped = result.rows.map(row => ({
       id: row.id,
       text: row.text,
-      textHtml: row.text_html || null,
+      textHtml: row.text_html || null, // Will be null if column doesn't exist
       position: { x: row.position_x, y: row.position_y },
       parentEntryId: row.parent_entry_id || null,
       linkCardsData: row.link_cards_data || null,
       mediaCardData: row.media_card_data || null
     }));
+    
+    const withHtml = mapped.filter(e => e.textHtml);
+    console.log(`[DB] getAllEntries: ${mapped.length} total, ${withHtml.length} with textHtml`);
+    if (withHtml.length > 0) {
+      console.log('[DB] Sample entry with textHtml:', {
+        id: withHtml[0].id,
+        textHtmlLength: withHtml[0].textHtml?.length,
+        textHtmlSample: withHtml[0].textHtml?.substring(0, 100)
+      });
+    }
+    
+    return mapped;
   } catch (error) {
     console.error('Error fetching entries:', error);
     throw error;
@@ -180,6 +210,8 @@ export async function saveEntry(entry) {
     console.log('[DB] saveEntry called:', {
       id: entry.id,
       text: entry.text?.substring(0, 50),
+      textHtml: entry.textHtml ? entry.textHtml.substring(0, 100) : null,
+      textHtmlLength: entry.textHtml ? entry.textHtml.length : 0,
       userId: entry.userId,
       hasMedia: !!entry.mediaCardData,
       hasLink: !!entry.linkCardsData
@@ -189,28 +221,62 @@ export async function saveEntry(entry) {
     const linkCardsData = entry.linkCardsData ? JSON.stringify(entry.linkCardsData) : null;
     const mediaCardData = entry.mediaCardData ? JSON.stringify(entry.mediaCardData) : null;
     
-    const result = await db.query(
-      `INSERT INTO entries (id, text, text_html, position_x, position_y, parent_entry_id, user_id, link_cards_data, media_card_data, updated_at, deleted_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, NULL)
-       ON CONFLICT (id) 
-       DO UPDATE SET 
-         text = EXCLUDED.text,
-         text_html = EXCLUDED.text_html,
-         position_x = EXCLUDED.position_x,
-         position_y = EXCLUDED.position_y,
-         parent_entry_id = EXCLUDED.parent_entry_id,
-         user_id = EXCLUDED.user_id,
-         link_cards_data = EXCLUDED.link_cards_data,
-         media_card_data = EXCLUDED.media_card_data,
-         deleted_at = NULL,
-         updated_at = CURRENT_TIMESTAMP`,
-      [entry.id, entry.text, entry.textHtml || null, entry.position.x, entry.position.y, entry.parentEntryId || null, entry.userId, linkCardsData, mediaCardData]
-    );
+    // Try to save with text_html, but handle case where column might not exist yet
+    let result;
+    try {
+      result = await db.query(
+        `INSERT INTO entries (id, text, text_html, position_x, position_y, parent_entry_id, user_id, link_cards_data, media_card_data, updated_at, deleted_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, NULL)
+         ON CONFLICT (id) 
+         DO UPDATE SET 
+           text = EXCLUDED.text,
+           text_html = EXCLUDED.text_html,
+           position_x = EXCLUDED.position_x,
+           position_y = EXCLUDED.position_y,
+           parent_entry_id = EXCLUDED.parent_entry_id,
+           user_id = EXCLUDED.user_id,
+           link_cards_data = EXCLUDED.link_cards_data,
+           media_card_data = EXCLUDED.media_card_data,
+           deleted_at = NULL,
+           updated_at = CURRENT_TIMESTAMP`,
+        [entry.id, entry.text, entry.textHtml || null, entry.position.x, entry.position.y, entry.parentEntryId || null, entry.userId, linkCardsData, mediaCardData]
+      );
+    } catch (dbError) {
+      // If column doesn't exist, try without text_html
+      if (dbError.code === '42703' || dbError.message.includes('text_html')) {
+        console.warn('[DB] text_html column does not exist. Please run: ALTER TABLE entries ADD COLUMN text_html TEXT;');
+        console.warn('[DB] Saving without text_html for now...');
+        result = await db.query(
+          `INSERT INTO entries (id, text, position_x, position_y, parent_entry_id, user_id, link_cards_data, media_card_data, updated_at, deleted_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, NULL)
+           ON CONFLICT (id) 
+           DO UPDATE SET 
+             text = EXCLUDED.text,
+             position_x = EXCLUDED.position_x,
+             position_y = EXCLUDED.position_y,
+             parent_entry_id = EXCLUDED.parent_entry_id,
+             user_id = EXCLUDED.user_id,
+             link_cards_data = EXCLUDED.link_cards_data,
+             media_card_data = EXCLUDED.media_card_data,
+             deleted_at = NULL,
+             updated_at = CURRENT_TIMESTAMP`,
+          [entry.id, entry.text, entry.position.x, entry.position.y, entry.parentEntryId || null, entry.userId, linkCardsData, mediaCardData]
+        );
+      } else {
+        throw dbError;
+      }
+    }
     
-    console.log('[DB] saveEntry successful:', entry.id, 'rowCount:', result.rowCount);
+    console.log('[DB] saveEntry successful:', entry.id, 'rowCount:', result.rowCount, 'textHtml saved:', !!entry.textHtml);
     return entry;
   } catch (error) {
     console.error('[DB] Error saving entry:', entry.id, error);
+    console.error('[DB] Error details:', {
+      message: error.message,
+      code: error.code,
+      detail: error.detail,
+      hint: error.hint
+    });
     throw error;
   }
 }

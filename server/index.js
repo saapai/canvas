@@ -911,7 +911,7 @@ app.put('/api/entries/:id', async (req, res) => {
       targetUserId = pageOwnerId;
     }
 
-    console.log(`[UPDATE] Updating entry ${id} for user ${targetUserId}, text: ${text.substring(0, 30)}`);
+    console.log(`[UPDATE] Updating entry ${id} for user ${targetUserId}, text: ${text.substring(0, 30)}, textHtml: ${textHtml ? textHtml.substring(0, 50) : 'null'}`);
 
     const entry = {
       id,
@@ -923,6 +923,8 @@ app.put('/api/entries/:id', async (req, res) => {
       mediaCardData: mediaCardData || null,
       userId: targetUserId
     };
+    
+    console.log(`[UPDATE] Entry object textHtml: ${entry.textHtml ? entry.textHtml.substring(0, 50) : 'null'}`);
 
     const savedEntry = await saveEntry(entry);
     console.log(`[UPDATE] Successfully updated entry ${id}`);
