@@ -1231,7 +1231,7 @@ if (enableLoginRoutes) {
   console.log('Login and /home routes enabled');
 }
 
-// Root route - redirect logged-in users to their page
+// Root route - redirect logged-in users to their PRIMARY (oldest) duttapad
 app.get('/', async (req, res) => {
   try {
     // Check if user is logged in
@@ -1243,9 +1243,27 @@ app.get('/', async (req, res) => {
         const payload = jwt.verify(token, JWT_SECRET);
         if (payload && payload.id) {
           const user = await getUserById(payload.id);
-          if (user && user.username) {
-            // Redirect to user's page
-            return res.redirect(`/${user.username}`);
+          if (user && user.phone) {
+            // Get ALL users with the same phone number
+            const normalizedPhone = user.phone.replace(/\s/g, '');
+            let users = await getUsersByPhone(normalizedPhone);
+            
+            // Filter to users with usernames only
+            const usersWithUsernames = users.filter(u => u.username && u.username.trim().length > 0);
+            
+            if (usersWithUsernames.length > 0) {
+              // Redirect to the OLDEST (first created) username as the primary duttapad
+              // Sort by created_at ascending (oldest first)
+              usersWithUsernames.sort((a, b) => {
+                const aDate = new Date(a.created_at || 0);
+                const bDate = new Date(b.created_at || 0);
+                return aDate - bDate;
+              });
+              
+              const primaryUser = usersWithUsernames[0];
+              console.log(`[ROOT] Redirecting to primary duttapad: ${primaryUser.username}`);
+              return res.redirect(`/${primaryUser.username}`);
+            }
           }
         }
       } catch {

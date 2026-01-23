@@ -253,7 +253,7 @@ export async function saveAllEntries(entries, userId) {
              position_x = EXCLUDED.position_x,
              position_y = EXCLUDED.position_y,
              parent_entry_id = EXCLUDED.parent_entry_id,
-             user_id = EXCLUDED.user_id,
+             -- user_id NEVER changes once set
              link_cards_data = EXCLUDED.link_cards_data,
              media_card_data = EXCLUDED.media_card_data,
              deleted_at = NULL,
@@ -319,7 +319,7 @@ export async function getUsersByPhone(phone) {
     const normalizedPhone = phone.replace(/\s/g, '');
     
     const result = await db.query(
-      `SELECT id, phone, username
+      `SELECT id, phone, username, created_at
        FROM users
        WHERE REPLACE(phone, ' ', '') = $1
        ORDER BY created_at ASC`,
