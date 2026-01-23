@@ -2087,22 +2087,18 @@ async function commitEditor(){
         const deletedEntryData = entries.get(deletedEntryId);
         let deletedEntryPos = null;
         if (deletedEntryData && deletedEntryData.element) {
-          // Store position before deletion
+          // Store position before deletion - use beginning (top-left) of entry
           const element = deletedEntryData.element;
-          const rect = element.getBoundingClientRect();
           const worldX = parseFloat(element.style.left) || 0;
           const worldY = parseFloat(element.style.top) || 0;
-          const worldWidth = rect.width;
-          const worldHeight = rect.height;
-          const padding = 40;
           deletedEntryPos = {
-            x: worldX + worldWidth + padding,
-            y: worldY + worldHeight + padding
+            x: worldX,
+            y: worldY
           };
         }
         const deleted = await deleteEntryWithConfirmation(editingEntryId);
         if (deleted) {
-          // Show cursor at bottom-right of deleted entry (use stored position)
+          // Show cursor at beginning (top-left) of where deleted entry was
           if (deletedEntryPos) {
             showCursorAtWorld(deletedEntryPos.x, deletedEntryPos.y);
           } else {
