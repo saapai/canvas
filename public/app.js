@@ -2634,6 +2634,9 @@ function createLinkCard(cardData) {
     e.preventDefault();
     e.stopPropagation();
     
+    // Don't allow editing in read-only mode
+    if (isReadOnly) return;
+    
     // Right-click: edit the parent entry with the card's URL as text
     const entryEl = findEntryElement(card);
     if (entryEl && entryEl.id !== 'anchor' && entryEl.id) {
@@ -4546,6 +4549,9 @@ function createMediaCard(mediaData) {
   card.addEventListener('contextmenu', (e) => {
     e.preventDefault();
     e.stopPropagation();
+    
+    // Don't allow editing in read-only mode
+    if (isReadOnly) return;
     
     // Get the entry this card belongs to
     const entryEl = card.closest('.entry');
