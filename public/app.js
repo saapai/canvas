@@ -4215,24 +4215,62 @@ if (userMenuButton && userMenuDropdown) {
 
 // Load spaces
 async function loadSpaces() {
-  if (!spacesList) return;
+  if (!spacesList) {
+    console.log('[SPACES CLIENT] spacesList element not found');
+    return;
+  }
+  
+  console.log('[SPACES CLIENT] Starting to load spaces...');
+  console.log('[SPACES CLIENT] Current user:', currentUser);
+  console.log('[SPACES CLIENT] isLoggedIn:', isLoggedIn);
   
   try {
+    console.log('[SPACES CLIENT] Fetching /api/auth/spaces with credentials: include');
     const response = await fetch('/api/auth/spaces', { credentials: 'include' });
+    
+    console.log('[SPACES CLIENT] Response status:', response.status);
+    console.log('[SPACES CLIENT] Response ok:', response.ok);
+    console.log('[SPACES CLIENT] Response headers:', {
+      'content-type': response.headers.get('content-type'),
+      'set-cookie': response.headers.get('set-cookie')
+    });
+    
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      console.error('Failed to load spaces:', response.status, errorData);
+      const errorData = await response.json().catch((e) => {
+        console.error('[SPACES CLIENT] Failed to parse error response:', e);
+        return { error: 'Failed to parse error response' };
+      });
+      console.error('[SPACES CLIENT] Failed to load spaces:', {
+        status: response.status,
+        statusText: response.statusText,
+        error: errorData
+      });
       spacesList.innerHTML = '<div class="space-item" style="padding: 12px 16px; color: rgba(0,0,0,0.5);">No spaces found</div>';
       return;
     }
     
-    const data = await response.json();
+    const data = await response.json().catch((e) => {
+      console.error('[SPACES CLIENT] Failed to parse JSON response:', e);
+      return null;
+    });
+    
+    console.log('[SPACES CLIENT] Response data:', data);
+    console.log('[SPACES CLIENT] Spaces array:', data.spaces);
+    console.log('[SPACES CLIENT] Spaces count:', data.spaces?.length || 0);
+    
+    if (data && data.spaces) {
+      console.log('[SPACES CLIENT] Processing', data.spaces.length, 'spaces');
+      data.spaces.forEach((space, index) => {
+        console.log(`[SPACES CLIENT] Space ${index + 1}:`, space);
+      });
+    }
+    
     spacesList.innerHTML = '';
     
-    console.log('[USER MENU] Loaded spaces:', data.spaces?.length || 0, data);
-    
-    if (data.spaces && data.spaces.length > 0) {
+    if (data && data.spaces && data.spaces.length > 0) {
+      console.log('[SPACES CLIENT] Rendering', data.spaces.length, 'spaces');
       data.spaces.forEach(space => {
+        console.log('[SPACES CLIENT] Rendering space:', space);
         const spaceItem = document.createElement('div');
         spaceItem.className = 'space-item';
         spaceItem.innerHTML = `
@@ -4244,22 +4282,27 @@ async function loadSpaces() {
         
         // Click to navigate
         spaceItem.querySelector('.space-item-content').addEventListener('click', () => {
+          console.log('[SPACES CLIENT] Navigating to space:', space.username);
           window.location.href = `/${space.username}`;
         });
         
         // Edit button
         spaceItem.querySelector('.space-edit-button').addEventListener('click', (e) => {
           e.stopPropagation();
+          console.log('[SPACES CLIENT] Editing space:', space.id, space.username);
           startEditingSpace(space.id, space.username);
         });
         
         spacesList.appendChild(spaceItem);
       });
+      console.log('[SPACES CLIENT] Successfully rendered', data.spaces.length, 'spaces');
     } else {
+      console.log('[SPACES CLIENT] No spaces found in response');
       spacesList.innerHTML = '<div class="space-item" style="padding: 12px 16px; color: rgba(0,0,0,0.5); font-style: italic;">No spaces yet</div>';
     }
   } catch (error) {
-    console.error('Error loading spaces:', error);
+    console.error('[SPACES CLIENT] Error loading spaces:', error);
+    console.error('[SPACES CLIENT] Error stack:', error.stack);
     spacesList.innerHTML = '<div class="space-item" style="padding: 12px 16px; color: #dc2626;">Error loading spaces</div>';
   }
 }
