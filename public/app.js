@@ -1179,6 +1179,7 @@ let isCommitting = false;
 let pendingEditTimeout = null; // Track pending edit to allow double-click detection
 let hasClickedRecently = false; // Track if user clicked somewhere (so we don't use hover position)
 let cursorPosBeforeEdit = null; // Store cursor position before entering edit mode
+let isProcessingClick = false; // Flag to prevent cursor updates during click handling
 
 function applyTransform(){
   world.style.transform = `translate3d(${cam.x}px, ${cam.y}px, 0) scale(${cam.z})`;
@@ -1809,7 +1810,47 @@ function updateBreadcrumb() {
 }
 
 
-// Find a random empty space next to an entry
+// Check if a position overlaps with any entry
+function positionOverlapsEntry(wx, wy) {
+  const cursorSize = 4; // Approximate cursor size in world coordinates
+  const padding = 10; // Extra padding to avoid being too close
+  
+  for (const [entryId, entryData] of entries.entries()) {
+    if (entryId === 'anchor') continue;
+    const element = entryData.element;
+    if (!element || element.style.display === 'none') continue;
+    
+    const rect = element.getBoundingClientRect();
+    const worldX = parseFloat(element.style.left) || 0;
+    const worldY = parseFloat(element.style.top) || 0;
+    const worldWidth = rect.width;
+    const worldHeight = rect.height;
+    
+    // Check if cursor position overlaps with entry (with padding)
+    if (wx >= worldX - padding && wx <= worldX + worldWidth + padding &&
+        wy >= worldY - padding && wy <= worldY + worldHeight + padding) {
+      return true;
+    }
+  }
+  
+  // Also check anchor if on home page
+  if (anchor && currentViewEntryId === null) {
+    const anchorX = anchorPos.x;
+    const anchorY = anchorPos.y;
+    const anchorRect = anchor.getBoundingClientRect();
+    const anchorWorldWidth = anchorRect.width / cam.z;
+    const anchorWorldHeight = anchorRect.height / cam.z;
+    
+    if (wx >= anchorX - padding && wx <= anchorX + anchorWorldWidth + padding &&
+        wy >= anchorY - padding && wy <= anchorY + anchorWorldHeight + padding) {
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+// Find a random empty space next to an entry that doesn't overlap with entries
 function findRandomEmptySpaceNextToEntry() {
   const visibleEntries = Array.from(entries.values()).filter(entryData => {
     const element = entryData.element;
@@ -1838,7 +1879,50 @@ function findRandomEmptySpaceNextToEntry() {
     return { x: center.x, y: center.y };
   }
 
-  // Pick a random entry
+  // Try multiple positions until we find one that doesn't overlap
+  const maxAttempts = 20;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    // Pick a random entry
+    const randomEntry = visibleEntries[Math.floor(Math.random() * visibleEntries.length)];
+    const element = randomEntry.element;
+    const rect = element.getBoundingClientRect();
+    const worldX = parseFloat(element.style.left) || 0;
+    const worldY = parseFloat(element.style.top) || 0;
+    const worldWidth = rect.width;
+    const worldHeight = rect.height;
+
+    // Choose a random side (right, bottom, left, top)
+    const side = Math.floor(Math.random() * 4);
+    const padding = 40; // Space between entry and cursor
+
+    let x, y;
+    switch (side) {
+      case 0: // Right
+        x = worldX + worldWidth + padding;
+        y = worldY + Math.random() * worldHeight;
+        break;
+      case 1: // Bottom
+        x = worldX + Math.random() * worldWidth;
+        y = worldY + worldHeight + padding;
+        break;
+      case 2: // Left
+        x = worldX - padding;
+        y = worldY + Math.random() * worldHeight;
+        break;
+      case 3: // Top
+        x = worldX + Math.random() * worldWidth;
+        y = worldY - padding;
+        break;
+    }
+
+    // Check if this position overlaps with any entry
+    if (!positionOverlapsEntry(x, y)) {
+      return { x, y };
+    }
+  }
+  
+  // If we couldn't find a non-overlapping position after maxAttempts, return the last one
+  // This is a fallback - ideally we'd find a good position
   const randomEntry = visibleEntries[Math.floor(Math.random() * visibleEntries.length)];
   const element = randomEntry.element;
   const rect = element.getBoundingClientRect();
@@ -1846,37 +1930,20 @@ function findRandomEmptySpaceNextToEntry() {
   const worldY = parseFloat(element.style.top) || 0;
   const worldWidth = rect.width;
   const worldHeight = rect.height;
-
-  // Choose a random side (right, bottom, left, top)
-  const side = Math.floor(Math.random() * 4);
-  const padding = 40; // Space between entry and cursor
-
-  let x, y;
-  switch (side) {
-    case 0: // Right
-      x = worldX + worldWidth + padding;
-      y = worldY + Math.random() * worldHeight;
-      break;
-    case 1: // Bottom
-      x = worldX + Math.random() * worldWidth;
-      y = worldY + worldHeight + padding;
-      break;
-    case 2: // Left
-      x = worldX - padding;
-      y = worldY + Math.random() * worldHeight;
-      break;
-    case 3: // Top
-      x = worldX + Math.random() * worldWidth;
-      y = worldY - padding;
-      break;
-  }
-
-  return { x, y };
+  return {
+    x: worldX + worldWidth + 40,
+    y: worldY + worldHeight + 40
+  };
 }
 
 // Show cursor at a position (idle mode - not actively editing)
 function showCursorAtWorld(wx, wy, force = false) {
   if (isReadOnly) {
+    return;
+  }
+  
+  // Don't update cursor if we're processing a click - wait for click handler to set position
+  if (isProcessingClick && !force) {
     return;
   }
   
@@ -1945,7 +2012,14 @@ function showCursorInDefaultPosition(entryId = null) {
   if (entryId) {
     const pos = getEntryBottomRightPosition(entryId);
     if (pos) {
-      showCursorAtWorld(pos.x, pos.y);
+      // Check if position overlaps with any entry, if so find a new empty space
+      if (positionOverlapsEntry(pos.x, pos.y)) {
+        // Position overlaps, find a new empty space
+        const newPos = findRandomEmptySpaceNextToEntry();
+        showCursorAtWorld(newPos.x, newPos.y);
+      } else {
+        showCursorAtWorld(pos.x, pos.y);
+      }
       return;
     }
   }
@@ -1960,7 +2034,33 @@ function showCursorInDefaultPosition(entryId = null) {
   
   // PRIORITY 4: Otherwise, find a random empty space next to an entry
   const pos = findRandomEmptySpaceNextToEntry();
-  showCursorAtWorld(pos.x, pos.y);
+  // Verify the position doesn't overlap with any entry
+  if (positionOverlapsEntry(pos.x, pos.y)) {
+    // If it overlaps, try to find a better position
+    // Try positions around the viewport center
+    const viewportRect = viewport.getBoundingClientRect();
+    const center = screenToWorld(viewportRect.width / 2, viewportRect.height / 2);
+    let found = false;
+    const offsets = [0, 100, -100, 200, -200, 150, -150];
+    for (const offsetX of offsets) {
+      for (const offsetY of offsets) {
+        const testX = center.x + offsetX;
+        const testY = center.y + offsetY;
+        if (!positionOverlapsEntry(testX, testY)) {
+          showCursorAtWorld(testX, testY);
+          found = true;
+          break;
+        }
+      }
+      if (found) break;
+    }
+    if (!found) {
+      // Last resort: use the position even if it overlaps
+      showCursorAtWorld(pos.x, pos.y);
+    }
+  } else {
+    showCursorAtWorld(pos.x, pos.y);
+  }
 }
 
 function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
@@ -3407,6 +3507,9 @@ window.addEventListener('mouseup', (e) => {
         }
         
         const w = screenToWorld(e.clientX, e.clientY);
+        // Set flag to prevent other cursor updates during click processing
+        isProcessingClick = true;
+        
         // Store click position for typing
         lastClickPos = { x: w.x, y: w.y };
         // Mark that user clicked - typing should happen at click position, not hover
@@ -3427,6 +3530,11 @@ window.addEventListener('mouseup', (e) => {
         } else {
           placeEditorAtWorld(w.x, w.y);
         }
+        
+        // Clear the processing flag after cursor is placed
+        requestAnimationFrame(() => {
+          isProcessingClick = false;
+        });
       }
     }
     clickStart = null;
