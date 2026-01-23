@@ -2123,10 +2123,26 @@ function showCursorInDefaultPosition(entryId = null) {
   }
   
   // PRIORITY 4: Otherwise, find a random empty space next to an entry
-  const pos = findRandomEmptySpaceNextToEntry();
-  // Verify the position doesn't overlap with any entry
-  if (positionOverlapsEntry(pos.x, pos.y)) {
-    // If it overlaps, try to find a better position
+  // Keep trying until we find a position that doesn't overlap
+  let attempts = 0;
+  const maxAttempts = 10;
+  let pos = null;
+  let foundNonOverlapping = false;
+  
+  while (attempts < maxAttempts && !foundNonOverlapping) {
+    pos = findRandomEmptySpaceNextToEntry();
+    // Verify the position doesn't overlap with any entry
+    if (!positionOverlapsEntry(pos.x, pos.y)) {
+      foundNonOverlapping = true;
+    } else {
+      attempts++;
+    }
+  }
+  
+  if (foundNonOverlapping && pos) {
+    showCursorAtWorld(pos.x, pos.y);
+  } else {
+    // If we still couldn't find a non-overlapping position, try systematic search
     // Try positions around the viewport center
     const viewportRect = viewport.getBoundingClientRect();
     const center = screenToWorld(viewportRect.width / 2, viewportRect.height / 2);
@@ -2147,11 +2163,9 @@ function showCursorInDefaultPosition(entryId = null) {
       if (found) break;
     }
     if (!found) {
-      // Last resort: use the position even if it overlaps
-      showCursorAtWorld(pos.x, pos.y);
+      // Last resort: use center position (should be visible even if it overlaps slightly)
+      showCursorAtWorld(center.x, center.y);
     }
-  } else {
-    showCursorAtWorld(pos.x, pos.y);
   }
 }
 
