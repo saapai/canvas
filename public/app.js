@@ -880,7 +880,8 @@ async function updateEntryOnServer(entryData) {
     position: entryData.position,
     parentEntryId: entryData.parentEntryId,
     linkCardsData: entryData.linkCardsData || null,
-    mediaCardData: entryData.mediaCardData || null
+    mediaCardData: entryData.mediaCardData || null,
+    pageOwnerId: window.PAGE_OWNER_ID // Include page owner's user ID
   };
   
   console.log('[UPDATE] updateEntryOnServer called for:', entryData.id, 'textHtml:', payload.textHtml ? payload.textHtml.substring(0, 100) : 'null');
