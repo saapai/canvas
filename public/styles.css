@@ -939,8 +939,7 @@ body::before{
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 14px;
-  opacity: 0.5;
+  opacity: 0.4;
   transition: all 0.15s ease;
   flex-shrink: 0;
   display: flex;
@@ -948,11 +947,18 @@ body::before{
   justify-content: center;
   width: 28px;
   height: 28px;
+  color: var(--ink);
+}
+
+.space-edit-button svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
 }
 
 .space-edit-button:hover {
-  opacity: 1;
-  background: rgba(0, 0, 0, 0.08);
+  opacity: 0.7;
+  background: rgba(0, 0, 0, 0.05);
 }
 
 .space-edit-form {

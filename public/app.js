@@ -4283,7 +4283,12 @@ async function loadSpaces() {
           <div class="space-item-content">
             <span class="space-username">${escapeHtml(space.username)}</span>
           </div>
-          <button class="space-edit-button" data-space-id="${space.id}" data-space-username="${escapeHtml(space.username)}" title="Edit username">✏️</button>
+          <button class="space-edit-button" data-space-id="${space.id}" data-space-username="${escapeHtml(space.username)}" title="Edit username">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+            </svg>
+          </button>
         `;
         
         // Click to navigate
@@ -4528,40 +4533,89 @@ if (logoutButton) {
   });
 }
 
-// Handle new space button (simpler version)
+// Handle new space button - show inline form
 const newSpaceButton = document.getElementById('new-space-button');
+let isCreatingNewSpace = false;
+
 if (newSpaceButton) {
-  newSpaceButton.addEventListener('click', async () => {
-    const username = prompt('Enter a username for your new duttapad:');
-    if (!username) return;
+  newSpaceButton.addEventListener('click', () => {
+    if (isCreatingNewSpace) return;
     
-    const trimmed = username.trim();
-    if (!trimmed) {
-      alert('Username cannot be empty');
-      return;
-    }
+    // Hide the button and show form
+    newSpaceButton.style.display = 'none';
+    isCreatingNewSpace = true;
     
-    try {
-      const response = await fetch('/api/auth/create-space', {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: trimmed })
-      });
-      
-      const data = await response.json();
-      
-      if (!response.ok) {
-        alert(data.error || 'Failed to create space');
+    // Create form similar to edit form
+    const newSpaceForm = document.createElement('div');
+    newSpaceForm.className = 'space-edit-form';
+    newSpaceForm.innerHTML = `
+      <input type="text" class="space-edit-input" placeholder="Enter username" maxlength="40" />
+      <div class="username-error hidden"></div>
+      <div class="space-edit-buttons">
+        <button class="space-edit-cancel">Cancel</button>
+        <button class="space-edit-save">Create</button>
+      </div>
+    `;
+    
+    const input = newSpaceForm.querySelector('.space-edit-input');
+    const errorDiv = newSpaceForm.querySelector('.username-error');
+    const cancelBtn = newSpaceForm.querySelector('.space-edit-cancel');
+    const saveBtn = newSpaceForm.querySelector('.space-edit-save');
+    
+    // Insert form before the button
+    newSpaceButton.parentNode.insertBefore(newSpaceForm, newSpaceButton);
+    
+    input.focus();
+    
+    const cleanup = () => {
+      newSpaceForm.remove();
+      newSpaceButton.style.display = 'block';
+      isCreatingNewSpace = false;
+    };
+    
+    cancelBtn.addEventListener('click', cleanup);
+    
+    saveBtn.addEventListener('click', async () => {
+      const trimmed = input.value.trim();
+      if (!trimmed) {
+        showError(input, errorDiv, 'Username is required');
         return;
       }
       
-      // Navigate to the new space
-      window.location.href = `/${data.user.username}`;
-    } catch (error) {
-      console.error('Error creating space:', error);
-      alert('Failed to create space');
-    }
+      try {
+        const response = await fetch('/api/auth/create-space', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: trimmed })
+        });
+        
+        const data = await response.json();
+        
+        if (!response.ok) {
+          if (data.error === 'Username already taken') {
+            showError(input, errorDiv, 'Username already taken');
+          } else {
+            showError(input, errorDiv, data.error || 'Failed to create space');
+          }
+          return;
+        }
+        
+        // Navigate to the new space
+        window.location.href = `/${data.user.username}`;
+      } catch (error) {
+        console.error('Error creating space:', error);
+        showError(input, errorDiv, 'Failed to create space');
+      }
+    });
+    
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        saveBtn.click();
+      } else if (e.key === 'Escape') {
+        cleanup();
+      }
+    });
   });
 }
 
