@@ -953,7 +953,6 @@ body::before{
 .space-edit-button svg {
   width: 14px;
   height: 14px;
-  stroke: currentColor;
 }
 
 .space-edit-button:hover {
