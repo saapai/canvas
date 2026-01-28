@@ -57,6 +57,7 @@ npm run dev
 - **Escape** to cancel typing
 - **Drag** to pan around
 - **Scroll** to zoom in/out
+- **Canvas chat** (bottom-left **◇** button): Opens a proactive assistant that knows your entries as "trenches" (each entry) and "data points" (sub-entries). It uses (x,y) proximity and content (text, movies, songs, links) to offer observations and connections. Sign in required.
 
 After committing, your text melts into the page, then disappears and reappears in a graph layout based on semantic relationships determined by the LLM.
 
@@ -67,6 +68,7 @@ canvas/
 ├── server/
 │   ├── index.js      # Express server with API endpoints
 │   ├── llm.js        # LLM processing logic
+│   ├── chat.js       # Canvas chat (trenches + proactive bot)
 │   └── db.js         # Database operations
 ├── public/
 │   ├── index.html    # Main HTML

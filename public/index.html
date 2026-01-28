@@ -33,6 +33,7 @@
       </div>
     </div>
   </div>
+  <button id="chat-button" class="chat-button" title="Canvas chat">◇</button>
   <button id="help-button" class="help-button" title="Show help">?</button>
   <div id="help-modal" class="help-modal hidden">
     <div class="help-content">
@@ -179,6 +180,17 @@
         <button id="delete-confirm-cancel" class="delete-confirm-button cancel">Cancel</button>
         <button id="delete-confirm-delete" class="delete-confirm-button delete">Delete</button>
       </div>
+    </div>
+  </div>
+  <div id="chat-panel" class="chat-panel hidden">
+    <div class="chat-panel-header">
+      <span class="chat-panel-title">Canvas</span>
+      <button id="chat-close" class="chat-close" title="Close">×</button>
+    </div>
+    <div id="chat-messages" class="chat-messages"></div>
+    <div class="chat-input-wrap">
+      <input id="chat-input" class="chat-input" type="text" placeholder="Reply…" autocomplete="off" />
+      <button id="chat-send" class="chat-send" title="Send">→</button>
     </div>
   </div>
   <div id="viewport">

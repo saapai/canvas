@@ -10,6 +10,7 @@ import rateLimit from 'express-rate-limit';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 import { processTextWithLLM, fetchLinkMetadata, generateLinkCard } from './llm.js';
+import { chatWithCanvas } from './chat.js';
 import {
   initDatabase,
   getAllEntries,
@@ -621,12 +622,6 @@ app.post('/api/auth/logout', (req, res) => {
   return res.json({ success: true });
 });
 
-// Diagnostic: Log any unmatched API routes
-app.use('/api/*', (req, res, next) => {
-  debugLog('[API] Unmatched API route:', req.method, req.path);
-  res.status(404).json({ error: 'API endpoint not found', path: req.path });
-});
-
 app.post('/api/process-text', async (req, res) => {
   try {
     const { text, existingCards } = req.body;
@@ -1017,6 +1012,27 @@ app.post('/api/entries/batch', async (req, res) => {
   }
 });
 
+app.post('/api/chat', requireAuth, async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    const { trenches, currentViewEntryId, userMessage } = req.body || {};
+    const result = await chatWithCanvas({
+      trenches: Array.isArray(trenches) ? trenches : [],
+      currentViewEntryId: typeof currentViewEntryId === 'string' ? currentViewEntryId : null,
+      userMessage: typeof userMessage === 'string' ? userMessage.trim() || null : null
+    });
+    if (!result.ok) {
+      return res.status(500).json({ error: result.error || 'Chat failed' });
+    }
+    res.json({ message: result.message });
+  } catch (error) {
+    console.error('Error in chat:', error);
+    res.status(500).json({ error: error.message || 'Chat failed' });
+  }
+});
+
 // Public API endpoints for user pages
 app.get('/api/public/:username/entries', async (req, res) => {
   try {
@@ -1361,6 +1377,12 @@ app.get('/api/debug/text-html', async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+});
+
+// Diagnostic: unmatched API routes (must be last among /api handlers)
+app.use('/api/*', (req, res) => {
+  debugLog('[API] Unmatched API route:', req.method, req.path);
+  res.status(404).json({ error: 'API endpoint not found', path: req.path });
 });
 
 // Export for Vercel serverless functions

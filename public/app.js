@@ -5141,6 +5141,141 @@ if (helpModal) {
   });
 }
 
+// ——— Canvas chat (trenches + proactive bot) ———
+function entryTitle(ed) {
+  if (!ed) return 'Untitled';
+  if (ed.mediaCardData && ed.mediaCardData.title) return ed.mediaCardData.title;
+  const first = (ed.text || '').split('\n')[0].trim();
+  return first ? first.substring(0, 80) : 'Untitled';
+}
+
+function dataPointFromEntry(ed) {
+  const o = { id: ed.id, position: ed.position };
+  if (ed.mediaCardData) {
+    o.type = ed.mediaCardData.type === 'song' ? 'song' : ed.mediaCardData.type === 'movie' ? 'movie' : 'media';
+    o.title = ed.mediaCardData.title;
+    if (ed.mediaCardData.artist) o.artist = ed.mediaCardData.artist;
+    if (ed.mediaCardData.year) o.year = ed.mediaCardData.year;
+    if (ed.mediaCardData.url) o.url = ed.mediaCardData.url;
+  } else if (ed.linkCardsData && ed.linkCardsData.length) {
+    const l = ed.linkCardsData[0];
+    o.type = 'link';
+    o.title = l.title;
+    o.url = l.url;
+  } else {
+    o.type = 'text';
+    o.text = (ed.text || '').trim().slice(0, 500);
+  }
+  return o;
+}
+
+function dist(a, b) {
+  const dx = (a.position?.x ?? 0) - (b.position?.x ?? 0);
+  const dy = (a.position?.y ?? 0) - (b.position?.y ?? 0);
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function buildTrenchesPayload() {
+  const all = Array.from(entries.values()).filter(e => e.id);
+  const roots = all.filter(e => !e.parentEntryId);
+  const k = 4;
+  const payload = [];
+  for (const r of roots) {
+    const children = all.filter(e => e.parentEntryId === r.id);
+    const withPos = [r, ...children].filter(x => x.position);
+    const others = all.filter(x => x.id !== r.id && x.position);
+    const sorted = others.map(o => ({ id: o.id, d: dist(r, o) })).sort((a, b) => a.d - b.d);
+    const nearbyIds = sorted.slice(0, k).map(x => x.id);
+    payload.push({
+      id: r.id,
+      title: entryTitle(r),
+      position: r.position,
+      nearbyIds,
+      dataPoints: children.map(dataPointFromEntry)
+    });
+  }
+  return { trenches: payload, currentViewEntryId };
+}
+
+const chatPanel = document.getElementById('chat-panel');
+const chatMessages = document.getElementById('chat-messages');
+const chatInput = document.getElementById('chat-input');
+const chatSend = document.getElementById('chat-send');
+const chatClose = document.getElementById('chat-close');
+const chatButton = document.getElementById('chat-button');
+
+function addChatMessage(text, role, loading = false) {
+  const div = document.createElement('div');
+  div.className = `chat-msg ${role}` + (loading ? ' loading' : '');
+  div.textContent = text;
+  chatMessages.appendChild(div);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  return div;
+}
+
+async function sendChatRequest(userMessage = null) {
+  const payload = buildTrenchesPayload();
+  const body = { ...payload, userMessage };
+  const res = await fetch('/api/chat', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  if (!res.ok) {
+    const e = await res.json().catch(() => ({}));
+    throw new Error(e.error || 'Chat failed');
+  }
+  const data = await res.json();
+  return data.message;
+}
+
+function openChatAndFetchOpener() {
+  if (!chatPanel || !chatMessages) return;
+  chatPanel.classList.remove('hidden');
+  chatMessages.innerHTML = '';
+  const loader = addChatMessage('…', 'bot', true);
+  sendChatRequest(null)
+    .then(msg => {
+      loader.remove();
+      addChatMessage(msg, 'bot');
+    })
+    .catch(err => {
+      loader.remove();
+      addChatMessage(err.message || 'Something went wrong.', 'bot');
+    });
+}
+
+function handleChatSend() {
+  if (!currentUser) return;
+  const raw = (chatInput?.value || '').trim();
+  if (!raw) return;
+  chatInput.value = '';
+  addChatMessage(raw, 'user');
+  const loader = addChatMessage('…', 'bot', true);
+  sendChatRequest(raw)
+    .then(msg => {
+      loader.remove();
+      addChatMessage(msg, 'bot');
+    })
+    .catch(err => {
+      loader.remove();
+      addChatMessage(err.message || 'Something went wrong.', 'bot');
+    });
+}
+
+if (chatButton) {
+  chatButton.addEventListener('click', () => {
+    if (currentUser) openChatAndFetchOpener();
+    else if (chatPanel) { chatPanel.classList.remove('hidden'); chatMessages.innerHTML = ''; addChatMessage('Sign in to use canvas chat.', 'bot'); }
+  });
+}
+if (chatClose && chatPanel) chatClose.addEventListener('click', () => chatPanel.classList.add('hidden'));
+if (chatSend) chatSend.addEventListener('click', handleChatSend);
+if (chatInput) {
+  chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); handleChatSend(); } });
+}
+
 // User menu functionality
 const userMenuButton = document.getElementById('user-menu-button');
 const userMenuDropdown = document.getElementById('user-menu-dropdown');
