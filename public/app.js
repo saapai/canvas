@@ -2252,6 +2252,9 @@ function showCursorAtWorld(wx, wy, force = false) {
   if (isReadOnly) {
     return;
   }
+  if (isFocusInChatPanel()) {
+    return;
+  }
   
   // Don't show cursor if there are selected entries (user might want to delete them)
   if (selectedEntries.size > 0 && !force) {
@@ -2327,6 +2330,9 @@ function showCursorInDefaultPosition(entryId = null) {
   console.log('[CURSOR] showCursorInDefaultPosition called. isReadOnly:', isReadOnly, 'entryId:', entryId, 'hasClickedRecently:', hasClickedRecently);
   
   if (isReadOnly) {
+    return;
+  }
+  if (isFocusInChatPanel()) {
     return;
   }
   
@@ -4644,8 +4650,9 @@ editor.addEventListener('blur', (e) => {
     }, 0);
   } else if (trimmed.length === 0 && (!editingEntryId || editingEntryId === 'anchor')) {
     // If empty and creating new entry, show cursor in default position
+    // Skip when focus moved to chat panel so we don't steal focus back
     setTimeout(() => {
-      if (document.activeElement !== editor) {
+      if (document.activeElement !== editor && !isFocusInChatPanel()) {
         showCursorInDefaultPosition();
         editingEntryId = null;
       }
@@ -5204,6 +5211,11 @@ const chatSend = document.getElementById('chat-send');
 const chatClose = document.getElementById('chat-close');
 const chatButton = document.getElementById('chat-button');
 
+function isFocusInChatPanel() {
+  const p = document.getElementById('chat-panel');
+  return p && !p.classList.contains('hidden') && p.contains(document.activeElement);
+}
+
 function addChatMessage(text, role, loading = false) {
   const div = document.createElement('div');
   div.className = `chat-msg ${role}` + (loading ? ' loading' : '');
@@ -5274,6 +5286,9 @@ if (chatClose && chatPanel) chatClose.addEventListener('click', () => chatPanel.
 if (chatSend) chatSend.addEventListener('click', handleChatSend);
 if (chatInput) {
   chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); handleChatSend(); } });
+}
+if (chatPanel) {
+  chatPanel.addEventListener('mousedown', (e) => e.stopPropagation());
 }
 
 // User menu functionality

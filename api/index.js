@@ -9,6 +9,7 @@ import { dirname, join } from 'path';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 import { processTextWithLLM, fetchLinkMetadata, generateLinkCard } from './llm.js';
+import { chatWithCanvas } from '../server/chat.js';
 import {
   initDatabase,
   getAllEntries,
@@ -1069,6 +1070,27 @@ app.post('/api/entries/batch', async (req, res) => {
   } catch (error) {
     console.error('Error saving entries:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/chat', requireAuth, async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    const { trenches, currentViewEntryId, userMessage } = req.body || {};
+    const result = await chatWithCanvas({
+      trenches: Array.isArray(trenches) ? trenches : [],
+      currentViewEntryId: typeof currentViewEntryId === 'string' ? currentViewEntryId : null,
+      userMessage: typeof userMessage === 'string' ? userMessage.trim() || null : null
+    });
+    if (!result.ok) {
+      return res.status(500).json({ error: result.error || 'Chat failed' });
+    }
+    res.json({ message: result.message });
+  } catch (error) {
+    console.error('Error in chat:', error);
+    res.status(500).json({ error: error.message || 'Chat failed' });
   }
 });
 
