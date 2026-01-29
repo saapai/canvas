@@ -5,20 +5,68 @@ dotenv.config();
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-const SYSTEM_PROMPT = `You are a witty, proactive canvas companion. You see the user's "trenches"—each trench is an entry (a bucket) and its "data points" are the sub-entries inside it: text, movies, songs, links, etc. You also know (x,y) positions: what's physically close on the canvas is often related.
+const SYSTEM_PROMPT = `You are a witty, insightful canvas companion who deeply understands the user's creative space. You see their "trenches"—nested organizational structures where each trench can contain data points (text, movies, songs, links) AND sub-trenches that go deeper. You also know (x,y) positions: spatial proximity often reveals connections.
 
-Your job: be proactive. Don't wait for questions. When you get context, immediately offer something interesting:
-- Unusual connections between nearby items (e.g. a song next to a movie, or two links that seem to tell a story)
-- A concise observation about a trench's theme or its data points
-- A playful riff on a movie/song/link they've saved
-- A pattern you notice across trenches (genre, mood, era)
+CRITICAL: Traverse ALL nested trenches recursively. If a trench has sub-trenches, explore them fully. Don't just mention the top level—dive deep into nested structures. For example, if there's a "movies" trench with a "best" sub-trench containing movies, you MUST mention those movies specifically.
 
-Keep it short (2–4 sentences usually), clever, and specific to their content. No generic small talk. No "How can I help?"—you're the one starting the conversation. Tone: warm, slightly irreverent, curious. If they've written something poignant or funny, acknowledge it. If they ask a direct question, answer it concisely then add one extra observation.
+Your job: be proactive and genuinely interesting. When you get context:
+- Traverse nested trenches completely—mention specific movies, songs, links from deep sub-trenches
+- Make unexpected connections between spatially nearby items across different trenches
+- Synthesize patterns: genre clusters, thematic threads, emotional arcs
+- For vague entries (like "horrible > sink not wide enough"), use your knowledge to infer context and make it meaningful
+- For specific entries (like "acura vs subaru"), enrich with external knowledge and synthesize with their personal context
+- Reference specific media: "I see you've got [Movie Title] in your 'best' collection—that's a bold choice because..."
 
-When you have no or very little context, say something brief and inviting about their empty or sparse canvas—still distinctive, not corporate.`;
+Be specific, curious, and insightful. Reference actual titles, artists, years. Make connections they might not see. Tone: warm, slightly irreverent, genuinely curious. No generic responses. If they ask about something, traverse ALL relevant trenches to find the answer.
+
+When you have no context, say something brief and inviting—still distinctive, not corporate.`;
+
+function buildTrenchContext(trench, depth = 0, indent = '') {
+  const lines = [];
+  const px = trench.position && trench.position.x != null ? trench.position.x : '?';
+  const py = trench.position && trench.position.y != null ? trench.position.y : '?';
+  const prefix = indent + (depth > 0 ? '└─ ' : '');
+  const parts = [`${prefix}Trench "${trench.title || trench.id}" (id: ${trench.id}) at (${px}, ${py})`];
+  if (trench.nearbyIds && trench.nearbyIds.length) {
+    parts.push(`— spatially near: ${trench.nearbyIds.join(', ')}`);
+  }
+  lines.push(parts.join(' '));
+
+  // Data points (direct children that are leaves or media)
+  const points = trench.dataPoints || [];
+  if (points.length > 0) {
+    for (const p of points) {
+      let desc = '';
+      if (p.type === 'movie' && p.title) {
+        desc = `movie: "${p.title}"${p.year ? ` (${p.year})` : ''}`;
+      } else if (p.type === 'song' && p.title) {
+        desc = `song: "${p.title}"${p.artist ? ` by ${p.artist}` : ''}`;
+      } else if (p.type === 'link' && p.title) {
+        desc = `link: "${p.title}" | ${p.url || ''}`;
+        if (p.description) desc += ` | ${p.description.slice(0, 120)}`;
+        if (p.siteName) desc += ` (${p.siteName})`;
+      } else if (p.text) {
+        desc = `text: "${p.text.slice(0, 300)}${p.text.length > 300 ? '…' : ''}"`;
+      } else {
+        desc = `${p.type || 'unknown'}: ${p.title || p.id}`;
+      }
+      lines.push(`${indent}  • ${desc}`);
+    }
+  }
+
+  // Sub-trenches (nested structures)
+  const subTrenches = trench.subTrenches || [];
+  if (subTrenches.length > 0) {
+    for (const st of subTrenches) {
+      lines.push(...buildTrenchContext(st, depth + 1, indent + '  '));
+    }
+  }
+
+  return lines;
+}
 
 function buildContextBlock(payload) {
-  const { trenches, currentViewEntryId } = payload;
+  const { trenches, currentViewEntryId, focusedTrench } = payload;
   if (!trenches || trenches.length === 0) {
     return 'The canvas is empty or has no trenches yet.';
   }
@@ -27,57 +75,120 @@ function buildContextBlock(payload) {
   lines.push('Current view: ' + (currentViewEntryId ? `inside trench "${currentViewEntryId}"` : 'root (all trenches visible).'));
   lines.push('');
 
-  for (const t of trenches) {
-    const px = t.position && t.position.x != null ? t.position.x : '?';
-    const py = t.position && t.position.y != null ? t.position.y : '?';
-    const parts = [`Trench "${t.title || t.id}" (id: ${t.id}) at (${px}, ${py})`];
-    if (t.nearbyIds && t.nearbyIds.length) {
-      parts.push(`— spatially near: ${t.nearbyIds.join(', ')}`);
-    }
-    lines.push(parts.join(' '));
+  // If focused on a specific trench, show it first with full detail
+  if (focusedTrench) {
+    lines.push('=== FOCUSED TRENCH (current view) ===');
+    lines.push(...buildTrenchContext(focusedTrench, 0, ''));
+    lines.push('');
+    lines.push('=== ALL ROOT TRENCHES ===');
+  }
 
-    const points = t.dataPoints || [];
-    if (points.length === 0) {
-      lines.push('  (no data points)');
-    } else {
-      for (const p of points) {
-        let desc = p.type || 'text';
-        if (p.type === 'movie' && p.title) desc = `movie: ${p.title}${p.year ? ` (${p.year})` : ''}`;
-        else if (p.type === 'song' && p.title) desc = `song: ${p.title}${p.artist ? ` — ${p.artist}` : ''}`;
-        else if (p.type === 'link' && p.title) desc = `link: ${p.title} | ${p.url || ''}`;
-        else if (p.text) desc = `text: ${p.text.slice(0, 200)}${p.text.length > 200 ? '…' : ''}`;
-        lines.push(`  - ${desc}`);
-      }
-    }
+  // Show all root trenches with full nested structure
+  for (const t of trenches) {
+    lines.push(...buildTrenchContext(t, 0, ''));
     lines.push('');
   }
 
   return lines.join('\n');
 }
 
-export async function chatWithCanvas(payload) {
-  const { userMessage } = payload;
-  const context = buildContextBlock(payload);
+async function enrichWithExternalContext(contextText, userMessage) {
+  const truncate = contextText.length > 6000 ? contextText.slice(0, 6000) + '\n...[truncated]' : contextText;
+  const enrichmentPrompt = `Given this canvas context, identify 2–4 entries that would benefit from external knowledge:
 
-  const userContent = userMessage
-    ? `Canvas context:\n${context}\n\nUser says: ${userMessage}`
-    : `Canvas context:\n${context}\n\nNo user message—provide a proactive, interesting opener about their canvas.`;
+${truncate}
+
+${userMessage ? `User asked: ${userMessage}` : ''}
+
+For vague entries (e.g. "sink not wide enough", "venmo comments") or specific ones (e.g. "acura vs subaru", "analog vs digital"): 
+- externalContext: brief external knowledge that illuminates the entry
+- synthesis: combine the user's entry with that knowledge in 1–2 sentences
+
+Return ONLY a JSON array, e.g. [{"entry":"...","externalContext":"...","synthesis":"..."}]. If none apply, return [].`;
 
   try {
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: 'You are a context enrichment assistant. Return ONLY a valid JSON array, no other text.' },
+        { role: 'user', content: enrichmentPrompt }
+      ],
+      temperature: 0.4,
+      max_tokens: 600
+    });
+
+    const content = completion.choices[0]?.message?.content?.trim();
+    const jsonMatch = content.match(/\[[\s\S]*?\]/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      return Array.isArray(parsed) ? parsed : [];
+    }
+  } catch (e) {
+    console.log('[CHAT] Enrichment parse/run failed (non-critical):', e.message);
+  }
+  return [];
+}
+
+export async function chatWithCanvas(payload) {
+  const { userMessage } = payload;
+  
+  console.log('[CHAT] Request received:', {
+    hasUserMessage: !!userMessage,
+    trenchesCount: payload.trenches?.length || 0,
+    hasFocusedTrench: !!payload.focusedTrench,
+    currentViewEntryId: payload.currentViewEntryId || null
+  });
+
+  const context = buildContextBlock(payload);
+  
+  console.log('[CHAT] Context built:', {
+    contextLength: context.length,
+    preview: context.substring(0, 200) + '...'
+  });
+
+  // Enrich with external context for vague/specific entries
+  const enrichments = await enrichWithExternalContext(context, userMessage);
+  let enrichedContext = context;
+  if (enrichments.length > 0) {
+    console.log('[CHAT] Enrichments found:', enrichments.length);
+    enrichedContext += '\n\n=== EXTERNAL CONTEXT & SYNTHESIS ===\n';
+    for (const e of enrichments) {
+      enrichedContext += `Entry: "${e.entry}"\n`;
+      enrichedContext += `External context: ${e.externalContext}\n`;
+      enrichedContext += `Synthesis: ${e.synthesis}\n\n`;
+    }
+  }
+
+  const userContent = userMessage
+    ? `Canvas context:\n${enrichedContext}\n\nUser says: ${userMessage}`
+    : `Canvas context:\n${enrichedContext}\n\nNo user message—provide a proactive, interesting opener about their canvas. Traverse ALL nested trenches and mention specific movies, songs, links you find.`;
+
+  try {
+    console.log('[CHAT] Calling OpenAI...');
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: userContent }
       ],
-      temperature: 0.7,
-      max_tokens: 400
+      temperature: 0.8,
+      max_tokens: 600
     });
 
     const content = completion.choices[0]?.message?.content?.trim();
+    console.log('[CHAT] Response received:', {
+      length: content?.length || 0,
+      preview: content?.substring(0, 100) + '...'
+    });
+
     return { ok: true, message: content || "Your canvas is waiting. Add a trench or two and I'll have something to say." };
   } catch (err) {
-    console.error('[chat] OpenAI error:', err);
+    console.error('[CHAT] OpenAI error:', err);
+    console.error('[CHAT] Error details:', {
+      message: err.message,
+      status: err.status,
+      code: err.code
+    });
     return { ok: false, error: err.message || 'Chat failed' };
   }
 }

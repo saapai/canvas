@@ -5156,24 +5156,39 @@ function entryTitle(ed) {
   return first ? first.substring(0, 80) : 'Untitled';
 }
 
-function dataPointFromEntry(ed) {
-  const o = { id: ed.id, position: ed.position };
+function dataPointsFromEntry(ed) {
+  const out = [];
+  const base = { id: ed.id, position: ed.position };
   if (ed.mediaCardData) {
-    o.type = ed.mediaCardData.type === 'song' ? 'song' : ed.mediaCardData.type === 'movie' ? 'movie' : 'media';
-    o.title = ed.mediaCardData.title;
-    if (ed.mediaCardData.artist) o.artist = ed.mediaCardData.artist;
-    if (ed.mediaCardData.year) o.year = ed.mediaCardData.year;
-    if (ed.mediaCardData.url) o.url = ed.mediaCardData.url;
+    out.push({
+      ...base,
+      type: ed.mediaCardData.type === 'song' ? 'song' : ed.mediaCardData.type === 'movie' ? 'movie' : 'media',
+      title: ed.mediaCardData.title,
+      artist: ed.mediaCardData.artist,
+      year: ed.mediaCardData.year,
+      url: ed.mediaCardData.url
+    });
   } else if (ed.linkCardsData && ed.linkCardsData.length) {
-    const l = ed.linkCardsData[0];
-    o.type = 'link';
-    o.title = l.title;
-    o.url = l.url;
-  } else {
-    o.type = 'text';
-    o.text = (ed.text || '').trim().slice(0, 500);
+    for (const l of ed.linkCardsData) {
+      if (!l) continue;
+      out.push({
+        ...base,
+        type: 'link',
+        title: l.title,
+        url: l.url,
+        description: l.description || null,
+        siteName: l.siteName || null
+      });
+    }
   }
-  return o;
+  if (out.length === 0) {
+    out.push({
+      ...base,
+      type: 'text',
+      text: (ed.text || '').trim().slice(0, 500)
+    });
+  }
+  return out;
 }
 
 function dist(a, b) {
@@ -5186,22 +5201,45 @@ function buildTrenchesPayload() {
   const all = Array.from(entries.values()).filter(e => e.id);
   const roots = all.filter(e => !e.parentEntryId);
   const k = 4;
+  
+  // Recursively build a trench with all nested sub-trenches; traverse fully
+  function buildTrenchRecursive(entry, allEntries, depth = 0) {
+    const children = allEntries.filter(e => e.parentEntryId === entry.id);
+    const hasChild = (e) => allEntries.some(c => c.parentEntryId === e.id);
+    const directDataPoints = children.filter(e => !hasChild(e));
+    const subTrenches = children.filter(hasChild);
+    
+    const trench = {
+      id: entry.id,
+      title: entryTitle(entry),
+      position: entry.position,
+      dataPoints: directDataPoints.flatMap(dataPointsFromEntry),
+      subTrenches: subTrenches.map(st => buildTrenchRecursive(st, allEntries, depth + 1))
+    };
+    
+    // Calculate nearby IDs (spatial proximity)
+    const others = allEntries.filter(x => x.id !== entry.id && x.position);
+    const sorted = others.map(o => ({ id: o.id, d: dist(entry, o) })).sort((a, b) => a.d - b.d);
+    trench.nearbyIds = sorted.slice(0, k).map(x => x.id);
+    
+    return trench;
+  }
+  
   const payload = [];
   for (const r of roots) {
-    const children = all.filter(e => e.parentEntryId === r.id);
-    const withPos = [r, ...children].filter(x => x.position);
-    const others = all.filter(x => x.id !== r.id && x.position);
-    const sorted = others.map(o => ({ id: o.id, d: dist(r, o) })).sort((a, b) => a.d - b.d);
-    const nearbyIds = sorted.slice(0, k).map(x => x.id);
-    payload.push({
-      id: r.id,
-      title: entryTitle(r),
-      position: r.position,
-      nearbyIds,
-      dataPoints: children.map(dataPointFromEntry)
-    });
+    payload.push(buildTrenchRecursive(r, all));
   }
-  return { trenches: payload, currentViewEntryId };
+  
+  // If we're inside a specific trench, also include it and all its descendants
+  let focusedTrench = null;
+  if (currentViewEntryId) {
+    const focusedEntry = all.find(e => e.id === currentViewEntryId);
+    if (focusedEntry) {
+      focusedTrench = buildTrenchRecursive(focusedEntry, all);
+    }
+  }
+  
+  return { trenches: payload, currentViewEntryId, focusedTrench };
 }
 
 const chatPanel = document.getElementById('chat-panel');

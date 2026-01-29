@@ -1017,18 +1017,29 @@ app.post('/api/chat', requireAuth, async (req, res) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });
     }
-    const { trenches, currentViewEntryId, userMessage } = req.body || {};
-    const result = await chatWithCanvas({
+    const { trenches, currentViewEntryId, userMessage, focusedTrench } = req.body || {};
+    const payload = {
       trenches: Array.isArray(trenches) ? trenches : [],
       currentViewEntryId: typeof currentViewEntryId === 'string' ? currentViewEntryId : null,
-      userMessage: typeof userMessage === 'string' ? userMessage.trim() || null : null
+      userMessage: typeof userMessage === 'string' ? userMessage.trim() || null : null,
+      focusedTrench: focusedTrench && typeof focusedTrench === 'object' ? focusedTrench : null
+    };
+    console.log('[CHAT] /api/chat request', {
+      userId: req.user?.id,
+      trenchesCount: payload.trenches.length,
+      hasFocusedTrench: !!payload.focusedTrench,
+      currentViewEntryId: payload.currentViewEntryId,
+      hasUserMessage: !!payload.userMessage
     });
+    const result = await chatWithCanvas(payload);
     if (!result.ok) {
+      console.error('[CHAT] chatWithCanvas failed:', result.error);
       return res.status(500).json({ error: result.error || 'Chat failed' });
     }
+    console.log('[CHAT] /api/chat success, response length:', result.message?.length);
     res.json({ message: result.message });
   } catch (error) {
-    console.error('Error in chat:', error);
+    console.error('[CHAT] /api/chat error:', error);
     res.status(500).json({ error: error.message || 'Chat failed' });
   }
 });
