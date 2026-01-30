@@ -652,38 +652,75 @@ async function loadUserEntries(username, editable) {
       // Initially hide all entries - visibility will be set after navigation state is determined
       entry.style.display = 'none';
       
-      // Process text with links
-      const { processedText, urls } = processTextWithLinks(entryData.text);
-      
-      // Use textHtml if available (preserves formatting), otherwise use processedText
-      if (processedText) {
-        if (entryData.textHtml && /<(strong|b|em|i|u)>/i.test(entryData.textHtml)) {
-          // Has formatting, use HTML version
-          entry.innerHTML = meltifyHtml(entryData.textHtml);
-        } else {
-          // No formatting, use regular meltify
-          entry.innerHTML = meltify(processedText);
-        }
-      } else {
+      // Process text with links (skip for image-only entries)
+      const isImageOnly = entryData.mediaCardData && entryData.mediaCardData.type === 'image';
+      if (isImageOnly) {
+        entry.classList.add('canvas-image');
         entry.innerHTML = '';
+        const img = document.createElement('img');
+        img.src = entryData.mediaCardData.url;
+        img.alt = 'Canvas image';
+        img.draggable = false;
+        entry.appendChild(img);
+      } else {
+        const { processedText, urls } = processTextWithLinks(entryData.text);
+        if (processedText) {
+          if (entryData.textHtml && /<(strong|b|em|i|u)>/i.test(entryData.textHtml)) {
+            entry.innerHTML = meltifyHtml(entryData.textHtml);
+          } else {
+            entry.innerHTML = meltify(processedText);
+          }
+        } else {
+          entry.innerHTML = '';
+        }
+        if (urls.length > 0) {
+          const cachedLinkCardsData = entryData.linkCardsData || [];
+          urls.forEach((url, index) => {
+            const cachedCardData = cachedLinkCardsData[index];
+            if (cachedCardData) {
+              const card = createLinkCard(cachedCardData);
+              entry.appendChild(card);
+              updateEntryWidthForLinkCard(entry, card);
+              generateLinkCard(url).then(freshCardData => {
+                if (freshCardData) {
+                  const freshCard = createLinkCard(freshCardData);
+                  card.replaceWith(freshCard);
+                  updateEntryWidthForLinkCard(entry, freshCard);
+                  storedEntryData.linkCardsData[index] = freshCardData;
+                }
+              });
+            } else {
+              const placeholder = createLinkCardPlaceholder(url);
+              entry.appendChild(placeholder);
+              generateLinkCard(url).then(cardData => {
+                if (cardData) {
+                  const card = createLinkCard(cardData);
+                  placeholder.replaceWith(card);
+                  updateEntryWidthForLinkCard(entry, card);
+                  if (!storedEntryData.linkCardsData) storedEntryData.linkCardsData = [];
+                  storedEntryData.linkCardsData[index] = cardData;
+                  setTimeout(() => updateEntryDimensions(entry), 100);
+                } else {
+                  placeholder.remove();
+                }
+              });
+            }
+          });
+        }
       }
       
-      // In read-only mode, allow clicks for navigation
       if (!editable) {
         entry.style.cursor = 'pointer';
       }
       
       world.appendChild(entry);
-      
-      // Update entry dimensions based on actual content after rendering
       updateEntryDimensions(entry);
       
-      // Store entry data
       const storedEntryData = {
         id: entryData.id,
         element: entry,
         text: entryData.text,
-        textHtml: entryData.textHtml, // Preserve HTML formatting
+        textHtml: entryData.textHtml,
         position: entryData.position,
         parentEntryId: entryData.parentEntryId,
         linkCardsData: entryData.linkCardsData || [],
@@ -691,64 +728,10 @@ async function loadUserEntries(username, editable) {
       };
       entries.set(entryData.id, storedEntryData);
       
-      // Generate link cards if URLs exist
-      if (urls.length > 0) {
-        const cachedLinkCardsData = entryData.linkCardsData || [];
-        
-        urls.forEach((url, index) => {
-          const cachedCardData = cachedLinkCardsData[index];
-          
-          if (cachedCardData) {
-            // Use cached card data immediately
-            const card = createLinkCard(cachedCardData);
-            entry.appendChild(card);
-            updateEntryWidthForLinkCard(entry, card);
-            
-            // Refresh card data in the background
-            generateLinkCard(url).then(freshCardData => {
-              if (freshCardData) {
-                // Update the card with fresh data
-                const freshCard = createLinkCard(freshCardData);
-                card.replaceWith(freshCard);
-                updateEntryWidthForLinkCard(entry, freshCard);
-                
-                // Update cached data
-                storedEntryData.linkCardsData[index] = freshCardData;
-              }
-            });
-          } else {
-            // No cached data - show placeholder and generate
-            const placeholder = createLinkCardPlaceholder(url);
-            entry.appendChild(placeholder);
-            
-            generateLinkCard(url).then(cardData => {
-              if (cardData) {
-                const card = createLinkCard(cardData);
-                placeholder.replaceWith(card);
-                updateEntryWidthForLinkCard(entry, card);
-                
-                // Cache the card data
-                if (!storedEntryData.linkCardsData) storedEntryData.linkCardsData = [];
-                storedEntryData.linkCardsData[index] = cardData;
-                
-                setTimeout(() => {
-                  updateEntryDimensions(entry);
-                }, 100);
-              } else {
-                placeholder.remove();
-              }
-            });
-          }
-        });
-      }
-      
-      // Restore media cards if they exist
-      if (entryData.mediaCardData) {
+      if (!isImageOnly && entryData.mediaCardData && entryData.mediaCardData.type !== 'image') {
         const card = createMediaCard(entryData.mediaCardData);
         entry.appendChild(card);
-        setTimeout(() => {
-          updateEntryDimensions(entry);
-        }, 100);
+        setTimeout(() => updateEntryDimensions(entry), 100);
       }
     });
     
@@ -3262,7 +3245,10 @@ function extractUrls(text) {
 
 // Generate slug from entry text (limit to 17 characters)
 function generateEntrySlug(text, entryData = null) {
-  // If entry has media card data, use the media title
+  if (entryData && entryData.mediaCardData && entryData.mediaCardData.type === 'image') {
+    const suffix = (entryData.id || '').slice(-8).replace(/[^a-z0-9-]/gi, '') || '0';
+    return 'image-' + suffix;
+  }
   if (entryData && entryData.mediaCardData && entryData.mediaCardData.title) {
     const slug = entryData.mediaCardData.title
       .toLowerCase()
@@ -3576,6 +3562,50 @@ function findEntryElement(target) {
     el = el.parentElement;
   }
   return null;
+}
+
+function isImageEntry(entryEl) {
+  if (!entryEl || !entryEl.id || entryEl.id === 'anchor') return false;
+  const data = entries.get(entryEl.id);
+  return data && data.mediaCardData && data.mediaCardData.type === 'image';
+}
+
+function selectOnlyEntry(entryId) {
+  clearSelection();
+  const entryData = entries.get(entryId);
+  if (entryData && entryData.element) {
+    selectedEntries.add(entryId);
+    entryData.element.classList.add('selected');
+    hideCursor();
+  }
+}
+
+async function createImageEntryAtWorld(worldX, worldY, imageUrl) {
+  const entryId = generateEntryId();
+  const entry = document.createElement('div');
+  entry.className = 'entry canvas-image';
+  entry.id = entryId;
+  entry.style.left = `${worldX}px`;
+  entry.style.top = `${worldY}px`;
+  const img = document.createElement('img');
+  img.src = imageUrl;
+  img.alt = 'Canvas image';
+  img.draggable = false;
+  entry.appendChild(img);
+  world.appendChild(entry);
+  const entryData = {
+    id: entryId,
+    element: entry,
+    text: '',
+    position: { x: worldX, y: worldY },
+    parentEntryId: currentViewEntryId,
+    mediaCardData: { type: 'image', url: imageUrl }
+  };
+  entries.set(entryId, entryData);
+  updateEntryVisibility();
+  setTimeout(() => updateEntryDimensions(entry), 50);
+  await saveEntryToServer(entryData);
+  return entryData;
 }
 
 // Click to type / Drag entries
@@ -3912,32 +3942,27 @@ window.addEventListener('mouseup', (e) => {
         const dt = performance.now() - clickStart.t;
         isClick = (dist < dragThreshold && dt < 350);
         
-        // Edit entry if it was a click (not a drag)
-        // Don't edit if we're currently editing or if it's the anchor
-        // Delay edit to allow double-click detection (typical double-click delay is ~300ms)
+        // Edit entry if it was a click (not a drag). Images: only select, no edit.
         if(isClick && draggingEntry.id !== 'anchor' && draggingEntry.id && !editingEntryId && !isReadOnly) {
           const entryData = entries.get(draggingEntry.id);
           if(entryData) {
-            const rect = draggingEntry.getBoundingClientRect();
-            const worldPos = screenToWorld(rect.left, rect.top);
-            
-            // Capture entryId before timeout (draggingEntry will be cleared)
-            const entryIdToEdit = draggingEntry.id;
-            const textToEdit = entryData.text;
-            
-            // Clear any existing pending edit
-            if (pendingEditTimeout) {
-              clearTimeout(pendingEditTimeout);
-            }
-            
-            // Delay edit to allow double-click detection
-            pendingEditTimeout = setTimeout(() => {
-              pendingEditTimeout = null;
-              // Double-check we're still not editing (double-click might have happened)
-              if (!editingEntryId && entryIdToEdit !== 'anchor') {
-                placeEditorAtWorld(worldPos.x, worldPos.y, textToEdit, entryIdToEdit);
+            if(isImageEntry(draggingEntry)) {
+              selectOnlyEntry(draggingEntry.id);
+            } else {
+              const rect = draggingEntry.getBoundingClientRect();
+              const worldPos = screenToWorld(rect.left, rect.top);
+              const entryIdToEdit = draggingEntry.id;
+              const textToEdit = entryData.text;
+              if (pendingEditTimeout) {
+                clearTimeout(pendingEditTimeout);
               }
-            }, 300); // Wait 300ms to detect double-click
+              pendingEditTimeout = setTimeout(() => {
+                pendingEditTimeout = null;
+                if (!editingEntryId && entryIdToEdit !== 'anchor') {
+                  placeEditorAtWorld(worldPos.x, worldPos.y, textToEdit, entryIdToEdit);
+                }
+              }, 300);
+            }
           }
         }
       }
@@ -4075,8 +4100,10 @@ window.addEventListener('mouseup', (e) => {
       
       if(isClick) {
         const entryEl = clickStart.entryEl;
-        
-        // Command/Ctrl + click: open link in browser
+        if(isImageEntry(entryEl)) {
+          selectOnlyEntry(entryEl.id);
+          return;
+        }
         if((e.metaKey || e.ctrlKey) && entryEl.id !== 'anchor' && entryEl.id) {
           const entryData = entries.get(entryEl.id);
           if(entryData) {
@@ -4085,10 +4112,7 @@ window.addEventListener('mouseup', (e) => {
               window.open(urls[0], '_blank');
             }
           }
-        } 
-        // Regular click on link/media card: navigate to entry (open breadcrumb)
-        // But don't navigate if we're currently editing
-        else if(entryEl.id !== 'anchor' && entryEl.id && !editingEntryId) {
+        } else if(entryEl.id !== 'anchor' && entryEl.id && !editingEntryId) {
           navigateToEntry(entryEl.id);
         }
       }
@@ -4680,26 +4704,61 @@ editor.addEventListener('paste', (e) => {
   // Allow paste to work normally when editor is visible and focused
 });
 
-// Right-click to edit entry (only if not read-only)
+// Right-click to edit entry (only if not read-only). Images: only select.
 viewport.addEventListener('contextmenu', (e) => {
   if(e.target === editor || editor.contains(e.target)) return;
-  if(isReadOnly) return; // Disable editing in read-only mode
+  if(isReadOnly) return;
   
   const entryEl = findEntryElement(e.target);
-  
-  // Don't edit if clicking on a link card (handled by card's contextmenu)
   if(e.target.closest('.link-card')) return;
   
   if(entryEl && entryEl.id !== 'anchor' && entryEl.id){
+    if(isImageEntry(entryEl)){
+      e.preventDefault();
+      e.stopPropagation();
+      selectOnlyEntry(entryEl.id);
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
-    
     const entryData = entries.get(entryEl.id);
     if(entryData){
       const rect = entryEl.getBoundingClientRect();
       const worldPos = screenToWorld(rect.left, rect.top);
       placeEditorAtWorld(worldPos.x, worldPos.y, entryData.text, entryEl.id);
     }
+  }
+});
+
+// Drag-and-drop image onto canvas
+viewport.addEventListener('dragover', (e) => {
+  if(isReadOnly) return;
+  if(e.dataTransfer.types.includes('Files')){
+    const files = e.dataTransfer.items ? Array.from(e.dataTransfer.items) : [];
+    const hasImage = files.some(item => item.kind === 'file' && item.type.startsWith('image/'));
+    if(hasImage){ e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }
+  }
+});
+viewport.addEventListener('drop', async (e) => {
+  if(isReadOnly) return;
+  if(!e.dataTransfer.files || !e.dataTransfer.files.length) return;
+  const file = Array.from(e.dataTransfer.files).find(f => f.type.startsWith('image/'));
+  if(!file) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const worldPos = screenToWorld(e.clientX, e.clientY);
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch('/api/upload-image', { method: 'POST', credentials: 'include', body: form });
+    if(!res.ok){
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Upload failed');
+    }
+    const { url } = await res.json();
+    await createImageEntryAtWorld(worldPos.x, worldPos.y, url);
+  } catch(err){
+    console.error('Image upload failed:', err);
   }
 });
 
@@ -6321,17 +6380,48 @@ async function performUndo() {
         entry.id = entryData.id;
         entry.style.left = `${entryData.position.x}px`;
         entry.style.top = `${entryData.position.y}px`;
-        
-        // Process text and extract URLs
-        const { processedText, urls } = processTextWithLinks(entryData.text);
-        if (processedText) {
-          entry.innerHTML = meltify(processedText);
+        const isImageEntryRestore = entryData.mediaCardData && entryData.mediaCardData.type === 'image';
+        if (isImageEntryRestore) {
+          entry.classList.add('canvas-image');
+          const img = document.createElement('img');
+          img.src = entryData.mediaCardData.url;
+          img.alt = 'Canvas image';
+          img.draggable = false;
+          entry.appendChild(img);
         } else {
-          entry.innerHTML = '';
+          const { processedText, urls } = processTextWithLinks(entryData.text);
+          if (processedText) {
+            entry.innerHTML = meltify(processedText);
+          } else {
+            entry.innerHTML = '';
+          }
+          if (entryData.linkCardsData && entryData.linkCardsData.length > 0) {
+            entryData.linkCardsData.forEach((cardData) => {
+              if (cardData) {
+                const card = createLinkCard(cardData);
+                entry.appendChild(card);
+                updateEntryWidthForLinkCard(entry, card);
+              }
+            });
+          } else if (urls.length > 0) {
+            urls.forEach(async (url) => {
+              const cardData = await generateLinkCard(url);
+              if (cardData) {
+                const card = createLinkCard(cardData);
+                entry.appendChild(card);
+                updateEntryWidthForLinkCard(entry, card);
+                if (!storedEntryData.linkCardsData) storedEntryData.linkCardsData = [];
+                storedEntryData.linkCardsData.push(cardData);
+              }
+            });
+          }
+          if (entryData.mediaCardData) {
+            const card = createMediaCard(entryData.mediaCardData);
+            entry.appendChild(card);
+            setTimeout(() => updateEntryDimensions(entry), 100);
+          }
         }
-        
         world.appendChild(entry);
-        
         const storedEntryData = {
           ...entryData,
           element: entry,
@@ -6339,43 +6429,7 @@ async function performUndo() {
           mediaCardData: entryData.mediaCardData || null
         };
         entries.set(entryData.id, storedEntryData);
-        
-        // Restore link cards if they exist
-        if (entryData.linkCardsData && entryData.linkCardsData.length > 0) {
-          entryData.linkCardsData.forEach((cardData) => {
-            if (cardData) {
-              const card = createLinkCard(cardData);
-              entry.appendChild(card);
-              updateEntryWidthForLinkCard(entry, card);
-            }
-          });
-        } else if (urls.length > 0) {
-          // Generate link cards from URLs if we don't have cached data
-          urls.forEach(async (url) => {
-            const cardData = await generateLinkCard(url);
-            if (cardData) {
-              const card = createLinkCard(cardData);
-              entry.appendChild(card);
-              updateEntryWidthForLinkCard(entry, card);
-              if (!storedEntryData.linkCardsData) storedEntryData.linkCardsData = [];
-              storedEntryData.linkCardsData.push(cardData);
-            }
-          });
-        }
-        
-        // Restore media cards if they exist
-        if (entryData.mediaCardData) {
-          const card = createMediaCard(entryData.mediaCardData);
-          entry.appendChild(card);
-          setTimeout(() => {
-            updateEntryDimensions(entry);
-          }, 100);
-        }
-        
-        // Update entry dimensions
         updateEntryDimensions(entry);
-        
-        // Restore to server
         await saveEntryToServer(storedEntryData);
       }
       updateEntryVisibility();

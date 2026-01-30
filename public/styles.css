@@ -115,6 +115,22 @@ body::before{
   pointer-events: none;
 }
 
+/* Canvas image entries: drag-and-drop images */
+.entry.canvas-image {
+  padding: 0;
+  min-width: 0;
+}
+.entry.canvas-image img {
+  display: block;
+  max-width: 320px;
+  max-height: 240px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  pointer-events: none;
+  border-radius: 4px;
+}
+
 /* Hover effect for clickable entries (blue highlight animation) */
 /* Works in both normal and read-only (view) mode */
 .entry:hover:not(.editing)::before {

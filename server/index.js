@@ -31,8 +31,19 @@ import {
   getPool
 } from './db.js';
 import jwt from 'jsonwebtoken';
+import multer from 'multer';
+import { createClient } from '@supabase/supabase-js';
 
 dotenv.config();
+
+const supabaseUrl = process.env.SUPABASE_URL || '';
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+const supabaseBucket = process.env.SUPABASE_STORAGE_BUCKET || 'canvas-images';
+const supabase = supabaseUrl && supabaseServiceKey
+  ? createClient(supabaseUrl, supabaseServiceKey)
+  : null;
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -659,6 +670,36 @@ app.post('/api/generate-link-card', async (req, res) => {
     res.json(card);
   } catch (error) {
     console.error('Error generating link card:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/upload-image', requireAuth, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.user) return res.status(401).json({ error: 'Authentication required' });
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (!allowed.includes(req.file.mimetype)) {
+      return res.status(400).json({ error: 'Invalid file type. Use JPEG, PNG, GIF, or WebP.' });
+    }
+    if (!supabase) {
+      return res.status(503).json({ error: 'Image storage not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.' });
+    }
+    const ext = req.file.originalname.split('.').pop() || 'png';
+    const safeExt = /^[a-z0-9]+$/i.test(ext) ? ext : 'png';
+    const path = `${req.user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${safeExt}`;
+    const { data, error } = await supabase.storage.from(supabaseBucket).upload(path, req.file.buffer, {
+      contentType: req.file.mimetype,
+      upsert: false
+    });
+    if (error) {
+      console.error('Supabase upload error:', error);
+      return res.status(500).json({ error: error.message || 'Upload failed' });
+    }
+    const { data: publicData } = supabase.storage.from(supabaseBucket).getPublicUrl(data.path);
+    res.json({ url: publicData.publicUrl });
+  } catch (error) {
+    console.error('Error uploading image:', error);
     res.status(500).json({ error: error.message });
   }
 });
