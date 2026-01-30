@@ -38,7 +38,7 @@ dotenv.config();
 
 const supabaseUrl = process.env.SUPABASE_URL || '';
 const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-const supabaseBucket = process.env.SUPABASE_STORAGE_BUCKET || 'canvas-images';
+const supabaseBucket = process.env.SUPABASE_STORAGE_BUCKET || 'canvas-image';
 const supabase = supabaseUrl && supabaseServiceKey
   ? createClient(supabaseUrl, supabaseServiceKey)
   : null;
