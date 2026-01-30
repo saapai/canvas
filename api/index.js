@@ -791,7 +791,12 @@ app.post('/api/upload-image', requireAuth, upload.single('file'), async (req, re
       return res.status(400).json({ error: 'Invalid file type. Use JPEG, PNG, GIF, or WebP.' });
     }
     if (!supabase) {
-      return res.status(503).json({ error: 'Image storage not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.' });
+      const hasUrl = Boolean(process.env.SUPABASE_URL);
+      const hasKey = Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
+      console.log('[upload-image] Supabase env: URL present=' + hasUrl + ', Key present=' + hasKey + '. Redeploy after adding vars; for Preview URLs set vars for Preview (or All Environments).');
+      return res.status(503).json({
+        error: 'Image storage not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in Vercel, then redeploy. If you use a Preview URL (e.g. *-git-*-vercel.app), add the vars for Preview or All Environments.'
+      });
     }
     const ext = req.file.originalname.split('.').pop() || 'png';
     const safeExt = /^[a-z0-9]+$/i.test(ext) ? ext : 'png';
