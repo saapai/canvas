@@ -2882,16 +2882,32 @@ async function commitEditor(){
 }
 
 function updateEntryDimensions(entry) {
-  // Update entry width and height based on actual content
-  // Use requestAnimationFrame to ensure DOM is ready
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
-      // Calculate actual content dimensions
-      // Width: use widest line or card width (link or media cards)
+      if (entry.classList.contains('canvas-image')) {
+        const img = entry.querySelector('img');
+        if (img) {
+          const maxW = 320;
+          const maxH = 240;
+          let w = img.naturalWidth || img.offsetWidth || 0;
+          let h = img.naturalHeight || img.offsetHeight || 0;
+          if (w <= 0 || h <= 0) {
+            w = w || 200;
+            h = h || 150;
+          }
+          const scale = Math.min(1, maxW / w, maxH / h);
+          const contentWidth = Math.round(Math.min(w * scale, maxW));
+          const contentHeight = Math.round(Math.min(h * scale, maxH));
+          entry.style.setProperty('width', `${contentWidth}px`, 'important');
+          entry.style.setProperty('height', `${contentHeight}px`, 'important');
+          entry.style.setProperty('min-width', 'auto', 'important');
+          entry.style.setProperty('min-height', 'auto', 'important');
+          return;
+        }
+      }
       let contentWidth = 0;
       const linkCards = entry.querySelectorAll('.link-card, .link-card-placeholder');
       const mediaCards = entry.querySelectorAll('.media-card');
-    
     // Handle media cards first (they have different padding)
     if (mediaCards.length > 0) {
       const desiredPadding = 2; // Minimal padding for media cards
@@ -3587,10 +3603,14 @@ async function createImageEntryAtWorld(worldX, worldY, imageUrl) {
   entry.id = entryId;
   entry.style.left = `${worldX}px`;
   entry.style.top = `${worldY}px`;
+  entry.style.width = '200px';
+  entry.style.height = '150px';
   const img = document.createElement('img');
   img.src = imageUrl;
   img.alt = 'Canvas image';
   img.draggable = false;
+  img.onload = () => updateEntryDimensions(entry);
+  img.onerror = () => updateEntryDimensions(entry);
   entry.appendChild(img);
   world.appendChild(entry);
   const entryData = {
