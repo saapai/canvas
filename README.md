@@ -31,12 +31,16 @@ SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
 TWILIO_ACCOUNT_SID=your_twilio_sid
 TWILIO_AUTH_TOKEN=your_twilio_token
 TWILIO_VERIFY_SERVICE_SID=your_verify_service_sid
+SUPABASE_URL=your_supabase_project_url
+SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+SUPABASE_STORAGE_BUCKET=canvas-image
 ```
 
 **API Keys:**
 - **TMDB_API_KEY**: Get a free API key from [themoviedb.org](https://www.themoviedb.org/settings/api) for movie search
 - **Spotify credentials**: Get from [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) for song search (optional)
 - **Twilio**: Required for phone-based authentication
+- **Supabase** (optional): For drag-and-drop image uploads. Create a project at [supabase.com](https://supabase.com), create a **public** storage bucket named `canvas-image`, add policies so the app can read/write (or use the dashboard’s “New policy” for your folder pattern). Set `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and `SUPABASE_STORAGE_BUCKET=canvas-image` in your env (and in Vercel → Project → Settings → Environment Variables if you deploy there).
 
 3. Start the server:
 ```bash
@@ -57,6 +61,8 @@ npm run dev
 - **Escape** to cancel typing
 - **Drag** to pan around
 - **Scroll** to zoom in/out
+- **Drag and drop images** onto the canvas to place them; click-and-drag to move. Right-click or click on an image only selects it (no edit).
+- **Canvas chat** (bottom-left **◇** button): Opens a proactive assistant that knows your entries as "trenches" (each entry) and "data points" (sub-entries). It uses (x,y) proximity and content (text, movies, songs, links) to offer observations and connections. Sign in required.
 
 After committing, your text melts into the page, then disappears and reappears in a graph layout based on semantic relationships determined by the LLM.
 
@@ -67,6 +73,7 @@ canvas/
 ├── server/
 │   ├── index.js      # Express server with API endpoints
 │   ├── llm.js        # LLM processing logic
+│   ├── chat.js       # Canvas chat (trenches + proactive bot)
 │   └── db.js         # Database operations
 ├── public/
 │   ├── index.html    # Main HTML
