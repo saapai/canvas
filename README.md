@@ -70,20 +70,50 @@ After committing, your text melts into the page, then disappears and reappears i
 
 ```
 canvas/
-├── server/
-│   ├── index.js      # Express server with API endpoints
-│   ├── llm.js        # LLM processing logic
-│   ├── chat.js       # Canvas chat (trenches + proactive bot)
-│   └── db.js         # Database operations
-├── public/
-│   ├── index.html    # Main HTML
-│   ├── styles.css    # Styles
-│   └── app.js        # Frontend JavaScript with persistence
-├── package.json      # Dependencies
-├── vercel.json       # Vercel configuration
-├── .env              # Environment variables (not in git)
-└── README.md         # This file
+├── api/                    # Vercel serverless functions (deployment)
+│   ├── index.js            # Main API handler for Vercel
+│   ├── db.js               # Database operations
+│   └── llm.js              # LLM processing logic
+├── server/                 # Local development server
+│   ├── index.js            # Express server with API endpoints
+│   ├── llm.js              # LLM processing logic
+│   ├── chat.js             # Canvas chat functionality
+│   └── db.js               # Database operations
+├── public/                 # Frontend assets
+│   ├── index.html          # Main HTML template
+│   ├── styles.css          # Organized stylesheet (with section comments)
+│   ├── stats.html          # Statistics dashboard page
+│   └── js/                 # Modular JavaScript (loaded in order)
+│       ├── 01-state.js     # Global state and DOM references
+│       ├── 02-utils.js     # Utility functions
+│       ├── 03-camera.js    # Camera/viewport transformations
+│       ├── 04-auth.js      # Authentication UI
+│       ├── 05-entries.js   # Entry persistence (CRUD)
+│       ├── 06-navigation.js # Navigation and breadcrumb
+│       ├── 07-cursor.js    # Cursor positioning
+│       ├── 08-editor.js    # Editor operations
+│       ├── 09-meltify.js   # Ink-bleed animation
+│       ├── 10-links.js     # Link card generation
+│       ├── 11-media.js     # Media card creation
+│       ├── 12-autocomplete.js # Media search autocomplete
+│       ├── 13-images.js    # Image upload handling
+│       ├── 14-hub.js       # LLM hub organization
+│       ├── 15-chat.js      # Chat panel functionality
+│       ├── 16-spaces.js    # User spaces management
+│       ├── 17-selection.js # Entry selection and undo
+│       ├── 18-events.js    # Event handlers
+│       └── 19-init.js      # Application initialization
+├── package.json            # Dependencies and scripts
+├── vercel.json             # Vercel routing configuration
+├── .env                    # Environment variables (not in git)
+└── README.md               # This file
 ```
+
+### Architecture Notes
+
+- **api/ vs server/**: The `api/` directory contains Vercel serverless functions used in production deployment. The `server/` directory is used for local development. Both implement the same API but with slight differences for their respective environments.
+- **Modular Frontend**: The frontend JavaScript is split into 19 logical modules loaded in dependency order. Each module focuses on a specific feature area for maintainability.
+- **CSS Organization**: The stylesheet includes section headers for easy navigation (Variables, Base, Viewport, Entries, Editor, Animations, etc.).
 
 ## Deployment to Vercel
 
