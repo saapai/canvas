@@ -3,7 +3,230 @@
  * Bootstrap function and application startup
  */
 
-// Render entries from server data
+// Load entries for a specific user (public or owner view)
+async function loadUserEntries(username, editable) {
+  try {
+    // Load entries with pagination - start with first 1000, then load more if needed
+    let allEntries = [];
+    let page = 1;
+    const limit = 1000;
+    let hasMore = true;
+
+    while (hasMore) {
+      const response = await fetch(`/api/public/${username}/entries?page=${page}&limit=${limit}`);
+      if (!response.ok) {
+        throw new Error('Failed to load entries');
+      }
+
+      const data = await response.json();
+
+      // Handle both old format (entries array) and new format (object with pagination)
+      let pageEntries = [];
+      if (Array.isArray(data)) {
+        // Backward compatibility: old format returns array directly
+        pageEntries = data;
+        hasMore = false;
+      } else if (data.entries && Array.isArray(data.entries)) {
+        // New format with pagination
+        pageEntries = data.entries;
+        hasMore = data.pagination?.hasMore || false;
+        page++;
+
+        // Safety limit: don't load more than 10,000 entries at once
+        if (allEntries.length + pageEntries.length >= 10000) {
+          console.warn('[LOAD] Reached safety limit of 10,000 entries');
+          hasMore = false;
+        }
+      } else {
+        // Fallback: try to extract entries from response
+        pageEntries = data.entries || [];
+        hasMore = false;
+      }
+
+      allEntries = allEntries.concat(pageEntries);
+    }
+
+    const entriesData = allEntries;
+
+    console.log(`[LOAD] Fetched ${entriesData.length} entries for ${username}`);
+
+    // Find the highest entry ID counter
+    let maxCounter = 0;
+    entriesData.forEach(entry => {
+      // Match both formats: "entry-N" and "xxxxxxxx-entry-N"
+      const match = entry.id.match(/entry-(\d+)$/);
+      if (match) {
+        const counter = parseInt(match[1], 10);
+        if (counter > maxCounter) {
+          maxCounter = counter;
+        }
+      }
+    });
+    entryIdCounter = maxCounter + 1;
+
+    // Clear existing entries
+    entries.clear();
+    const existingEntries = world.querySelectorAll('.entry');
+    existingEntries.forEach(entry => entry.remove());
+
+    // Create entry elements and add to map
+    entriesData.forEach(entryData => {
+      const entry = document.createElement('div');
+      entry.className = 'entry';
+      entry.id = entryData.id;
+
+      entry.style.left = `${entryData.position.x}px`;
+      entry.style.top = `${entryData.position.y}px`;
+
+      // Initially hide all entries - visibility will be set after navigation state is determined
+      entry.style.display = 'none';
+
+      // Process text with links (skip for image-only entries)
+      const isImageOnly = entryData.mediaCardData && entryData.mediaCardData.type === 'image';
+      if (isImageOnly) {
+        entry.classList.add('canvas-image');
+        entry.innerHTML = '';
+        const img = document.createElement('img');
+        img.src = entryData.mediaCardData.url;
+        img.alt = 'Canvas image';
+        img.draggable = false;
+        entry.appendChild(img);
+      } else {
+        const { processedText, urls } = processTextWithLinks(entryData.text);
+        if (processedText) {
+          if (entryData.textHtml && /<(strong|b|em|i|u)>/i.test(entryData.textHtml)) {
+            entry.innerHTML = typeof meltifyHtml === 'function' ? meltifyHtml(entryData.textHtml) : meltify(processedText);
+          } else {
+            entry.innerHTML = meltify(processedText);
+          }
+        } else {
+          entry.innerHTML = '';
+        }
+
+        // Add link cards
+        if (urls.length > 0) {
+          const cachedLinkCardsData = entryData.linkCardsData || [];
+          urls.forEach((url, index) => {
+            const cachedCardData = cachedLinkCardsData[index];
+            if (cachedCardData) {
+              const card = createLinkCard(cachedCardData);
+              entry.appendChild(card);
+              updateEntryWidthForLinkCard(entry, card);
+            } else if (typeof createLinkCardPlaceholder === 'function') {
+              const placeholder = createLinkCardPlaceholder(url);
+              entry.appendChild(placeholder);
+              if (typeof generateLinkCard === 'function') {
+                generateLinkCard(url).then(cardData => {
+                  if (cardData) {
+                    const card = createLinkCard(cardData);
+                    placeholder.replaceWith(card);
+                    updateEntryWidthForLinkCard(entry, card);
+                  } else {
+                    placeholder.remove();
+                  }
+                });
+              }
+            }
+          });
+        }
+      }
+
+      if (!editable) {
+        entry.style.cursor = 'pointer';
+      }
+
+      world.appendChild(entry);
+      updateEntryDimensions(entry);
+
+      const storedEntryData = {
+        id: entryData.id,
+        element: entry,
+        text: entryData.text,
+        textHtml: entryData.textHtml,
+        position: entryData.position,
+        parentEntryId: entryData.parentEntryId,
+        linkCardsData: entryData.linkCardsData || [],
+        mediaCardData: entryData.mediaCardData || null
+      };
+      entries.set(entryData.id, storedEntryData);
+
+      // Add media card if present (and not an image)
+      if (!isImageOnly && entryData.mediaCardData && entryData.mediaCardData.type !== 'image') {
+        const card = createMediaCard(entryData.mediaCardData);
+        entry.appendChild(card);
+        setTimeout(() => updateEntryDimensions(entry), 100);
+      }
+    });
+
+    // Set read-only mode
+    isReadOnly = !editable;
+
+    // Check if we need to navigate to a specific path based on URL
+    const pathParts = window.location.pathname.split('/').filter(Boolean);
+    if (pathParts.length > 1 && pathParts[0] === username) {
+      // We have a path to navigate to
+      const slugPath = pathParts.slice(1); // Remove username
+      let currentParent = null;
+      navigationStack = [];
+
+      // Walk through the path to find the target entry
+      for (const slug of slugPath) {
+        const children = Array.from(entries.values()).filter(e => e.parentEntryId === currentParent);
+        const targetEntry = children.find(e => {
+          // Pass full entry data to generateEntrySlug to handle media cards
+          const entrySlug = generateEntrySlug(e.text, e);
+          return entrySlug === slug;
+        });
+
+        if (targetEntry) {
+          navigationStack.push(targetEntry.id);
+          currentParent = targetEntry.id;
+        } else {
+          // Entry not found in path - could be an empty subdirectory
+          // Keep the navigation stack as is (may be empty)
+          break;
+        }
+      }
+
+      if (navigationStack.length > 0) {
+        currentViewEntryId = navigationStack[navigationStack.length - 1];
+      } else {
+        currentViewEntryId = null;
+      }
+    } else {
+      // Start at root
+      currentViewEntryId = null;
+      navigationStack = [];
+    }
+
+    // Always update breadcrumb (will show even for empty subdirectories)
+    updateBreadcrumb();
+    updateEntryVisibility();
+
+    // Recalculate dimensions for all existing entries
+    setTimeout(() => {
+      entriesData.forEach(entryData => {
+        const entry = document.getElementById(entryData.id);
+        if (entry) {
+          updateEntryDimensions(entry);
+        }
+      });
+    }, 100);
+
+    // Zoom to fit all entries on initial load only
+    if (!hasZoomedToFit) {
+      hasZoomedToFit = true;
+      setTimeout(() => {
+        zoomToFitEntries();
+      }, 200);
+    }
+
+  } catch (error) {
+    console.error('Error loading user entries:', error);
+  }
+}
+
+// Render entries from server data (for authenticated user's own entries)
 function renderEntries(serverEntries) {
   serverEntries.forEach(e => {
     const entry = document.createElement('div');
@@ -71,101 +294,97 @@ function renderEntries(serverEntries) {
 
 // Bootstrap function - main entry point
 async function bootstrap() {
-  console.log('[BOOT] Starting bootstrap...');
+  // Check if we're on a user page FIRST, before anything else runs
+  const pageUsername = window.PAGE_USERNAME;
+  const isOwner = window.PAGE_IS_OWNER === true;
+  const pathParts = window.location.pathname.split('/').filter(Boolean);
+  const isUserPage = !!pageUsername || (pathParts.length > 0 && pathParts[0] !== 'index.html' && pathParts[0] !== '');
+  const isLoginPage = window.SHOW_LOGIN_PAGE === true;
 
-  // Check authentication
-  try {
-    const res = await fetch('/api/auth/me', {
-      method: 'GET',
-      credentials: 'include'
-    });
+  console.log('[BOOT] Starting bootstrap...', { pageUsername, isOwner, isUserPage, isLoginPage });
 
-    if (res.ok) {
-      const data = await res.json();
-      currentUser = data.user;
-      console.log('[BOOT] Authenticated as:', currentUser.username);
+  // CRITICAL: Hide auth overlay IMMEDIATELY if on a user page - do this BEFORE initAuthUI
+  if (isUserPage && authOverlay) {
+    authOverlay.classList.add('hidden');
+    authOverlay.style.display = 'none'; // Force hide with inline style
+  }
 
-      // Check if viewing another user's canvas
-      const path = window.location.pathname;
-      const pathParts = path.split('/').filter(Boolean);
+  // Only initialize auth UI if NOT on a user page
+  if (!isUserPage) {
+    initAuthListeners();
+  }
 
-      if (pathParts.length > 0) {
-        const viewingUsername = pathParts[0];
-        if (viewingUsername !== currentUser.username) {
-          // Viewing someone else's canvas - read-only mode
-          isReadOnly = true;
-          console.log('[BOOT] Read-only mode for:', viewingUsername);
-
-          // Load that user's entries
-          const viewRes = await fetch(`/api/entries?username=${viewingUsername}`, {
-            method: 'GET',
-            credentials: 'include'
-          });
-
-          if (viewRes.ok) {
-            const viewData = await viewRes.json();
-            renderEntries(viewData.entries || []);
-          }
-        } else {
-          // Viewing own canvas
-          const serverEntries = await loadEntriesFromServer();
-          renderEntries(serverEntries);
-        }
-      } else {
-        // At root - redirect to user's canvas
-        window.location.href = '/' + currentUser.username;
-        return;
-      }
-
-      // Update user menu
-      const userNameEl = document.querySelector('.user-name');
-      if (userNameEl && currentUser.username) {
-        userNameEl.textContent = currentUser.username;
-      }
-    } else {
-      // Not authenticated
-      console.log('[BOOT] Not authenticated');
-
-      const path = window.location.pathname;
-      const pathParts = path.split('/').filter(Boolean);
-
-      if (pathParts.length > 0) {
-        // Viewing a public canvas
-        const viewingUsername = pathParts[0];
-        isReadOnly = true;
-        console.log('[BOOT] Public view for:', viewingUsername);
-
-        const viewRes = await fetch(`/api/entries?username=${viewingUsername}`, {
-          method: 'GET'
-        });
-
-        if (viewRes.ok) {
-          const viewData = await viewRes.json();
-          renderEntries(viewData.entries || []);
-        }
-      } else {
-        // At root - show auth overlay
-        showAuthOverlay();
-      }
-    }
-  } catch (err) {
-    console.error('[BOOT] Auth check failed:', err);
+  // If on login page, show auth overlay immediately
+  if (isLoginPage && !isUserPage) {
     showAuthOverlay();
   }
 
-  // Initialize all listeners
-  initAuthListeners();
+  setAnchorGreeting();
+
+  try {
+    const res = await fetch('/api/auth/me', { credentials: 'include' });
+    let isLoggedIn = false;
+
+    if (res.ok) {
+      const user = await res.json();
+      currentUser = user;
+      setAnchorGreeting();
+      isLoggedIn = true;
+      console.log('[BOOT] Authenticated as:', currentUser.username);
+
+      // If on root and logged in, redirect to their page
+      if (!isUserPage && user.username) {
+        window.location.href = `/${user.username}`;
+        return;
+      }
+    } else {
+      console.log('[BOOT] Not authenticated');
+    }
+
+    // If on a user page, load entries (editable if owner, read-only otherwise)
+    if (isUserPage) {
+      const targetUsername = pageUsername || pathParts[0];
+      // Only editable if logged in AND is the owner
+      const editable = isLoggedIn && isOwner;
+      console.log('[BOOT] Loading entries for:', targetUsername, 'editable:', editable);
+      await loadUserEntries(targetUsername, editable);
+      // Ensure auth overlay stays hidden
+      hideAuthOverlay();
+    } else {
+      // On root page only - show auth if needed
+      if (!isLoggedIn) {
+        // Not logged in - show auth to log in
+        showAuthOverlay();
+      } else if (isLoggedIn && !currentUser?.username) {
+        // Logged in but no username yet - show auth to set username
+        showAuthOverlay();
+      } else {
+        // Logged in with username - should have redirected, but hide auth just in case
+        hideAuthOverlay();
+      }
+    }
+  } catch (error) {
+    console.error('[BOOT] Error checking auth:', error);
+    if (isUserPage) {
+      // On user page - load public entries (read-only) even if auth check fails
+      const targetUsername = pageUsername || pathParts[0];
+      console.log('[BOOT] Loading public entries for:', targetUsername);
+      await loadUserEntries(targetUsername, false);
+      // Ensure auth overlay stays hidden
+      hideAuthOverlay();
+    } else {
+      // On root - show auth
+      showAuthOverlay();
+    }
+  }
+
+  // Initialize all listeners (only after initial load)
   initEventListeners();
   initChatListeners();
   initSpacesListeners();
   initAutocompleteToggle();
   initImageDropListeners();
   initHelpModal();
-
-  // Parse URL and navigate if needed
-  if (!isReadOnly && currentUser) {
-    await parseUrlAndNavigate();
-  }
 
   // Initial camera setup
   if (!hasZoomedToFit) {
@@ -179,7 +398,7 @@ async function bootstrap() {
   }
 
   // Hide user menu if not logged in
-  if (!currentUser && userMenu) {
+  if (!currentUser && typeof userMenu !== 'undefined' && userMenu) {
     userMenu.style.display = 'none';
   }
 

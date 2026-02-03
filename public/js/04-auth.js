@@ -3,252 +3,300 @@
  * Phone-based authentication with verification codes
  */
 
-// Show authentication overlay
-function showAuthOverlay(mode = 'login') {
-  if (authOverlay) {
-    authOverlay.classList.remove('hidden');
-    authStepPhone.classList.remove('hidden');
-    authStepCode.classList.add('hidden');
-    authStepSelectUsername.classList.add('hidden');
-    authStepUsername.classList.add('hidden');
-    authError.classList.add('hidden');
-    authError.textContent = '';
+// Set anchor greeting based on page username or current user
+function setAnchorGreeting() {
+  const pageUsername = window.PAGE_USERNAME;
+  const pathParts = window.location.pathname.split('/').filter(Boolean);
+  const usernameFromPath = pathParts.length > 0 && pathParts[0] !== 'index.html' ? pathParts[0] : null;
+  const displayUsername = pageUsername || usernameFromPath || (currentUser && currentUser.username);
 
-    if (authPhoneInput) authPhoneInput.value = '';
-    if (authCodeInput) authCodeInput.value = '';
-
-    // Reset title/subtitle for login mode
-    if (authTitle) authTitle.textContent = 'Welcome to Canvas';
-    if (authSubtitle) authSubtitle.textContent = 'Enter your phone number to continue';
-
-    // Update phone boxes display
-    updatePhoneBoxes('');
+  if (displayUsername) {
+    anchor.textContent = `Hello, ${displayUsername}`;
+  } else {
+    anchor.textContent = 'Hello';
   }
+
+  const userMenuLabel = document.getElementById('user-menu-label');
+  if (userMenuLabel) {
+    userMenuLabel.textContent = displayUsername || '';
+  }
+}
+
+// Show authentication overlay
+function showAuthOverlay() {
+  if (!authOverlay) return;
+  authOverlay.classList.remove('hidden');
+  authError.classList.add('hidden');
+  authError.textContent = '';
+  if (authTitle) {
+    authTitle.textContent = 'What\u2019s your phone number?';
+  }
+  if (authSubtitle) {
+    authSubtitle.textContent = 'We\u2019ll text you a code to sign in.';
+  }
+  authStepPhone.classList.remove('hidden');
+  authStepCode.classList.add('hidden');
+  authStepSelectUsername.classList.add('hidden');
+  authStepUsername.classList.add('hidden');
+  // Clear phone input
+  authPhoneInput.value = '';
+  updatePhoneBoxes();
+  authCodeInput.value = '';
+  authUsernameInput.value = '';
+  verifiedPhone = null;
+  existingUsernames = [];
+  // Focus phone input after a short delay to ensure DOM is ready
+  setTimeout(() => {
+    authPhoneInput.focus();
+  }, 100);
 }
 
 // Hide authentication overlay
 function hideAuthOverlay() {
-  if (authOverlay) {
-    authOverlay.classList.add('hidden');
-  }
+  if (!authOverlay) return;
+  authOverlay.classList.add('hidden');
 }
 
-// Update phone box display
-function updatePhoneBoxes(value) {
-  if (!authPhoneBoxes) return;
-  const boxes = authPhoneBoxes.querySelectorAll('.auth-phone-box');
-  for (let i = 0; i < boxes.length; i++) {
-    boxes[i].textContent = value[i] || '';
+// Set auth error message
+function setAuthError(message) {
+  if (!authError) return;
+  if (!message) {
+    authError.classList.add('hidden');
+    authError.textContent = '';
+    return;
   }
+  authError.textContent = message;
+  authError.classList.remove('hidden');
 }
 
-// Update code box display
-function updateCodeBoxes(value) {
+// Update code boxes display
+function updateCodeBoxes() {
   if (!authCodeBoxes) return;
+  const value = authCodeInput.value.slice(0, 6);
+  const chars = value.split('');
   const boxes = authCodeBoxes.querySelectorAll('.auth-code-box');
-  for (let i = 0; i < boxes.length; i++) {
-    boxes[i].textContent = value[i] || '';
-  }
+  boxes.forEach((box, index) => {
+    box.textContent = chars[index] || '';
+  });
 }
 
-// Handle phone input
-function handlePhoneInput(e) {
-  let value = e.target.value.replace(/\D/g, '');
-  if (value.length > 10) value = value.substring(0, 10);
-  e.target.value = value;
-  updatePhoneBoxes(value);
-
-  // Enable/disable send button
-  if (authSendCodeBtn) {
-    authSendCodeBtn.disabled = value.length !== 10;
-  }
+// Update phone boxes display
+function updatePhoneBoxes() {
+  if (!authPhoneBoxes) return;
+  const value = authPhoneInput.value.replace(/\D/g, '').slice(0, 10);
+  const chars = value.split('');
+  const boxes = authPhoneBoxes.querySelectorAll('.auth-phone-box');
+  boxes.forEach((box, index) => {
+    box.textContent = chars[index] || '';
+  });
 }
 
-// Handle code input
-function handleCodeInput(e) {
-  let value = e.target.value.replace(/\D/g, '');
-  if (value.length > 6) value = value.substring(0, 6);
-  e.target.value = value;
-  updateCodeBoxes(value);
-
-  // Enable/disable verify button
-  if (authVerifyCodeBtn) {
-    authVerifyCodeBtn.disabled = value.length !== 6;
+// Show username selection dropdown
+function showUsernameSelection() {
+  authStepCode.classList.add('hidden');
+  authStepSelectUsername.classList.remove('hidden');
+  if (authTitle) {
+    authTitle.textContent = 'Select your account';
+  }
+  if (authSubtitle) {
+    authSubtitle.textContent = '';
   }
 
-  // Auto-submit when 6 digits entered
-  if (value.length === 6) {
-    handleVerifyCode();
-  }
+  // Populate the select dropdown
+  authUsernameSelect.innerHTML = '';
+  existingUsernames.forEach(user => {
+    const option = document.createElement('option');
+    option.value = user.id;
+    option.textContent = user.username;
+    authUsernameSelect.appendChild(option);
+  });
+
+  // Add "Add new" option at the end
+  const addNewOption = document.createElement('option');
+  addNewOption.value = '__add_new__';
+  addNewOption.textContent = '+ Add new';
+  authUsernameSelect.appendChild(addNewOption);
+
+  authUsernameSelect.focus();
 }
 
 // Send verification code
 async function handleSendCode() {
-  const phone = authPhoneInput?.value?.replace(/\D/g, '');
-  if (!phone || phone.length !== 10) return;
-
-  const fullPhone = '+1' + phone;
-
+  const phoneDigits = authPhoneInput.value.replace(/\D/g, '');
+  if (phoneDigits.length !== 10) {
+    setAuthError('Enter a complete phone number.');
+    return;
+  }
+  const phone = '+1' + phoneDigits;
+  setAuthError('');
   authSendCodeBtn.disabled = true;
-  authError.classList.add('hidden');
-
   try {
     const res = await fetch('/api/auth/send-code', {
       method: 'POST',
+      credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: fullPhone })
+      body: JSON.stringify({ phone })
     });
-
-    const data = await res.json();
-
     if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
       throw new Error(data.error || 'Failed to send code');
     }
-
-    // Move to code verification step
-    verifiedPhone = fullPhone;
+    if (authTitle) {
+      authTitle.textContent = 'Enter your verification code';
+    }
+    if (authSubtitle) {
+      authSubtitle.textContent = '';
+    }
+    if (authCodeHint) {
+      authCodeHint.textContent = `Sent SMS to ${phone}`;
+    }
     authStepPhone.classList.add('hidden');
     authStepCode.classList.remove('hidden');
-
-    if (authCodeHint) {
-      authCodeHint.textContent = `Code sent to ${fullPhone}`;
-    }
-
-    // Focus code input
-    if (authCodeInput) {
-      authCodeInput.value = '';
-      updateCodeBoxes('');
-      authCodeInput.focus();
-    }
-  } catch (err) {
-    authError.textContent = err.message;
-    authError.classList.remove('hidden');
+    authCodeInput.focus();
+    updateCodeBoxes();
+  } catch (error) {
+    console.error(error);
+    setAuthError(error.message);
+  } finally {
     authSendCodeBtn.disabled = false;
   }
 }
 
 // Verify code
 async function handleVerifyCode() {
-  const code = authCodeInput?.value?.replace(/\D/g, '');
-  if (!code || code.length !== 6 || !verifiedPhone) return;
-
+  const phoneDigits = authPhoneInput.value.replace(/\D/g, '');
+  const phone = '+1' + phoneDigits;
+  const code = authCodeInput.value.trim();
+  if (phoneDigits.length !== 10 || !code) {
+    setAuthError('Enter your phone and the code.');
+    return;
+  }
+  setAuthError('');
   authVerifyCodeBtn.disabled = true;
-  authError.classList.add('hidden');
-
   try {
     const res = await fetch('/api/auth/verify-code', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: verifiedPhone, code })
+      body: JSON.stringify({ phone, code })
     });
-
-    const data = await res.json();
-
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      throw new Error(data.error || 'Invalid code');
+      throw new Error(data.error || 'Failed to verify code');
     }
 
-    // Check if user needs to select/create username
-    if (data.needsUsername) {
-      existingUsernames = data.existingUsernames || [];
-
-      if (existingUsernames.length > 0) {
-        // Show username selection
-        authStepCode.classList.add('hidden');
-        authStepSelectUsername.classList.remove('hidden');
-
-        // Populate select dropdown
-        if (authUsernameSelect) {
-          authUsernameSelect.innerHTML = '<option value="">Select a space...</option>';
-          existingUsernames.forEach(u => {
-            const opt = document.createElement('option');
-            opt.value = u;
-            opt.textContent = u;
-            authUsernameSelect.appendChild(opt);
-          });
-          const newOpt = document.createElement('option');
-          newOpt.value = '__new__';
-          newOpt.textContent = '+ Create new space';
-          authUsernameSelect.appendChild(newOpt);
-        }
-      } else {
-        // Show username creation
-        authStepCode.classList.add('hidden');
-        authStepUsername.classList.remove('hidden');
-        if (authUsernameInput) authUsernameInput.focus();
-      }
-    } else {
-      // User is logged in and has a username
+    // Check if there are existing usernames to select from
+    if (data.existingUsernames && data.existingUsernames.length > 0) {
+      verifiedPhone = data.phone;
+      existingUsernames = data.existingUsernames;
+      showUsernameSelection();
+    } else if (data.needsUsername) {
+      // No existing usernames, create new one
       currentUser = data.user;
-      hideAuthOverlay();
-
-      // Navigate to user's canvas
+      setAnchorGreeting();
+      authStepCode.classList.add('hidden');
+      authStepUsername.classList.remove('hidden');
+      if (authTitle) {
+        authTitle.textContent = 'Choose a name';
+      }
+      if (authSubtitle) {
+        authSubtitle.textContent = '';
+      }
+      authUsernameInput.focus();
+    } else {
+      // User already has a username, redirect to their page
+      currentUser = data.user;
+      setAnchorGreeting();
       if (currentUser && currentUser.username) {
-        window.location.href = '/' + currentUser.username;
+        window.location.href = `/${currentUser.username}`;
       } else {
-        // Fallback: reload
-        window.location.reload();
+        hideAuthOverlay();
+        await loadEntriesFromServer();
       }
     }
-  } catch (err) {
-    authError.textContent = err.message;
-    authError.classList.remove('hidden');
+  } catch (error) {
+    console.error(error);
+    setAuthError(error.message);
+  } finally {
     authVerifyCodeBtn.disabled = false;
   }
 }
 
-// Handle username selection
+// Handle username selection continue
 async function handleContinueUsername() {
-  const selected = authUsernameSelect?.value;
-  if (!selected) return;
-
-  if (selected === '__new__') {
-    // Show username creation step
-    authStepSelectUsername.classList.add('hidden');
-    authStepUsername.classList.remove('hidden');
-    if (authUsernameInput) authUsernameInput.focus();
+  const selectedValue = authUsernameSelect.value;
+  if (!selectedValue) {
+    setAuthError('Please select an account.');
     return;
   }
 
-  // Login with existing username
+  setAuthError('');
   authContinueUsernameBtn.disabled = true;
-  authError.classList.add('hidden');
 
   try {
-    const res = await fetch('/api/auth/select-username', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username: selected })
-    });
+    if (selectedValue === '__add_new__') {
+      // User wants to create a new username
+      const res = await fetch('/api/auth/create-new-user', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: verifiedPhone })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to create new user');
+      }
 
-    const data = await res.json();
+      currentUser = data.user;
+      setAnchorGreeting();
+      authStepSelectUsername.classList.add('hidden');
+      authStepUsername.classList.remove('hidden');
+      if (authTitle) {
+        authTitle.textContent = 'Choose a name';
+      }
+      if (authSubtitle) {
+        authSubtitle.textContent = '';
+      }
+      authUsernameInput.focus();
+    } else {
+      // User selected an existing username
+      const res = await fetch('/api/auth/select-username', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: selectedValue })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to select username');
+      }
 
-    if (!res.ok) {
-      throw new Error(data.error || 'Failed to select username');
+      currentUser = data.user;
+      setAnchorGreeting();
+      // Redirect to the user's page
+      if (currentUser && currentUser.username) {
+        window.location.href = `/${currentUser.username}`;
+      } else {
+        window.location.href = '/';
+      }
     }
-
-    currentUser = data.user;
-    hideAuthOverlay();
-
-    // Navigate to selected canvas
-    window.location.href = '/' + selected;
-  } catch (err) {
-    authError.textContent = err.message;
-    authError.classList.remove('hidden');
+  } catch (error) {
+    console.error(error);
+    setAuthError(error.message);
+  } finally {
     authContinueUsernameBtn.disabled = false;
   }
 }
 
-// Handle username creation
+// Save username
 async function handleSaveUsername() {
-  const username = authUsernameInput?.value?.trim();
-  if (!username) return;
-
+  const username = authUsernameInput.value.trim();
+  if (!username) {
+    setAuthError('Enter a name.');
+    return;
+  }
+  setAuthError('');
   authSaveUsernameBtn.disabled = true;
-  authError.classList.add('hidden');
-
   try {
     const res = await fetch('/api/auth/set-username', {
       method: 'POST',
@@ -256,91 +304,142 @@ async function handleSaveUsername() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ username })
     });
-
-    const data = await res.json();
-
+    const data = await res.json().catch(() => ({}));
     if (!res.ok) {
-      throw new Error(data.error || 'Failed to create username');
+      throw new Error(data.error || 'Failed to save username');
     }
-
     currentUser = data.user;
-    hideAuthOverlay();
 
-    // Navigate to new canvas
-    window.location.href = '/' + username;
-  } catch (err) {
-    authError.textContent = err.message;
-    authError.classList.remove('hidden');
+    // Redirect to user's page (just like existing users do when they log in)
+    if (currentUser && currentUser.username) {
+      window.location.href = `/${currentUser.username}`;
+      return;
+    }
+  } catch (error) {
+    console.error(error);
+    setAuthError(error.message);
+  } finally {
     authSaveUsernameBtn.disabled = false;
   }
 }
 
-// Edit phone (go back)
-function handleEditPhone() {
-  authStepCode.classList.add('hidden');
-  authStepPhone.classList.remove('hidden');
-  authError.classList.add('hidden');
-  if (authPhoneInput) authPhoneInput.focus();
-}
-
-// Initialize auth event listeners
+// Initialize auth UI event listeners
 function initAuthListeners() {
-  // Phone input
-  if (authPhoneInput) {
-    authPhoneInput.addEventListener('input', handlePhoneInput);
-    authPhoneInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && authPhoneInput.value.length === 10) {
-        handleSendCode();
-      }
-    });
-  }
+  if (!authOverlay) return;
 
-  // Phone boxes click to focus input
-  if (authPhoneBoxes) {
-    authPhoneBoxes.addEventListener('click', () => {
-      if (authPhoneInput) authPhoneInput.focus();
-    });
-  }
+  authSendCodeBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    handleSendCode();
+  });
+  authVerifyCodeBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    handleVerifyCode();
+  });
+  authSaveUsernameBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    handleSaveUsername();
+  });
+  authContinueUsernameBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    handleContinueUsername();
+  });
+  authEditPhoneBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    setAuthError('');
+    authStepCode.classList.add('hidden');
+    authStepPhone.classList.remove('hidden');
+    authCodeInput.value = '';
+    updateCodeBoxes();
+    authPhoneInput.focus();
+  });
 
-  // Code input
-  if (authCodeInput) {
-    authCodeInput.addEventListener('input', handleCodeInput);
-    authCodeInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && authCodeInput.value.length === 6) {
-        handleVerifyCode();
-      }
-    });
-  }
+  // Code boxes click to focus
+  authCodeBoxes.addEventListener('click', () => {
+    authCodeInput.focus();
+  });
 
-  // Code boxes click to focus input
-  if (authCodeBoxes) {
-    authCodeBoxes.addEventListener('click', () => {
-      if (authCodeInput) authCodeInput.focus();
-    });
-  }
+  // Code input handler with cursor positioning
+  authCodeInput.addEventListener('input', (e) => {
+    const cursorPos = e.target.selectionStart;
+    const oldValue = e.target.value;
+    const newValue = oldValue.replace(/\D/g, '').slice(0, 6);
 
-  // Buttons
-  if (authSendCodeBtn) authSendCodeBtn.addEventListener('click', handleSendCode);
-  if (authVerifyCodeBtn) authVerifyCodeBtn.addEventListener('click', handleVerifyCode);
-  if (authEditPhoneBtn) authEditPhoneBtn.addEventListener('click', handleEditPhone);
-  if (authContinueUsernameBtn) authContinueUsernameBtn.addEventListener('click', handleContinueUsername);
-  if (authSaveUsernameBtn) authSaveUsernameBtn.addEventListener('click', handleSaveUsername);
+    if (oldValue !== newValue) {
+      e.target.value = newValue;
+      updateCodeBoxes();
+      // Calculate how many non-digits were before the cursor
+      const beforeCursor = oldValue.substring(0, cursorPos);
+      const nonDigitsBeforeCursor = (beforeCursor.match(/\D/g) || []).length;
+      // Adjust cursor position
+      const newCursorPos = Math.max(0, Math.min(cursorPos - nonDigitsBeforeCursor, newValue.length));
+      // Use setTimeout to ensure the value is set before moving cursor
+      setTimeout(() => {
+        e.target.setSelectionRange(newCursorPos, newCursorPos);
+      }, 0);
+    } else {
+      updateCodeBoxes();
+    }
+  });
 
-  // Username input
-  if (authUsernameInput) {
-    authUsernameInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        handleSaveUsername();
-      }
-    });
-  }
+  authCodeInput.addEventListener('keydown', (e) => {
+    // Allow normal editing keys
+    if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End') {
+      return; // Allow these keys
+    }
+    // Prevent spaces
+    if (e.key === ' ') {
+      e.preventDefault();
+    }
+  });
 
-  // Username select
-  if (authUsernameSelect) {
-    authUsernameSelect.addEventListener('change', () => {
-      if (authContinueUsernameBtn) {
-        authContinueUsernameBtn.disabled = !authUsernameSelect.value;
-      }
-    });
-  }
+  // Phone boxes click to focus
+  authPhoneBoxes.addEventListener('click', () => {
+    authPhoneInput.focus();
+  });
+
+  // Phone input handler with cursor positioning
+  authPhoneInput.addEventListener('input', (e) => {
+    const cursorPos = e.target.selectionStart;
+    const oldValue = e.target.value;
+    const newValue = oldValue.replace(/\D/g, '').slice(0, 10);
+
+    if (oldValue !== newValue) {
+      e.target.value = newValue;
+      updatePhoneBoxes();
+      // Calculate how many non-digits were before the cursor
+      const beforeCursor = oldValue.substring(0, cursorPos);
+      const nonDigitsBeforeCursor = (beforeCursor.match(/\D/g) || []).length;
+      // Adjust cursor position
+      const newCursorPos = Math.max(0, Math.min(cursorPos - nonDigitsBeforeCursor, newValue.length));
+      // Use setTimeout to ensure the value is set before moving cursor
+      setTimeout(() => {
+        e.target.setSelectionRange(newCursorPos, newCursorPos);
+      }, 0);
+    } else {
+      updatePhoneBoxes();
+    }
+  });
+
+  authPhoneInput.addEventListener('keydown', (e) => {
+    // Allow normal editing keys
+    if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End') {
+      return; // Allow these keys
+    }
+    // Prevent spaces
+    if (e.key === ' ') {
+      e.preventDefault();
+    }
+  });
+
+  // Phone input paste handler
+  authPhoneInput.addEventListener('paste', (e) => {
+    e.preventDefault();
+    const paste = (e.clipboardData || window.clipboardData).getData('text');
+    // Remove all non-digits and limit to 10
+    const digits = paste.replace(/\D/g, '').slice(0, 10);
+    authPhoneInput.value = digits;
+    updatePhoneBoxes();
+    // Move cursor to end after paste
+    authPhoneInput.setSelectionRange(digits.length, digits.length);
+  });
 }
