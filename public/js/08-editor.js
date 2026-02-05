@@ -6,6 +6,7 @@
 // Place editor at world position (ready for input)
 function placeEditorAtWorld(wx, wy, initialText = '', existingEntryId = null, force = false) {
   if (!editor) return;
+  if (isReadOnly) return;
 
   // Don't place during navigation unless forced
   if (!force && (isNavigating || navigationJustCompleted)) {
@@ -20,9 +21,9 @@ function placeEditorAtWorld(wx, wy, initialText = '', existingEntryId = null, fo
 
   console.log('[EDITOR] Placing editor at', wx, wy, 'existing:', existingEntryId);
 
-  const screen = worldToScreen(wx, wy);
-  editor.style.left = `${screen.x}px`;
-  editor.style.top = `${screen.y}px`;
+  // Editor is inside #world, so use world coordinates directly
+  editor.style.left = `${wx}px`;
+  editor.style.top = `${wy}px`;
   editor.style.display = 'block';
   editor.classList.remove('idle-cursor');
 

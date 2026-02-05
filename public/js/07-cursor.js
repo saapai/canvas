@@ -7,9 +7,9 @@
 function showCursorAtWorld(wx, wy) {
   if (!editor) return;
 
-  const screen = worldToScreen(wx, wy);
-  editor.style.left = `${screen.x}px`;
-  editor.style.top = `${screen.y}px`;
+  // Editor is inside #world, so use world coordinates directly
+  editor.style.left = `${wx}px`;
+  editor.style.top = `${wy}px`;
   editor.style.display = 'block';
   editor.textContent = '';
   editor.classList.add('idle-cursor');

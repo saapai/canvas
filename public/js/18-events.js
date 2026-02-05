@@ -300,7 +300,7 @@ function handleMouseUp(e) {
               window.open(urls[0], '_blank');
             }
           }
-        } else if (entryEl.id !== 'anchor') {
+        } else if (entryEl.id !== 'anchor' && !isReadOnly) {
           // Commit current editor (new entry or existing entry) then open clicked entry for edit
           if (editor && (editor.textContent.trim() || editingEntryId)) {
             commitEditor();

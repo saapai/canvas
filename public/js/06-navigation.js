@@ -153,14 +153,13 @@ function updateBreadcrumb() {
 
   const topbar = document.getElementById('topbar');
 
-  // If at root, hide breadcrumb
+  // If at root, hide breadcrumb (but keep topbar visible)
   if (!currentViewEntryId) {
     breadcrumb.style.display = 'none';
-    if (topbar) topbar.style.display = 'none';
     return;
   }
 
-  // Show topbar and breadcrumb
+  // Show breadcrumb
   if (topbar) topbar.style.display = 'flex';
   breadcrumb.style.display = 'flex';
   breadcrumb.innerHTML = '';

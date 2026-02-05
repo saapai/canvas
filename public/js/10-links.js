@@ -21,7 +21,7 @@ function createLinkCardPlaceholder(url) {
 // Generate link card data from URL
 async function generateLinkCard(url) {
   try {
-    const res = await fetch('/api/link-preview', {
+    const res = await fetch('/api/generate-link-card', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
