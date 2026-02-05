@@ -358,38 +358,34 @@ function initAuthListeners() {
     authCodeInput.focus();
   });
 
-  // Code input handler with cursor positioning
-  authCodeInput.addEventListener('input', (e) => {
-    const cursorPos = e.target.selectionStart;
-    const oldValue = e.target.value;
-    const newValue = oldValue.replace(/\D/g, '').slice(0, 6);
+  // Code: digit goes to first empty cell, backspace deletes rightmost
+  authCodeInput.addEventListener('keydown', (e) => {
+    const maxLen = 6;
+    const digits = authCodeInput.value.replace(/\D/g, '');
 
-    if (oldValue !== newValue) {
-      e.target.value = newValue;
+    if (e.key === 'Backspace' || e.key === 'Delete') {
+      e.preventDefault();
+      authCodeInput.value = digits.slice(0, -1);
       updateCodeBoxes();
-      // Calculate how many non-digits were before the cursor
-      const beforeCursor = oldValue.substring(0, cursorPos);
-      const nonDigitsBeforeCursor = (beforeCursor.match(/\D/g) || []).length;
-      // Adjust cursor position
-      const newCursorPos = Math.max(0, Math.min(cursorPos - nonDigitsBeforeCursor, newValue.length));
-      // Use setTimeout to ensure the value is set before moving cursor
-      setTimeout(() => {
-        e.target.setSelectionRange(newCursorPos, newCursorPos);
-      }, 0);
-    } else {
+      return;
+    }
+    if (e.key.length === 1 && /[0-9]/.test(e.key) && digits.length < maxLen) {
+      e.preventDefault();
+      authCodeInput.value = (digits + e.key).slice(0, maxLen);
       updateCodeBoxes();
+      return;
+    }
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End' || e.key === ' ') {
+      e.preventDefault();
     }
   });
 
-  authCodeInput.addEventListener('keydown', (e) => {
-    // Allow normal editing keys
-    if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End') {
-      return; // Allow these keys
+  authCodeInput.addEventListener('input', (e) => {
+    const newValue = e.target.value.replace(/\D/g, '').slice(0, 6);
+    if (e.target.value !== newValue) {
+      e.target.value = newValue;
     }
-    // Prevent spaces
-    if (e.key === ' ') {
-      e.preventDefault();
-    }
+    updateCodeBoxes();
   });
 
   // Phone boxes click to focus
@@ -397,38 +393,34 @@ function initAuthListeners() {
     authPhoneInput.focus();
   });
 
-  // Phone input handler with cursor positioning
-  authPhoneInput.addEventListener('input', (e) => {
-    const cursorPos = e.target.selectionStart;
-    const oldValue = e.target.value;
-    const newValue = oldValue.replace(/\D/g, '').slice(0, 10);
+  // Phone: digit goes to first empty cell, backspace deletes rightmost
+  authPhoneInput.addEventListener('keydown', (e) => {
+    const maxLen = 10;
+    const digits = authPhoneInput.value.replace(/\D/g, '');
 
-    if (oldValue !== newValue) {
-      e.target.value = newValue;
+    if (e.key === 'Backspace' || e.key === 'Delete') {
+      e.preventDefault();
+      authPhoneInput.value = digits.slice(0, -1);
       updatePhoneBoxes();
-      // Calculate how many non-digits were before the cursor
-      const beforeCursor = oldValue.substring(0, cursorPos);
-      const nonDigitsBeforeCursor = (beforeCursor.match(/\D/g) || []).length;
-      // Adjust cursor position
-      const newCursorPos = Math.max(0, Math.min(cursorPos - nonDigitsBeforeCursor, newValue.length));
-      // Use setTimeout to ensure the value is set before moving cursor
-      setTimeout(() => {
-        e.target.setSelectionRange(newCursorPos, newCursorPos);
-      }, 0);
-    } else {
+      return;
+    }
+    if (e.key.length === 1 && /[0-9]/.test(e.key) && digits.length < maxLen) {
+      e.preventDefault();
+      authPhoneInput.value = (digits + e.key).slice(0, maxLen);
       updatePhoneBoxes();
+      return;
+    }
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End' || e.key === ' ') {
+      e.preventDefault();
     }
   });
 
-  authPhoneInput.addEventListener('keydown', (e) => {
-    // Allow normal editing keys
-    if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End') {
-      return; // Allow these keys
+  authPhoneInput.addEventListener('input', (e) => {
+    const newValue = e.target.value.replace(/\D/g, '').slice(0, 10);
+    if (e.target.value !== newValue) {
+      e.target.value = newValue;
     }
-    // Prevent spaces
-    if (e.key === ' ') {
-      e.preventDefault();
-    }
+    updatePhoneBoxes();
   });
 
   // Phone input paste handler
