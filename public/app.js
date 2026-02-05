@@ -403,68 +403,76 @@ function initAuthUI() {
     authCodeInput.focus();
   });
   authCodeInput.addEventListener('input', (e) => {
-    const cursorPos = e.target.selectionStart;
-    const oldValue = e.target.value;
-    const newValue = oldValue.replace(/\D/g, '').slice(0, 6);
+    const currentVal = e.target.value;
+    // Extract only digits
+    const digits = currentVal.replace(/\D/g, '');
+    // Limit to max length
+    const maxLen = 6;
+    const newVal = digits.slice(0, maxLen);
     
-    if (oldValue !== newValue) {
-      e.target.value = newValue;
-      updateCodeBoxes();
-      // Calculate how many non-digits were before the cursor
-      const beforeCursor = oldValue.substring(0, cursorPos);
-      const nonDigitsBeforeCursor = (beforeCursor.match(/\D/g) || []).length;
-      // Adjust cursor position
-      const newCursorPos = Math.max(0, Math.min(cursorPos - nonDigitsBeforeCursor, newValue.length));
-      // Use setTimeout to ensure the value is set before moving cursor
-      setTimeout(() => {
-        e.target.setSelectionRange(newCursorPos, newCursorPos);
-      }, 0);
-    } else {
-      updateCodeBoxes();
+    if (currentVal !== newVal) {
+      e.target.value = newVal;
     }
+    
+    // Always place cursor at end
+    e.target.setSelectionRange(newVal.length, newVal.length);
+    
+    // Update visual boxes
+    updateCodeBoxes();
   });
   authCodeInput.addEventListener('keydown', (e) => {
-    // Allow normal editing keys
-    if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End') {
-      return; // Allow these keys
-    }
-    // Prevent spaces
-    if (e.key === ' ') {
+    // Backspace/Delete: remove last character
+    if (e.key === 'Backspace' || e.key === 'Delete') {
       e.preventDefault();
+      const currentVal = e.target.value;
+      if (currentVal.length > 0) {
+        e.target.value = currentVal.slice(0, -1);
+        updateCodeBoxes();
+      }
+      return;
+    }
+    // Prevent arrow keys, Home, End, Space
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End' || e.key === ' ') {
+      e.preventDefault();
+      return;
     }
   });
   authPhoneBoxes.addEventListener('click', () => {
     authPhoneInput.focus();
   });
   authPhoneInput.addEventListener('input', (e) => {
-    const cursorPos = e.target.selectionStart;
-    const oldValue = e.target.value;
-    const newValue = oldValue.replace(/\D/g, '').slice(0, 10);
+    const currentVal = e.target.value;
+    // Extract only digits
+    const digits = currentVal.replace(/\D/g, '');
+    // Limit to max length
+    const maxLen = 10;
+    const newVal = digits.slice(0, maxLen);
     
-    if (oldValue !== newValue) {
-      e.target.value = newValue;
-      updatePhoneBoxes();
-      // Calculate how many non-digits were before the cursor
-      const beforeCursor = oldValue.substring(0, cursorPos);
-      const nonDigitsBeforeCursor = (beforeCursor.match(/\D/g) || []).length;
-      // Adjust cursor position
-      const newCursorPos = Math.max(0, Math.min(cursorPos - nonDigitsBeforeCursor, newValue.length));
-      // Use setTimeout to ensure the value is set before moving cursor
-      setTimeout(() => {
-        e.target.setSelectionRange(newCursorPos, newCursorPos);
-      }, 0);
-    } else {
-      updatePhoneBoxes();
+    if (currentVal !== newVal) {
+      e.target.value = newVal;
     }
+    
+    // Always place cursor at end
+    e.target.setSelectionRange(newVal.length, newVal.length);
+    
+    // Update visual boxes
+    updatePhoneBoxes();
   });
   authPhoneInput.addEventListener('keydown', (e) => {
-    // Allow normal editing keys
-    if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End') {
-      return; // Allow these keys
-    }
-    // Prevent spaces
-    if (e.key === ' ') {
+    // Backspace/Delete: remove last character
+    if (e.key === 'Backspace' || e.key === 'Delete') {
       e.preventDefault();
+      const currentVal = e.target.value;
+      if (currentVal.length > 0) {
+        e.target.value = currentVal.slice(0, -1);
+        updatePhoneBoxes();
+      }
+      return;
+    }
+    // Prevent arrow keys, Home, End, Space
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End' || e.key === ' ') {
+      e.preventDefault();
+      return;
     }
   });
   authPhoneInput.addEventListener('paste', (e) => {
@@ -3890,7 +3898,7 @@ viewport.addEventListener('mousemove', (e) => {
   }
 });
 
-window.addEventListener('mouseup', (e) => {
+window.addEventListener('mouseup', async (e) => {
   // Handle selection box completion
   if(isSelecting){
     isSelecting = false;
@@ -3965,12 +3973,17 @@ window.addEventListener('mouseup', (e) => {
         isClick = (dist < dragThreshold && dt < 350);
         
         // Edit entry if it was a click (not a drag). Images: only select, no edit.
-        if(isClick && draggingEntry.id !== 'anchor' && draggingEntry.id && !editingEntryId && !isReadOnly) {
+        if(isClick && draggingEntry.id !== 'anchor' && draggingEntry.id && !isReadOnly) {
           const entryData = entries.get(draggingEntry.id);
           if(entryData) {
             if(isImageEntry(draggingEntry)) {
               selectOnlyEntry(draggingEntry.id);
             } else {
+              // If currently editing, commit first and wait for it to complete
+              if (editor && (editor.textContent.trim() || editingEntryId)) {
+                await commitEditor();
+              }
+              
               const rect = draggingEntry.getBoundingClientRect();
               const worldPos = screenToWorld(rect.left, rect.top);
               const entryIdToEdit = draggingEntry.id;
@@ -3980,7 +3993,7 @@ window.addEventListener('mouseup', (e) => {
               }
               pendingEditTimeout = setTimeout(() => {
                 pendingEditTimeout = null;
-                if (!editingEntryId && entryIdToEdit !== 'anchor') {
+                if (entryIdToEdit !== 'anchor') {
                   placeEditorAtWorld(worldPos.x, worldPos.y, textToEdit, entryIdToEdit);
                 }
               }, 300);
