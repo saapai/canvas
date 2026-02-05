@@ -91,36 +91,37 @@ function commitEditor() {
       if (text === '') {
         // Empty text - delete the entry
         deleteEntryWithConfirmation(editingEntryId, true);
-      } else if (text !== entryData.text) {
-        // Text changed - save undo state and update
-        saveUndoState('edit', {
-          entryId: editingEntryId,
-          oldText: entryData.text,
-          oldMediaCardData: entryData.mediaCardData,
-          oldLinkCardsData: entryData.linkCardsData
-        });
+      } else {
+        if (text !== entryData.text) {
+          // Text changed - save undo state and update
+          saveUndoState('edit', {
+            entryId: editingEntryId,
+            oldText: entryData.text,
+            oldMediaCardData: entryData.mediaCardData,
+            oldLinkCardsData: entryData.linkCardsData
+          });
 
-        // Clear media card if text is now a URL or regular text
-        entryData.mediaCardData = null;
+          // Clear media card if text is now a URL or regular text
+          entryData.mediaCardData = null;
 
-        // Update entry
-        entryData.text = text;
+          // Update entry
+          entryData.text = text;
 
-        // Process text and update DOM
-        const { processedText, urls } = processTextWithLinks(text);
-        entryData.element.innerHTML = meltify(processedText);
+          // Process text and update DOM
+          const { processedText, urls } = processTextWithLinks(text);
+          entryData.element.innerHTML = meltify(processedText);
 
-        // Handle link cards
-        if (urls.length > 0) {
-          handleLinkCardsForEntry(entryData, urls);
-        } else {
-          entryData.linkCardsData = null;
+          // Handle link cards
+          if (urls.length > 0) {
+            handleLinkCardsForEntry(entryData, urls);
+          } else {
+            entryData.linkCardsData = null;
+          }
+
+          // Update dimensions
+          updateEntryDimensions(entryData.element);
         }
-
-        // Update dimensions
-        updateEntryDimensions(entryData.element);
-
-        // Save to server
+        // Save to server (whether changed or not, so "save as is" when switching entries)
         updateEntryOnServer(entryData);
       }
     }

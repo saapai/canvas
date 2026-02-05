@@ -300,8 +300,12 @@ function handleMouseUp(e) {
               window.open(urls[0], '_blank');
             }
           }
-        } else if (entryEl.id !== 'anchor' && !editingEntryId) {
-          navigateToEntry(entryEl.id);
+        } else if (entryEl.id !== 'anchor') {
+          // Commit current editor (new entry or existing entry) then open clicked entry for edit
+          if (editor && (editor.textContent.trim() || editingEntryId)) {
+            commitEditor();
+          }
+          startEditingEntry(entryEl.id);
         }
       }
     }
@@ -325,9 +329,12 @@ function handleDoubleClick(e) {
     return;
   }
 
-  if (entryEl && entryEl.id !== 'anchor' && !editingEntryId) {
+  if (entryEl && entryEl.id !== 'anchor') {
     e.preventDefault();
     e.stopPropagation();
+    if (editor && (editor.textContent.trim() || editingEntryId)) {
+      commitEditor();
+    }
     navigateToEntry(entryEl.id);
   }
 }
