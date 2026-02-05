@@ -3981,7 +3981,7 @@ window.addEventListener('mouseup', (e) => {
             } else {
               // If currently editing, commit first
               if (editingEntryId && editor && (editor.textContent.trim() || editingEntryId)) {
-                await commitEditor();
+                commitEditor();
               }
               
               const rect = draggingEntry.getBoundingClientRect();
