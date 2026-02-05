@@ -7,7 +7,7 @@
 function setAnchorGreeting() {
   const pageUsername = window.PAGE_USERNAME;
   const pathParts = window.location.pathname.split('/').filter(Boolean);
-  const usernameFromPath = pathParts.length > 0 && pathParts[0] !== 'index.html' ? pathParts[0] : null;
+  const usernameFromPath = pathParts.length > 0 && pathParts[0] !== 'index.html' ? decodeURIComponent(pathParts[0]) : null;
   const displayUsername = pageUsername || usernameFromPath || (currentUser && currentUser.username);
 
   if (displayUsername) {

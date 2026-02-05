@@ -343,7 +343,7 @@ async function bootstrap() {
 
     // If on a user page, load entries (editable if owner, read-only otherwise)
     if (isUserPage) {
-      const targetUsername = pageUsername || pathParts[0];
+      const targetUsername = pageUsername || decodeURIComponent(pathParts[0] || '');
       // Only editable if logged in AND is the owner
       const editable = isLoggedIn && isOwner;
       console.log('[BOOT] Loading entries for:', targetUsername, 'editable:', editable);

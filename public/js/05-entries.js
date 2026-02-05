@@ -16,8 +16,10 @@ async function saveEntryToServer(entryData) {
     const payload = {
       id: entryData.id,
       text: entryData.text || '',
-      positionX: entryData.position?.x ?? 0,
-      positionY: entryData.position?.y ?? 0,
+      position: {
+        x: entryData.position?.x ?? 0,
+        y: entryData.position?.y ?? 0
+      },
       parentEntryId: entryData.parentEntryId || null,
       linkCardsData: entryData.linkCardsData || null,
       mediaCardData: entryData.mediaCardData || null
@@ -57,8 +59,10 @@ async function updateEntryOnServer(entryData) {
   try {
     const payload = {
       text: entryData.text || '',
-      positionX: entryData.position?.x ?? 0,
-      positionY: entryData.position?.y ?? 0,
+      position: {
+        x: entryData.position?.x ?? 0,
+        y: entryData.position?.y ?? 0
+      },
       parentEntryId: entryData.parentEntryId || null,
       linkCardsData: entryData.linkCardsData || null,
       mediaCardData: entryData.mediaCardData || null
