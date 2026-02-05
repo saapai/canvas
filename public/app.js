@@ -3898,7 +3898,7 @@ viewport.addEventListener('mousemove', (e) => {
   }
 });
 
-window.addEventListener('mouseup', (e) => {
+window.addEventListener('mouseup', async (e) => {
   // Handle selection box completion
   if(isSelecting){
     isSelecting = false;
@@ -3979,9 +3979,9 @@ window.addEventListener('mouseup', (e) => {
             if(isImageEntry(draggingEntry)) {
               selectOnlyEntry(draggingEntry.id);
             } else {
-              // If currently editing, commit first
-              if (editingEntryId && editor && (editor.textContent.trim() || editingEntryId)) {
-                commitEditor();
+              // If currently editing, commit first and wait for it to complete
+              if (editor && (editor.textContent.trim() || editingEntryId)) {
+                await commitEditor();
               }
               
               const rect = draggingEntry.getBoundingClientRect();
