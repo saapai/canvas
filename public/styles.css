@@ -640,7 +640,7 @@ body::before{
   position: absolute;
   inset: 0;
   opacity: 0;
-  pointer-events: none;
+  cursor: text;
 }
 
 .auth-phone-boxes {
@@ -736,7 +736,7 @@ body::before{
   position: absolute;
   inset: 0;
   opacity: 0;
-  pointer-events: none;
+  cursor: text;
 }
 
 .auth-code-boxes {
