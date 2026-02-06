@@ -4188,13 +4188,13 @@ window.addEventListener('mouseup', async (e) => {
         navigationJustCompleted = false;
         isNavigating = false; // Also clear isNavigating to allow blur handler to commit
         
-        // If currently editing an entry, blur and commit it first
-        if (editingEntryId && document.activeElement === editor) {
+        // If currently editing an entry or editor has content, commit before moving cursor
+        // Must commit synchronously here because placeEditorAtWorld will clear editor content
+        if (editingEntryId || editor.textContent.trim()) {
           console.log('[CLICK] Committing current edit before moving cursor');
-          // Focus will trigger blur, which will auto-commit via blur event handler
-          // But we need to ensure isNavigating is false so blur handler doesn't skip commit
+          await commitEditor();
         }
-        
+
         // Always place cursor at click position, even during navigation
         // Use force=true to ensure cursor is visible and ready
         placeEditorAtWorld(w.x, w.y, '', null, true); // force = true to allow during navigation
