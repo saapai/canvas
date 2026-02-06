@@ -2281,6 +2281,8 @@ function showCursorAtWorld(wx, wy, force = false) {
   editor.value = ''; // Also clear value just in case
   
   editor.style.width = '4px';
+  // Reset font size to default for new entries
+  editor.style.fontSize = '16px';
   // Ensure editor is visible
   editor.style.display = 'block';
   if (formatBar) formatBar.classList.remove('hidden');
@@ -2494,8 +2496,45 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
     } else {
       editor.textContent = text;
     }
+    
+    // Detect font size from the editor's actual content after loading HTML
+    // Walk through the editor's child nodes to find the first text node with styling
+    let detectedFontSize = 16;
+    const detectFontSizeFromContent = (node) => {
+      if (node.nodeType === Node.TEXT_NODE && node.textContent.trim()) {
+        const parent = node.parentNode;
+        if (parent && parent !== editor) {
+          const fontSize = parseFloat(window.getComputedStyle(parent).fontSize);
+          if (!isNaN(fontSize)) {
+            return fontSize;
+          }
+        }
+      }
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        for (let child of node.childNodes) {
+          const size = detectFontSizeFromContent(child);
+          if (size) return size;
+        }
+      }
+      return null;
+    };
+    
+    const contentFontSize = detectFontSizeFromContent(editor);
+    if (contentFontSize) {
+      detectedFontSize = contentFontSize;
+    } else if (entryData && entryData.element) {
+      // Fallback to entry element's computed style
+      const entryStyles = window.getComputedStyle(entryData.element);
+      const fontSize = parseFloat(entryStyles.fontSize);
+      if (!isNaN(fontSize)) {
+        detectedFontSize = fontSize;
+      }
+    }
+    
+    editor.style.fontSize = detectedFontSize + 'px';
   } else {
     editor.textContent = text;
+    editor.style.fontSize = '16px';
   }
   // Always remove idle-cursor when placing editor (will be focused, so native caret shows)
   editor.classList.remove('idle-cursor');
@@ -5283,11 +5322,19 @@ function restoreSelection(saved) {
 
 function getSelectionFontSize() {
   const sel = window.getSelection();
-  if (!sel.rangeCount || !editor.contains(sel.anchorNode)) return 16;
+  if (!sel.rangeCount || !editor.contains(sel.anchorNode)) {
+    // No selection - return editor's base font size
+    const editorFontSize = parseFloat(window.getComputedStyle(editor).fontSize);
+    return isNaN(editorFontSize) ? 16 : Math.round(editorFontSize);
+  }
   const range = sel.getRangeAt(0);
   let node = range.startContainer;
   if (node.nodeType === Node.TEXT_NODE) node = node.parentNode;
-  if (!editor.contains(node)) return 16;
+  if (!editor.contains(node)) {
+    // Fallback to editor's base font size
+    const editorFontSize = parseFloat(window.getComputedStyle(editor).fontSize);
+    return isNaN(editorFontSize) ? 16 : Math.round(editorFontSize);
+  }
   const px = parseFloat(window.getComputedStyle(node).fontSize);
   return isNaN(px) ? 16 : Math.round(px);
 }
@@ -5301,18 +5348,8 @@ function applyFontSizePx(px, savedSelection) {
   const range = sel.getRangeAt(0);
   
   if (range.collapsed) {
-    // For collapsed cursor: insert styled span and place cursor inside
-    const span = document.createElement('span');
-    span.style.fontSize = size + 'px';
-    span.appendChild(document.createTextNode('\u200B'));
-    range.insertNode(span);
-    
-    // Position cursor after the ZWSP inside the span
-    const newRange = document.createRange();
-    newRange.setStart(span.firstChild, 1);
-    newRange.collapse(true);
-    sel.removeAllRanges();
-    sel.addRange(newRange);
+    // For collapsed cursor: set editor's base font size so new text inherits it
+    editor.style.fontSize = size + 'px';
     
     if (formatFontPx) formatFontPx.value = size;
     updateFormatBarState();
