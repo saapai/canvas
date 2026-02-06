@@ -4578,10 +4578,6 @@ editor.addEventListener('keydown', (e) => {
 function updateEditingBorderDimensions(entry) {
   if (!entry || !entry.classList.contains('editing')) return;
   
-  // Get the editor's current dimensions
-  const editorWidth = editor.offsetWidth;
-  const editorHeight = editor.scrollHeight;
-  
   // Find the maximum font size in the editor content
   let maxFontSize = parseFloat(window.getComputedStyle(editor).fontSize);
   
@@ -4600,18 +4596,15 @@ function updateEditingBorderDimensions(entry) {
     }
   }
   
-  // CSS uses em-based padding: 0.5em 2em 0.5em 1em
-  // Calculate padding in pixels based on maximum font size
-  const leftPadding = maxFontSize * 1;    // 1em
-  const rightPadding = maxFontSize * 2;   // 2em
-  const verticalPadding = maxFontSize * 0.5; // 0.5em
+  // Set the entry's font-size to match the max font size in content
+  // This makes the em-based CSS padding/border scale automatically
+  entry.style.fontSize = `${maxFontSize}px`;
   
-  // Set entry dimensions to wrap the editor with em-based padding
-  const entryWidth = editorWidth + leftPadding + rightPadding;
-  const entryHeight = editorHeight + (verticalPadding * 2);
-  
-  entry.style.setProperty('width', `${entryWidth}px`, 'important');
-  entry.style.setProperty('height', `${entryHeight}px`, 'important');
+  // Don't set explicit width/height - let CSS auto sizing handle it
+  // The CSS already has: width: auto !important; height: auto !important;
+  // With em-based padding: 0.5em 2em 0.5em 1em
+  entry.style.removeProperty('width');
+  entry.style.removeProperty('height');
 }
 
 function getWidestLineWidth(element) {
