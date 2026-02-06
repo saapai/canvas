@@ -2047,16 +2047,17 @@ body::before{
 /* Deadline table template */
 .deadline-table {
   width: 100%;
-  min-width: 680px;
+  min-width: 620px;
   font: inherit;
-  font-size: 14px;
-  background: rgba(255, 255, 255, 0.7);
-  border: 1px solid rgba(0, 0, 0, 0.06);
-  border-radius: 4px;
+  font-size: 13px;
+  background: rgba(255, 255, 255, 0.45);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 6px;
   overflow: visible;
   white-space: normal;
   line-height: 1.5;
   letter-spacing: normal;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
 }
 
 /* Prevent melt animation spans from breaking table layout */
@@ -2079,8 +2080,8 @@ body::before{
 /* Editing border should tightly wrap the table */
 .entry.editing:has(.deadline-table) {
   padding: 0;
-  border: 2px solid rgba(59, 130, 246, 0.35);
-  border-radius: 4px;
+  border: 2px solid rgba(59, 130, 246, 0.3);
+  border-radius: 6px;
 }
 
 /* Aggressively hide entry content during editing to prevent silhouette/ghost */
@@ -2093,33 +2094,33 @@ body::before{
 /* Override editor's white-space: pre for tables */
 #editor:has(.deadline-table) {
   white-space: normal;
-  min-width: 680px;
+  min-width: 620px;
 }
 
 .deadline-header {
   display: grid;
-  grid-template-columns: 36px 1.8fr 1fr 0.9fr 1fr 0.6fr;
+  grid-template-columns: 32px 2fr 1fr 0.9fr 1fr 1fr;
   padding: 0;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.06);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
   font-weight: 600;
-  color: var(--muted);
-  font-size: 11px;
+  color: rgba(0, 0, 0, 0.35);
+  font-size: 10.5px;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   user-select: none;
 }
 
 .deadline-header > div {
-  padding: 8px 12px;
+  padding: 9px 14px;
 }
 
 .deadline-row {
   display: grid;
-  grid-template-columns: 36px 1.8fr 1fr 0.9fr 1fr 0.6fr;
+  grid-template-columns: 32px 2fr 1fr 0.9fr 1fr 1fr;
   padding: 0;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.03);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.045);
   align-items: stretch;
-  min-height: 36px;
+  min-height: 38px;
   transition: background 0.15s ease;
 }
 
@@ -2128,7 +2129,7 @@ body::before{
 }
 
 .deadline-row:hover {
-  background: rgba(0, 0, 0, 0.02);
+  background: rgba(0, 0, 0, 0.015);
 }
 
 .deadline-col-check {
@@ -2139,23 +2140,24 @@ body::before{
 }
 
 .deadline-col-check input[type="checkbox"] {
-  width: 14px;
-  height: 14px;
+  width: 13px;
+  height: 13px;
   cursor: pointer;
   accent-color: var(--ink);
+  opacity: 0.7;
 }
 
 .deadline-col-name,
 .deadline-col-deadline,
 .deadline-col-class,
 .deadline-col-notes {
-  padding: 8px 12px;
+  padding: 9px 14px;
   outline: none;
   border: none;
-  min-height: 36px;
+  min-height: 38px;
   display: block;
   color: var(--ink);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 20px;
   white-space: normal;
   word-wrap: break-word;
@@ -2165,8 +2167,8 @@ body::before{
 }
 
 .deadline-col-status {
-  padding: 8px 12px;
-  min-height: 36px;
+  padding: 9px 14px;
+  min-height: 38px;
   display: flex;
   align-items: center;
   min-width: 0;
@@ -2175,25 +2177,25 @@ body::before{
 
 .deadline-col-name:empty::after {
   content: 'Assignment...';
-  color: var(--muted);
+  color: rgba(0, 0, 0, 0.2);
 }
 
 .deadline-col-deadline:empty::after {
   content: 'Date...';
-  color: var(--muted);
+  color: rgba(0, 0, 0, 0.2);
 }
 
 .deadline-col-class:empty::after {
   content: 'Class...';
-  color: var(--muted);
+  color: rgba(0, 0, 0, 0.2);
 }
 
 .deadline-col-name:focus,
 .deadline-col-deadline:focus,
 .deadline-col-class:focus,
 .deadline-col-notes:focus {
-  background: rgba(0, 0, 0, 0.02);
-  border-radius: 2px;
+  background: rgba(0, 0, 0, 0.018);
+  border-radius: 3px;
 }
 
 /* Status badge button */
@@ -2201,14 +2203,14 @@ body::before{
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 3px 10px;
-  border-radius: 3px;
+  padding: 3px 9px;
+  border-radius: 4px;
   font: inherit;
-  font-size: 12px;
+  font-size: 11.5px;
   font-weight: 500;
   white-space: nowrap;
-  background: rgba(0, 0, 0, 0.04);
-  color: var(--ink);
+  background: rgba(0, 0, 0, 0.035);
+  color: rgba(0, 0, 0, 0.55);
   min-height: 22px;
   border: none;
   cursor: pointer;
@@ -2216,37 +2218,38 @@ body::before{
 }
 
 .status-badge:hover {
-  background: rgba(0, 0, 0, 0.07);
+  background: rgba(0, 0, 0, 0.06);
 }
 
 .status-badge::before {
   content: '';
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
-  background: var(--muted);
+  background: rgba(0, 0, 0, 0.18);
   flex-shrink: 0;
 }
 
 /* Status colors */
-.status-badge[data-status="not-started"]::before { background: rgba(0, 0, 0, 0.2); }
-.status-badge[data-status="overdue"]::before { background: rgba(190, 60, 60, 0.75); }
-.status-badge[data-status="overdue"] { background: rgba(190, 60, 60, 0.06); }
-.status-badge[data-status="done"]::before { background: rgba(50, 150, 90, 0.75); }
-.status-badge[data-status="done"] { background: rgba(50, 150, 90, 0.06); }
+.status-badge[data-status="not-started"]::before { background: rgba(0, 0, 0, 0.18); }
+.status-badge[data-status="not-started"] { color: rgba(0, 0, 0, 0.45); }
+.status-badge[data-status="overdue"]::before { background: rgba(185, 55, 55, 0.7); }
+.status-badge[data-status="overdue"] { background: rgba(185, 55, 55, 0.06); color: rgba(160, 45, 45, 0.85); }
+.status-badge[data-status="done"]::before { background: rgba(45, 140, 80, 0.7); }
+.status-badge[data-status="done"] { background: rgba(45, 140, 80, 0.06); color: rgba(35, 120, 65, 0.85); }
 
 /* Status dropdown */
 .status-dropdown {
   display: none;
   position: absolute;
-  top: calc(100% - 2px);
-  left: 12px;
-  min-width: 130px;
+  top: calc(100% - 4px);
+  left: 14px;
+  min-width: 128px;
   background: var(--paper);
   border: 1px solid rgba(0, 0, 0, 0.1);
   border-radius: 6px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  padding: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  padding: 3px;
   z-index: 2000;
 }
 
@@ -2273,29 +2276,29 @@ body::before{
 
 .status-option::before {
   content: '';
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 
-.status-option[data-status="not-started"]::before { background: rgba(0, 0, 0, 0.2); }
-.status-option[data-status="overdue"]::before { background: rgba(190, 60, 60, 0.75); }
-.status-option[data-status="done"]::before { background: rgba(50, 150, 90, 0.75); }
+.status-option[data-status="not-started"]::before { background: rgba(0, 0, 0, 0.18); }
+.status-option[data-status="overdue"]::before { background: rgba(185, 55, 55, 0.7); }
+.status-option[data-status="done"]::before { background: rgba(45, 140, 80, 0.7); }
 
 /* Ghost row - translucent preview of a new row, only visible in editor */
 .deadline-ghost-row {
   display: none;
-  grid-template-columns: 36px 1.8fr 1fr 0.9fr 1fr 0.6fr;
+  grid-template-columns: 32px 2fr 1fr 0.9fr 1fr 1fr;
   padding: 0;
-  min-height: 36px;
+  min-height: 38px;
   align-items: stretch;
   cursor: pointer;
-  color: var(--muted);
-  font-size: 14px;
-  opacity: 0.3;
+  color: rgba(0, 0, 0, 0.15);
+  font-size: 13px;
+  opacity: 0.6;
   border-top: 1px dashed rgba(0, 0, 0, 0.06);
-  transition: opacity 0.15s ease;
+  transition: opacity 0.15s ease, background 0.15s ease;
   user-select: none;
 }
 
@@ -2305,11 +2308,12 @@ body::before{
 }
 
 .deadline-ghost-row:hover {
-  opacity: 0.5;
+  opacity: 0.85;
+  background: rgba(0, 0, 0, 0.01);
 }
 
 .deadline-ghost-row > div {
-  padding: 8px 12px;
+  padding: 9px 14px;
   line-height: 20px;
 }
 
@@ -2317,16 +2321,15 @@ body::before{
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
-  font-weight: 300;
+  font-size: 14px;
+  font-weight: 400;
+  opacity: 0.7;
 }
 
 .deadline-col-deadline {
-  color: rgba(0, 0, 0, 0.45);
-  font-size: 13px;
+  color: rgba(0, 0, 0, 0.4);
 }
 
 .deadline-col-notes {
   color: rgba(0, 0, 0, 0.35);
-  font-size: 13px;
 }
