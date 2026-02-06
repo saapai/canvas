@@ -2795,9 +2795,16 @@ async function commitEditor(){
         });
       }, maxDuration);
       
-      // After committing, show cursor at bottom-right of edited entry
-      showCursorInDefaultPosition(editingEntryId);
+      // Clear editor content BEFORE showing cursor to prevent stale content
+      // from being committed as a new entry if commitEditor is triggered again
+      const committedEntryId = editingEntryId;
       editingEntryId = null;
+      editor.removeEventListener('keydown', handleDeadlineTableKeydown);
+      editor.textContent = '';
+      editor.innerHTML = '';
+
+      // After committing, show cursor at bottom-right of edited entry
+      showCursorInDefaultPosition(committedEntryId);
       isCommitting = false;
       return;
     }
@@ -4576,6 +4583,11 @@ editor.addEventListener('keydown', (e) => {
       }
     }
     
+    // Deadline tables handle Enter themselves via handleDeadlineTableKeydown
+    if (editor.querySelector('.deadline-table')) {
+      return;
+    }
+
     // Not on bullet line: Enter saves the entry
     e.preventDefault();
     console.log('[ENTER] Committing editor, isNavigating:', isNavigating, 'navigationJustCompleted:', navigationJustCompleted);
@@ -4586,7 +4598,7 @@ editor.addEventListener('keydown', (e) => {
 
   if(e.key === 'Escape'){
     e.preventDefault();
-    
+
     // Remove editing class from entry
     if(editingEntryId && editingEntryId !== 'anchor'){
       const entryData = entries.get(editingEntryId);
@@ -4594,10 +4606,15 @@ editor.addEventListener('keydown', (e) => {
         entryData.element.classList.remove('editing');
       }
     }
-    
-    // After committing, show cursor in default position (restore previous or find empty space)
-    showCursorInDefaultPosition();
+
+    // Clear editor content to prevent stale content from creating duplicates
+    editor.removeEventListener('keydown', handleDeadlineTableKeydown);
+    editor.textContent = '';
+    editor.innerHTML = '';
     editingEntryId = null;
+
+    // After escaping, show cursor in default position
+    showCursorInDefaultPosition();
     return;
   }
 });
@@ -4744,7 +4761,7 @@ editor.addEventListener('blur', (e) => {
     setTimeout(() => {
       const active = document.activeElement;
       const focusInFormatBar = formatBar && formatBar.contains(active);
-      if (active !== editor && !focusInFormatBar && editor.innerText.trim().length > 0) {
+      if (active !== editor && !editor.contains(active) && !focusInFormatBar && editor.innerText.trim().length > 0) {
         commitEditor();
       }
     }, 0);
@@ -4754,7 +4771,7 @@ editor.addEventListener('blur', (e) => {
     setTimeout(async () => {
       const active = document.activeElement;
       const focusInFormatBar = formatBar && formatBar.contains(active);
-      if (active !== editor && !focusInFormatBar) {
+      if (active !== editor && !editor.contains(active) && !focusInFormatBar) {
         const entryData = entries.get(editingEntryId);
         if (entryData) {
           // User deleted all text - delete the entry (with confirmation if has children)
