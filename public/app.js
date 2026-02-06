@@ -4578,33 +4578,21 @@ editor.addEventListener('keydown', (e) => {
 function updateEditingBorderDimensions(entry) {
   if (!entry || !entry.classList.contains('editing')) return;
   
-  // Don't resize if entry has link cards (link cards are hidden during editing)
-  // The border should wrap only the text content, not the hidden cards
-  const hasLinkCards = entry.querySelectorAll('.link-card, .link-card-placeholder').length > 0;
-  
-  // Get the editor's current dimensions
+  // Get the editor's current dimensions and font size
   const editorWidth = editor.offsetWidth;
   const editorHeight = editor.scrollHeight;
+  const fontSize = parseFloat(window.getComputedStyle(editor).fontSize);
   
-  // Calculate one character width for asymmetric padding
-  const temp = document.createElement('span');
-  temp.style.position = 'absolute';
-  temp.style.visibility = 'hidden';
-  temp.style.whiteSpace = 'pre';
-  temp.style.font = window.getComputedStyle(editor).font;
-  temp.style.fontSize = window.getComputedStyle(editor).fontSize;
-  temp.style.fontFamily = window.getComputedStyle(editor).fontFamily;
-  temp.textContent = 'M';
-  document.body.appendChild(temp);
-  const oneCharWidth = temp.offsetWidth;
-  document.body.removeChild(temp);
+  // CSS uses em-based padding: 0.5em 2em 0.5em 1em
+  // Calculate padding in pixels based on current font size
+  const leftPadding = fontSize * 1;    // 1em
+  const rightPadding = fontSize * 2;   // 2em
+  const verticalPadding = fontSize * 0.5; // 0.5em
   
-  // Asymmetric padding: 1 character on left, 2 on right, 0.5 character top/bottom
-  const leftPadding = oneCharWidth;
-  const rightPadding = oneCharWidth * 2;
-  const verticalPadding = oneCharWidth * 0.5;
+  // Border is 0.125em
+  const borderWidth = fontSize * 0.125 * 2; // Both sides
   
-  // Set entry dimensions to wrap the editor with padding
+  // Set entry dimensions to wrap the editor with em-based padding
   const entryWidth = editorWidth + leftPadding + rightPadding;
   const entryHeight = editorHeight + (verticalPadding * 2);
   
