@@ -4578,19 +4578,33 @@ editor.addEventListener('keydown', (e) => {
 function updateEditingBorderDimensions(entry) {
   if (!entry || !entry.classList.contains('editing')) return;
   
-  // Get the editor's current dimensions and font size
+  // Get the editor's current dimensions
   const editorWidth = editor.offsetWidth;
   const editorHeight = editor.scrollHeight;
-  const fontSize = parseFloat(window.getComputedStyle(editor).fontSize);
+  
+  // Find the maximum font size in the editor content
+  let maxFontSize = parseFloat(window.getComputedStyle(editor).fontSize);
+  
+  // Walk through all text nodes and their parents to find max font size
+  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null, false);
+  let node;
+  while (node = walker.nextNode()) {
+    if (node.textContent.trim()) {
+      const parent = node.parentNode;
+      if (parent && parent !== editor) {
+        const fontSize = parseFloat(window.getComputedStyle(parent).fontSize);
+        if (!isNaN(fontSize) && fontSize > maxFontSize) {
+          maxFontSize = fontSize;
+        }
+      }
+    }
+  }
   
   // CSS uses em-based padding: 0.5em 2em 0.5em 1em
-  // Calculate padding in pixels based on current font size
-  const leftPadding = fontSize * 1;    // 1em
-  const rightPadding = fontSize * 2;   // 2em
-  const verticalPadding = fontSize * 0.5; // 0.5em
-  
-  // Border is 0.125em
-  const borderWidth = fontSize * 0.125 * 2; // Both sides
+  // Calculate padding in pixels based on maximum font size
+  const leftPadding = maxFontSize * 1;    // 1em
+  const rightPadding = maxFontSize * 2;   // 2em
+  const verticalPadding = maxFontSize * 0.5; // 0.5em
   
   // Set entry dimensions to wrap the editor with em-based padding
   const entryWidth = editorWidth + leftPadding + rightPadding;
@@ -5368,6 +5382,17 @@ function applyFontSizePx(px, savedSelection) {
     
     if (formatFontPx) formatFontPx.value = size;
     updateFormatBarState();
+  }
+  
+  // Update editing border dimensions to match new font size
+  if (editingEntryId && editingEntryId !== 'anchor') {
+    const entryData = entries.get(editingEntryId);
+    if (entryData && entryData.element) {
+      // Use requestAnimationFrame to ensure DOM is updated with new font size
+      requestAnimationFrame(() => {
+        updateEditingBorderDimensions(entryData.element);
+      });
+    }
   }
 }
 
