@@ -6988,20 +6988,20 @@ async function insertDeadlinesTemplate() {
   const tableHTML = `
 <div class="deadline-table">
   <div class="deadline-header">
-    <div class="deadline-col-check">☑</div>
-    <div class="deadline-col-name">📄 assignment name</div>
-    <div class="deadline-col-deadline">📅 deadline</div>
-    <div class="deadline-col-class">⚪ class</div>
-    <div class="deadline-col-status">✨ status</div>
-    <div class="deadline-col-notes">≡ notes</div>
+    <div>☑</div>
+    <div>📄 assignment name</div>
+    <div>📅 deadline</div>
+    <div>⚪ class</div>
+    <div>✨ status</div>
+    <div>≡ notes</div>
   </div>
   <div class="deadline-row">
     <div class="deadline-col-check"><input type="checkbox"></div>
-    <div class="deadline-col-name" contenteditable="true" placeholder="Enter assignment name..."></div>
-    <div class="deadline-col-deadline" contenteditable="true" placeholder="Enter deadline..."></div>
-    <div class="deadline-col-class" contenteditable="true" placeholder="Class..."></div>
-    <div class="deadline-col-status" contenteditable="true">Not started</div>
-    <div class="deadline-col-notes" contenteditable="true" placeholder="Notes..."></div>
+    <div class="deadline-col-name" contenteditable="true" placeholder=""></div>
+    <div class="deadline-col-deadline" contenteditable="true" placeholder=""></div>
+    <div class="deadline-col-class" contenteditable="true" placeholder=""></div>
+    <div class="deadline-col-status" contenteditable="true" placeholder="">Not started</div>
+    <div class="deadline-col-notes" contenteditable="true" placeholder=""></div>
   </div>
 </div>`;
   
@@ -7051,11 +7051,11 @@ function handleDeadlineTableKeydown(e) {
     newRow.className = 'deadline-row';
     newRow.innerHTML = `
       <div class="deadline-col-check"><input type="checkbox"></div>
-      <div class="deadline-col-name" contenteditable="true" placeholder="Enter assignment name..."></div>
-      <div class="deadline-col-deadline" contenteditable="true" placeholder="Enter deadline..."></div>
-      <div class="deadline-col-class" contenteditable="true" placeholder="Class..."></div>
-      <div class="deadline-col-status" contenteditable="true">Not started</div>
-      <div class="deadline-col-notes" contenteditable="true" placeholder="Notes..."></div>
+      <div class="deadline-col-name" contenteditable="true" placeholder=""></div>
+      <div class="deadline-col-deadline" contenteditable="true" placeholder=""></div>
+      <div class="deadline-col-class" contenteditable="true" placeholder=""></div>
+      <div class="deadline-col-status" contenteditable="true" placeholder="">Not started</div>
+      <div class="deadline-col-notes" contenteditable="true" placeholder=""></div>
     `;
     
     table.appendChild(newRow);
