@@ -683,7 +683,9 @@ async function loadUserEntries(username, editable) {
         entry.appendChild(img);
       } else {
         const { processedText, urls } = processTextWithLinks(entryData.text);
-        if (processedText) {
+        if (entryData.textHtml && entryData.textHtml.includes('deadline-table')) {
+          entry.innerHTML = entryData.textHtml;
+        } else if (processedText) {
           if (entryData.textHtml && /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(entryData.textHtml)) {
             entry.innerHTML = meltifyHtml(entryData.textHtml);
           } else {
@@ -1265,7 +1267,9 @@ async function loadEntriesFromServer() {
       const { processedText, urls } = processTextWithLinks(entryData.text);
       
       // Use textHtml if available (preserves formatting), otherwise use processedText
-      if (processedText) {
+      if (entryData.textHtml && entryData.textHtml.includes('deadline-table')) {
+        entry.innerHTML = entryData.textHtml;
+      } else if (processedText) {
         if (entryData.textHtml && /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(entryData.textHtml)) {
           // Has formatting, use HTML version
           entry.innerHTML = meltifyHtml(entryData.textHtml);
@@ -2493,6 +2497,11 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
     const entryData = entries.get(entryId);
     if(entryData && entryData.textHtml){
       editor.innerHTML = entryData.textHtml;
+      // Re-attach deadline table keydown handler when editing existing table
+      if (entryData.textHtml.includes('deadline-table')) {
+        editor.removeEventListener('keydown', handleDeadlineTableKeydown);
+        editor.addEventListener('keydown', handleDeadlineTableKeydown);
+      }
     } else {
       editor.textContent = text;
     }
@@ -2607,9 +2616,9 @@ async function commitEditor(){
   const raw = editor.innerText;
   const trimmedRight = raw.replace(/\s+$/g,'');
   
-  // Check if HTML has formatting tags - if so, preserve HTML; otherwise use plain text
-  // execCommand can create <strong>, <b>, <em>, <i>, <u>, or <span style="...">
-  const hasFormatting = /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(htmlContent);
+  // Check if content is a deadline table or has formatting tags
+  const isDeadlineTable = htmlContent.includes('deadline-table');
+  const hasFormatting = isDeadlineTable || /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(htmlContent);
   const trimmedHtml = hasFormatting ? htmlContent : null;
   
   console.log('[COMMIT] HTML content length:', htmlContent.length, 'hasFormatting:', hasFormatting);
@@ -2698,20 +2707,25 @@ async function commitEditor(){
       // Remove editing class first so content is visible for melt animation
       entryData.element.classList.remove('editing');
       
-      // Add melt class for animation
-      entryData.element.classList.add('melt');
-      
-      // Update entry content with melt animation, preserving HTML formatting
-      if(processedText){
-        if (trimmedHtml) {
-          // Has formatting, process HTML with formatting preserved
-          entryData.element.innerHTML = meltifyHtml(trimmedHtml);
-        } else {
-          // No formatting, use regular meltify
-          entryData.element.innerHTML = meltify(processedText);
-        }
+      if (isDeadlineTable) {
+        // Deadline tables: use raw HTML directly, no melt animation
+        entryData.element.innerHTML = trimmedHtml;
       } else {
-        entryData.element.innerHTML = '';
+        // Add melt class for animation
+        entryData.element.classList.add('melt');
+
+        // Update entry content with melt animation, preserving HTML formatting
+        if(processedText){
+          if (trimmedHtml) {
+            // Has formatting, process HTML with formatting preserved
+            entryData.element.innerHTML = meltifyHtml(trimmedHtml);
+          } else {
+            // No formatting, use regular meltify
+            entryData.element.innerHTML = meltify(processedText);
+          }
+        } else {
+          entryData.element.innerHTML = '';
+        }
       }
 
       // Generate and add cards for URLs
@@ -2824,14 +2838,16 @@ async function commitEditor(){
 
   const entryId = generateEntryId();
   const entry = document.createElement('div');
-  entry.className = 'entry melt';
+  entry.className = isDeadlineTable ? 'entry' : 'entry melt';
   entry.id = entryId;
 
   entry.style.left = `${editorWorldPos.x}px`;
   entry.style.top  = `${editorWorldPos.y}px`;
 
   // Only render text if there is any
-  if(processedText){
+  if (isDeadlineTable) {
+    entry.innerHTML = trimmedHtml;
+  } else if(processedText){
     if (trimmedHtml) {
       // Has formatting, process HTML with formatting preserved
       entry.innerHTML = meltifyHtml(trimmedHtml);
@@ -2945,6 +2961,17 @@ async function commitEditor(){
 function updateEntryDimensions(entry) {
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
+      // Deadline tables: use actual DOM dimensions
+      const deadlineTable = entry.querySelector('.deadline-table');
+      if (deadlineTable) {
+        const tableWidth = Math.max(deadlineTable.scrollWidth, deadlineTable.offsetWidth);
+        const tableHeight = Math.max(deadlineTable.scrollHeight, deadlineTable.offsetHeight);
+        entry.style.setProperty('width', `${tableWidth}px`, 'important');
+        entry.style.setProperty('height', `${tableHeight}px`, 'important');
+        entry.style.setProperty('min-height', 'auto', 'important');
+        entry.style.setProperty('min-width', 'auto', 'important');
+        return;
+      }
       if (entry.classList.contains('canvas-image')) {
         const img = entry.querySelector('img');
         if (img) {
@@ -4577,10 +4604,18 @@ editor.addEventListener('keydown', (e) => {
 // Update editing border dimensions to wrap content dynamically
 function updateEditingBorderDimensions(entry) {
   if (!entry || !entry.classList.contains('editing')) return;
-  
+
+  // Deadline tables: size border to match table dimensions
+  const deadlineTable = entry.querySelector('.deadline-table');
+  if (deadlineTable) {
+    entry.style.removeProperty('width');
+    entry.style.removeProperty('height');
+    return;
+  }
+
   // Find the maximum font size in the editor content
   let maxFontSize = parseFloat(window.getComputedStyle(editor).fontSize);
-  
+
   // Walk through all text nodes and their parents to find max font size
   const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null, false);
   let node;
@@ -4595,11 +4630,11 @@ function updateEditingBorderDimensions(entry) {
       }
     }
   }
-  
+
   // Set the entry's font-size to match the max font size in content
   // This makes the em-based CSS padding/border scale automatically
   entry.style.fontSize = `${maxFontSize}px`;
-  
+
   // Don't set explicit width/height - let CSS auto sizing handle it
   // The CSS already has: width: auto !important; height: auto !important;
   // With em-based padding: 0.5em 2em 0.5em 1em
@@ -6647,7 +6682,9 @@ async function performUndo() {
           entry.appendChild(img);
         } else {
           const { processedText, urls } = processTextWithLinks(entryData.text);
-          if (processedText) {
+          if (entryData.textHtml && entryData.textHtml.includes('deadline-table')) {
+            entry.innerHTML = entryData.textHtml;
+          } else if (processedText) {
             entry.innerHTML = meltify(processedText);
           } else {
             entry.innerHTML = '';
@@ -6733,7 +6770,9 @@ async function performUndo() {
         
         // Process and restore text
         const { processedText, urls } = processTextWithLinks(state.data.oldText);
-        if (processedText) {
+        if (editEntryData.textHtml && editEntryData.textHtml.includes('deadline-table')) {
+          editEntryData.element.innerHTML = editEntryData.textHtml;
+        } else if (processedText) {
           editEntryData.element.innerHTML = meltify(processedText);
         } else {
           editEntryData.element.innerHTML = '';
@@ -7007,8 +7046,9 @@ async function insertDeadlinesTemplate() {
   
   editor.innerHTML = tableHTML;
   editor.classList.add('has-content');
-  
-  // Add event listener for adding new rows with Enter key
+
+  // Add event listener for adding new rows with Enter key (remove first to prevent duplicates)
+  editor.removeEventListener('keydown', handleDeadlineTableKeydown);
   editor.addEventListener('keydown', handleDeadlineTableKeydown);
   
   // Focus first editable cell
