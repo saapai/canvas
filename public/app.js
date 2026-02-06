@@ -7034,12 +7034,12 @@ function getDeadlineRowHTML() {
 }
 
 function addDeadlineRow(table) {
-  const addRowBtn = table.querySelector('.deadline-add-row');
+  const ghostRow = table.querySelector('.deadline-ghost-row');
   const newRow = document.createElement('div');
   newRow.className = 'deadline-row';
   newRow.innerHTML = getDeadlineRowHTML();
-  if (addRowBtn) {
-    table.insertBefore(newRow, addRowBtn);
+  if (ghostRow) {
+    table.insertBefore(newRow, ghostRow);
   } else {
     table.appendChild(newRow);
   }
@@ -7047,6 +7047,18 @@ function addDeadlineRow(table) {
   if (firstCell) {
     setTimeout(() => firstCell.focus(), 0);
   }
+}
+
+function isDeadlineRowEmpty(row) {
+  const cells = row.querySelectorAll('[contenteditable="true"]');
+  for (const cell of cells) {
+    if (cell.textContent.trim() !== '') return false;
+  }
+  const badge = row.querySelector('.status-badge');
+  if (badge && badge.dataset.status !== 'not-started') return false;
+  const checkbox = row.querySelector('input[type="checkbox"]');
+  if (checkbox && checkbox.checked) return false;
+  return true;
 }
 
 function setupDeadlineTableHandlers(table) {
@@ -7081,9 +7093,9 @@ function setupDeadlineTableHandlers(table) {
       return;
     }
 
-    // Add row button
-    const addBtn = e.target.closest('.deadline-add-row');
-    if (addBtn) {
+    // Ghost row click - add new row
+    const ghostRow = e.target.closest('.deadline-ghost-row');
+    if (ghostRow) {
       e.preventDefault();
       e.stopPropagation();
       addDeadlineRow(table);
@@ -7109,7 +7121,14 @@ async function insertDeadlinesTemplate() {
   <div class="deadline-row">
     ${getDeadlineRowHTML()}
   </div>
-  <div class="deadline-add-row">+</div>
+  <div class="deadline-ghost-row">
+    <div>+</div>
+    <div>Assignment...</div>
+    <div>Date...</div>
+    <div>Class...</div>
+    <div>Status</div>
+    <div></div>
+  </div>
 </div>`;
 
   editor.innerHTML = tableHTML;
@@ -7131,14 +7150,49 @@ async function insertDeadlinesTemplate() {
 
 function handleDeadlineTableKeydown(e) {
   const target = e.target;
-  const isInDeadlineTable = target.closest('.deadline-table');
-  if (!isInDeadlineTable) return;
+  const deadlineTable = target.closest('.deadline-table');
+  if (!deadlineTable) return;
 
-  // Prevent Backspace/Delete from destroying cell structure
+  // Cmd/Ctrl+A: select all text within the current cell only
+  if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
+    const cell = target.closest('[contenteditable="true"]');
+    if (cell) {
+      e.preventDefault();
+      const range = document.createRange();
+      range.selectNodeContents(cell);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+    return;
+  }
+
+  // Backspace/Delete handling
   if (e.key === 'Backspace' || e.key === 'Delete') {
     const cell = target.closest('[contenteditable="true"]');
     if (cell && cell.textContent === '') {
       e.preventDefault();
+      // Check if entire row is empty - if so, delete the row
+      const row = cell.closest('.deadline-row');
+      if (row && isDeadlineRowEmpty(row)) {
+        const table = row.closest('.deadline-table');
+        const allRows = Array.from(table.querySelectorAll('.deadline-row'));
+        if (allRows.length <= 1) {
+          // Only row left - delete the whole deadline entry
+          editor.innerHTML = '';
+          setTimeout(() => commitEditor(), 0);
+        } else {
+          const rowIndex = allRows.indexOf(row);
+          row.remove();
+          // Focus the previous row, or next if first was deleted
+          const remaining = Array.from(table.querySelectorAll('.deadline-row'));
+          const focusRow = remaining[Math.min(rowIndex, remaining.length - 1)] || remaining[0];
+          if (focusRow) {
+            const focusCell = focusRow.querySelector('[contenteditable="true"]');
+            if (focusCell) focusCell.focus();
+          }
+        }
+      }
       return;
     }
   }

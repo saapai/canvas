@@ -2083,6 +2083,13 @@ body::before{
   border-radius: 4px;
 }
 
+/* Aggressively hide entry content during editing to prevent silhouette/ghost */
+.entry.editing:has(.deadline-table) > * {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
 /* Override editor's white-space: pre for tables */
 #editor:has(.deadline-table) {
   white-space: normal;
@@ -2276,23 +2283,42 @@ body::before{
 .status-option[data-status="overdue"]::before { background: rgba(190, 60, 60, 0.75); }
 .status-option[data-status="done"]::before { background: rgba(50, 150, 90, 0.75); }
 
-/* Add row button */
-.deadline-add-row {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 28px;
+/* Ghost row - translucent preview of a new row, only visible in editor */
+.deadline-ghost-row {
+  display: none;
+  grid-template-columns: 36px 1.8fr 1fr 0.9fr 1fr 0.6fr;
+  padding: 0;
+  min-height: 36px;
+  align-items: stretch;
   cursor: pointer;
   color: var(--muted);
-  font-size: 15px;
-  border-top: 1px solid rgba(0, 0, 0, 0.03);
-  transition: background 0.15s ease, color 0.15s ease;
+  font-size: 14px;
+  opacity: 0.3;
+  border-top: 1px dashed rgba(0, 0, 0, 0.06);
+  transition: opacity 0.15s ease;
   user-select: none;
 }
 
-.deadline-add-row:hover {
-  background: rgba(0, 0, 0, 0.02);
-  color: var(--ink);
+/* Only show ghost row inside the editor (edit mode) */
+#editor .deadline-ghost-row {
+  display: grid;
+}
+
+.deadline-ghost-row:hover {
+  opacity: 0.5;
+}
+
+.deadline-ghost-row > div {
+  padding: 8px 12px;
+  line-height: 20px;
+}
+
+.deadline-ghost-row > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 300;
 }
 
 .deadline-col-deadline {
