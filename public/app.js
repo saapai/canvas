@@ -7123,7 +7123,27 @@ function setupDeadlineTableHandlers(table) {
     table.querySelectorAll('.status-dropdown.open').forEach(d => d.classList.remove('open'));
   });
 
-  // Drag and drop: only when table is inside #editor (editing mode)
+  // Drag and drop file onto deadline table to extract deadlines.
+  // We must prevent the browser default on the editor element, otherwise
+  // the browser opens the file in a new tab before our table handler fires.
+  if (!editor._deadlineDragover) {
+    editor._deadlineDragover = (e) => {
+      if (!editor.querySelector('.deadline-table')) return;
+      if (e.dataTransfer.types.includes('Files')) {
+        e.preventDefault();
+      }
+    };
+    editor._deadlineDrop = (e) => {
+      // Only prevent default; the table's own drop handler does the real work
+      if (!editor.querySelector('.deadline-table')) return;
+      if (e.dataTransfer.types.includes('Files')) {
+        e.preventDefault();
+      }
+    };
+    editor.addEventListener('dragover', editor._deadlineDragover);
+    editor.addEventListener('drop', editor._deadlineDrop);
+  }
+
   table.addEventListener('dragover', (e) => {
     if (!table.closest('#editor')) return;
     e.preventDefault();
