@@ -6997,11 +6997,11 @@ async function insertDeadlinesTemplate() {
   </div>
   <div class="deadline-row">
     <div class="deadline-col-check"><input type="checkbox"></div>
-    <div class="deadline-col-name" contenteditable="true" placeholder=""></div>
-    <div class="deadline-col-deadline" contenteditable="true" placeholder=""></div>
-    <div class="deadline-col-class" contenteditable="true" placeholder=""></div>
-    <div class="deadline-col-status" contenteditable="true" placeholder="">Not started</div>
-    <div class="deadline-col-notes" contenteditable="true" placeholder=""></div>
+    <div class="deadline-col-name" contenteditable="true"></div>
+    <div class="deadline-col-deadline" contenteditable="true"></div>
+    <div class="deadline-col-class" contenteditable="true"><span class="class-badge"></span></div>
+    <div class="deadline-col-status" contenteditable="true"><span class="status-badge">Not started</span></div>
+    <div class="deadline-col-notes" contenteditable="true"></div>
   </div>
 </div>`;
   
@@ -7051,11 +7051,11 @@ function handleDeadlineTableKeydown(e) {
     newRow.className = 'deadline-row';
     newRow.innerHTML = `
       <div class="deadline-col-check"><input type="checkbox"></div>
-      <div class="deadline-col-name" contenteditable="true" placeholder=""></div>
-      <div class="deadline-col-deadline" contenteditable="true" placeholder=""></div>
-      <div class="deadline-col-class" contenteditable="true" placeholder=""></div>
-      <div class="deadline-col-status" contenteditable="true" placeholder="">Not started</div>
-      <div class="deadline-col-notes" contenteditable="true" placeholder=""></div>
+      <div class="deadline-col-name" contenteditable="true"></div>
+      <div class="deadline-col-deadline" contenteditable="true"></div>
+      <div class="deadline-col-class" contenteditable="true"><span class="class-badge"></span></div>
+      <div class="deadline-col-status" contenteditable="true"><span class="status-badge">Not started</span></div>
+      <div class="deadline-col-notes" contenteditable="true"></div>
     `;
     
     table.appendChild(newRow);

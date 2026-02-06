@@ -2055,6 +2055,13 @@ body::before{
   border-radius: 8px;
   overflow: hidden;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  white-space: normal;
+  line-height: normal;
+}
+
+/* Override editor's white-space: pre for tables */
+#editor:has(.deadline-table) {
+  white-space: normal;
 }
 
 .deadline-header {
@@ -2113,102 +2120,69 @@ body::before{
 
 .deadline-col-name,
 .deadline-col-deadline,
+.deadline-col-class,
+.deadline-col-status,
 .deadline-col-notes {
   padding: 10px 12px;
   outline: none;
   border: none;
   min-height: 44px;
-  display: flex;
-  align-items: center;
+  display: block;
   color: var(--ink);
   font-size: 14px;
+  white-space: normal;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
 }
 
 .deadline-col-name {
   font-weight: 400;
 }
 
-.deadline-col-name:empty:before {
-  content: attr(placeholder);
-  color: rgba(0, 0, 0, 0.25);
-}
-
-.deadline-col-deadline:empty:before {
-  content: attr(placeholder);
-  color: rgba(0, 0, 0, 0.25);
-}
-
+.deadline-col-name:empty:before,
+.deadline-col-deadline:empty:before,
+.deadline-col-class:empty:before,
+.deadline-col-status:empty:before,
 .deadline-col-notes:empty:before {
   content: attr(placeholder);
   color: rgba(0, 0, 0, 0.25);
+  font-weight: 400;
 }
 
 .deadline-col-name:focus,
 .deadline-col-deadline:focus,
+.deadline-col-class:focus,
+.deadline-col-status:focus,
 .deadline-col-notes:focus {
   background: rgba(59, 130, 246, 0.04);
+  border-radius: 4px;
 }
 
-.deadline-col-class,
-.deadline-col-status {
-  padding: 10px 12px;
-  display: flex;
-  align-items: center;
-  min-height: 44px;
-}
-
-.deadline-col-class[contenteditable="true"],
-.deadline-col-status[contenteditable="true"] {
-  outline: none;
-  border: none;
-}
-
-.deadline-col-class:not(:empty),
-.deadline-col-status:not(:empty) {
-  display: inline-flex;
-  padding: 5px 12px;
-  border-radius: 6px;
+/* Badge styling for class and status */
+.class-badge,
+.status-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 5px;
   font-size: 12px;
   font-weight: 500;
-  max-width: fit-content;
-  margin: 0 12px;
+  white-space: nowrap;
 }
 
-/* Class tag colors - varied palette */
-.deadline-col-class:not(:empty) {
-  background: rgba(59, 130, 246, 0.12);
+.class-badge:not(:empty) {
+  background: rgba(59, 130, 246, 0.15);
   color: rgba(37, 99, 235, 1);
-  border: 1px solid rgba(59, 130, 246, 0.2);
+  border: 1px solid rgba(59, 130, 246, 0.25);
 }
 
-/* Status badge - red for "Not started" */
-.deadline-col-status:not(:empty) {
-  background: rgba(220, 38, 38, 0.12);
+.status-badge:not(:empty) {
+  background: rgba(220, 38, 38, 0.15);
   color: rgba(185, 28, 28, 1);
-  border: 1px solid rgba(220, 38, 38, 0.2);
-}
-
-.deadline-col-class:empty:before {
-  content: attr(placeholder);
-  color: rgba(0, 0, 0, 0.25);
-  font-weight: 400;
-  padding: 5px 12px;
-}
-
-.deadline-col-status:empty:before {
-  content: attr(placeholder);
-  color: rgba(0, 0, 0, 0.25);
-  font-weight: 400;
-  padding: 5px 12px;
-}
-
-.deadline-col-class:focus,
-.deadline-col-status:focus {
-  background: rgba(59, 130, 246, 0.04);
+  border: 1px solid rgba(220, 38, 38, 0.25);
 }
 
 .deadline-col-notes {
   text-align: center;
-  color: rgba(0, 0, 0, 0.35);
+  color: rgba(0, 0, 0, 0.4);
   font-size: 13px;
 }
