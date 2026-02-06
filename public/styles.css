@@ -2059,8 +2059,8 @@ body::before{
   letter-spacing: normal;
 }
 
-/* Prevent melt animation spans from breaking table layout (exclude badge spans) */
-.melt .deadline-table span:not(.class-badge):not(.status-badge) {
+/* Prevent melt animation spans from breaking table layout */
+.melt .deadline-table span:not(.status-badge) {
   display: inline;
   position: static;
   animation: none !important;
@@ -2094,7 +2094,7 @@ body::before{
   grid-template-columns: 36px 1.8fr 1fr 0.9fr 1fr 0.6fr;
   padding: 0;
   border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-  font-weight: 500;
+  font-weight: 600;
   color: var(--muted);
   font-size: 11px;
   text-transform: uppercase;
@@ -2103,9 +2103,6 @@ body::before{
 }
 
 .deadline-header > div {
-  display: flex;
-  align-items: center;
-  gap: 6px;
   padding: 8px 12px;
 }
 
@@ -2114,7 +2111,7 @@ body::before{
   grid-template-columns: 36px 1.8fr 1fr 0.9fr 1fr 0.6fr;
   padding: 0;
   border-bottom: 1px solid rgba(0, 0, 0, 0.03);
-  align-items: center;
+  align-items: stretch;
   min-height: 36px;
   transition: background 0.15s ease;
 }
@@ -2144,24 +2141,29 @@ body::before{
 .deadline-col-name,
 .deadline-col-deadline,
 .deadline-col-class,
-.deadline-col-status,
 .deadline-col-notes {
-  padding: 7px 12px;
+  padding: 8px 12px;
   outline: none;
   border: none;
   min-height: 36px;
-  display: flex;
-  align-items: center;
+  display: block;
   color: var(--ink);
   font-size: 14px;
+  line-height: 20px;
   white-space: normal;
   word-wrap: break-word;
   overflow-wrap: break-word;
+  min-width: 0;
   background: transparent;
 }
 
-.deadline-col-name {
-  font-weight: 400;
+.deadline-col-status {
+  padding: 8px 12px;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  position: relative;
 }
 
 .deadline-col-name:empty::after {
@@ -2174,69 +2176,123 @@ body::before{
   color: var(--muted);
 }
 
+.deadline-col-class:empty::after {
+  content: 'Class...';
+  color: var(--muted);
+}
+
 .deadline-col-name:focus,
 .deadline-col-deadline:focus,
 .deadline-col-class:focus,
-.deadline-col-status:focus,
 .deadline-col-notes:focus {
   background: rgba(0, 0, 0, 0.02);
   border-radius: 2px;
 }
 
-/* Class badge */
-.class-badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 2px 8px;
-  border-radius: 3px;
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
-  background: rgba(0, 0, 0, 0.04);
-  color: var(--ink);
-  min-height: 22px;
-}
-
-.class-badge:empty {
-  background: transparent;
-}
-
-.class-badge:empty::after {
-  content: 'Class...';
-  color: var(--muted);
-  font-weight: 400;
-}
-
-/* Status badge */
+/* Status badge button */
 .status-badge {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 2px 8px;
+  padding: 3px 10px;
   border-radius: 3px;
+  font: inherit;
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
   background: rgba(0, 0, 0, 0.04);
   color: var(--ink);
   min-height: 22px;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.status-badge:hover {
+  background: rgba(0, 0, 0, 0.07);
 }
 
 .status-badge::before {
   content: '';
-  width: 5px;
-  height: 5px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--muted);
   flex-shrink: 0;
 }
 
-.status-badge:empty {
-  background: transparent;
+/* Status colors */
+.status-badge[data-status="not-started"]::before { background: rgba(0, 0, 0, 0.2); }
+.status-badge[data-status="overdue"]::before { background: rgba(190, 60, 60, 0.75); }
+.status-badge[data-status="overdue"] { background: rgba(190, 60, 60, 0.06); }
+.status-badge[data-status="done"]::before { background: rgba(50, 150, 90, 0.75); }
+.status-badge[data-status="done"] { background: rgba(50, 150, 90, 0.06); }
+
+/* Status dropdown */
+.status-dropdown {
+  display: none;
+  position: absolute;
+  top: calc(100% - 2px);
+  left: 12px;
+  min-width: 130px;
+  background: var(--paper);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  padding: 4px;
+  z-index: 2000;
 }
 
-.status-badge:empty::before {
-  display: none;
+.status-dropdown.open {
+  display: block;
+}
+
+.status-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.status-option:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.status-option::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-option[data-status="not-started"]::before { background: rgba(0, 0, 0, 0.2); }
+.status-option[data-status="overdue"]::before { background: rgba(190, 60, 60, 0.75); }
+.status-option[data-status="done"]::before { background: rgba(50, 150, 90, 0.75); }
+
+/* Add row button */
+.deadline-add-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 28px;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 15px;
+  border-top: 1px solid rgba(0, 0, 0, 0.03);
+  transition: background 0.15s ease, color 0.15s ease;
+  user-select: none;
+}
+
+.deadline-add-row:hover {
+  background: rgba(0, 0, 0, 0.02);
+  color: var(--ink);
 }
 
 .deadline-col-deadline {

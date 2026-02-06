@@ -2497,10 +2497,12 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
     const entryData = entries.get(entryId);
     if(entryData && entryData.textHtml){
       editor.innerHTML = entryData.textHtml;
-      // Re-attach deadline table keydown handler when editing existing table
+      // Re-attach deadline table handlers when editing existing table
       if (entryData.textHtml.includes('deadline-table')) {
         editor.removeEventListener('keydown', handleDeadlineTableKeydown);
         editor.addEventListener('keydown', handleDeadlineTableKeydown);
+        const table = editor.querySelector('.deadline-table');
+        if (table) setupDeadlineTableHandlers(table);
       }
     } else {
       editor.textContent = text;
@@ -7022,10 +7024,80 @@ async function insertTemplate(templateType) {
   }
 }
 
+function getDeadlineRowHTML() {
+  return `<div class="deadline-col-check"><input type="checkbox"></div>
+    <div class="deadline-col-name" contenteditable="true"></div>
+    <div class="deadline-col-deadline" contenteditable="true"></div>
+    <div class="deadline-col-class" contenteditable="true"></div>
+    <div class="deadline-col-status"><button class="status-badge" data-status="not-started" type="button">Not started</button><div class="status-dropdown"><div class="status-option" data-status="not-started">Not started</div><div class="status-option" data-status="overdue">Overdue</div><div class="status-option" data-status="done">Done</div></div></div>
+    <div class="deadline-col-notes" contenteditable="true"></div>`;
+}
+
+function addDeadlineRow(table) {
+  const addRowBtn = table.querySelector('.deadline-add-row');
+  const newRow = document.createElement('div');
+  newRow.className = 'deadline-row';
+  newRow.innerHTML = getDeadlineRowHTML();
+  if (addRowBtn) {
+    table.insertBefore(newRow, addRowBtn);
+  } else {
+    table.appendChild(newRow);
+  }
+  const firstCell = newRow.querySelector('.deadline-col-name');
+  if (firstCell) {
+    setTimeout(() => firstCell.focus(), 0);
+  }
+}
+
+function setupDeadlineTableHandlers(table) {
+  // Event delegation for clicks within the table
+  table.addEventListener('click', (e) => {
+    // Status badge click - toggle dropdown
+    const badge = e.target.closest('.status-badge');
+    if (badge) {
+      e.preventDefault();
+      e.stopPropagation();
+      // Close any other open dropdowns
+      table.querySelectorAll('.status-dropdown.open').forEach(d => d.classList.remove('open'));
+      const dropdown = badge.closest('.deadline-col-status').querySelector('.status-dropdown');
+      if (dropdown) dropdown.classList.toggle('open');
+      return;
+    }
+
+    // Status option click - update badge
+    const option = e.target.closest('.status-option');
+    if (option) {
+      e.preventDefault();
+      e.stopPropagation();
+      const status = option.dataset.status;
+      const text = option.textContent;
+      const statusCell = option.closest('.deadline-col-status');
+      const statusBadge = statusCell.querySelector('.status-badge');
+      if (statusBadge) {
+        statusBadge.dataset.status = status;
+        statusBadge.textContent = text;
+      }
+      option.closest('.status-dropdown').classList.remove('open');
+      return;
+    }
+
+    // Add row button
+    const addBtn = e.target.closest('.deadline-add-row');
+    if (addBtn) {
+      e.preventDefault();
+      e.stopPropagation();
+      addDeadlineRow(table);
+      return;
+    }
+
+    // Close any open dropdowns when clicking elsewhere
+    table.querySelectorAll('.status-dropdown.open').forEach(d => d.classList.remove('open'));
+  });
+}
+
 async function insertDeadlinesTemplate() {
-  // Create an elegant table matching canvas aesthetic
   const tableHTML = `
-<div class="deadline-table">
+<div class="deadline-table" contenteditable="false">
   <div class="deadline-header">
     <div></div>
     <div>assignment</div>
@@ -7035,86 +7107,58 @@ async function insertDeadlinesTemplate() {
     <div>notes</div>
   </div>
   <div class="deadline-row">
-    <div class="deadline-col-check"><input type="checkbox"></div>
-    <div class="deadline-col-name" contenteditable="true"></div>
-    <div class="deadline-col-deadline" contenteditable="true"></div>
-    <div class="deadline-col-class"><span class="class-badge" contenteditable="true"></span></div>
-    <div class="deadline-col-status"><span class="status-badge" contenteditable="true">Not started</span></div>
-    <div class="deadline-col-notes" contenteditable="true"></div>
+    ${getDeadlineRowHTML()}
   </div>
+  <div class="deadline-add-row">+</div>
 </div>`;
-  
+
   editor.innerHTML = tableHTML;
   editor.classList.add('has-content');
 
-  // Add event listener for adding new rows with Enter key (remove first to prevent duplicates)
+  // Set up event handlers
+  const table = editor.querySelector('.deadline-table');
+  if (table) setupDeadlineTableHandlers(table);
+
   editor.removeEventListener('keydown', handleDeadlineTableKeydown);
   editor.addEventListener('keydown', handleDeadlineTableKeydown);
-  
+
   // Focus first editable cell
   const firstCell = editor.querySelector('.deadline-col-name');
   if (firstCell) {
-    setTimeout(() => {
-      firstCell.focus();
-      // Place cursor at end
-      const range = document.createRange();
-      const sel = window.getSelection();
-      range.selectNodeContents(firstCell);
-      range.collapse(false);
-      sel.removeAllRanges();
-      sel.addRange(range);
-    }, 0);
+    setTimeout(() => firstCell.focus(), 0);
   }
 }
 
 function handleDeadlineTableKeydown(e) {
-  if (e.key !== 'Enter') return;
-  
   const target = e.target;
   const isInDeadlineTable = target.closest('.deadline-table');
-  
   if (!isInDeadlineTable) return;
-  
+
+  // Prevent Backspace/Delete from destroying cell structure
+  if (e.key === 'Backspace' || e.key === 'Delete') {
+    const cell = target.closest('[contenteditable="true"]');
+    if (cell && cell.textContent === '') {
+      e.preventDefault();
+      return;
+    }
+  }
+
+  if (e.key !== 'Enter') return;
+
   e.preventDefault();
-  
-  // Check if we're in the last row
+
   const currentRow = target.closest('.deadline-row');
   if (!currentRow) return;
-  
+
   const table = currentRow.closest('.deadline-table');
   const allRows = Array.from(table.querySelectorAll('.deadline-row'));
   const isLastRow = currentRow === allRows[allRows.length - 1];
-  
+
   if (isLastRow) {
-    // Add new row
-    const newRow = document.createElement('div');
-    newRow.className = 'deadline-row';
-    newRow.innerHTML = `
-      <div class="deadline-col-check"><input type="checkbox"></div>
-      <div class="deadline-col-name" contenteditable="true"></div>
-      <div class="deadline-col-deadline" contenteditable="true"></div>
-      <div class="deadline-col-class"><span class="class-badge" contenteditable="true"></span></div>
-      <div class="deadline-col-status"><span class="status-badge" contenteditable="true">Not started</span></div>
-      <div class="deadline-col-notes" contenteditable="true"></div>
-    `;
-    
-    table.appendChild(newRow);
-    
-    // Focus first cell of new row
-    const firstCell = newRow.querySelector('.deadline-col-name');
-    if (firstCell) {
-      setTimeout(() => firstCell.focus(), 0);
-    }
+    addDeadlineRow(table);
   } else {
-    // Move to next row, same column
-    const currentCol = target.className;
-    const nextRow = allRows[allRows.indexOf(currentRow) + 1];
-    if (nextRow) {
-      const nextCell = nextRow.querySelector(`.${currentCol}`);
-      if (nextCell && nextCell.hasAttribute('contenteditable')) {
-        nextCell.focus();
-      }
-    }
+    // Commit the entry
+    setTimeout(() => commitEditor(), 0);
   }
 }
 
