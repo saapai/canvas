@@ -4867,35 +4867,110 @@ viewport.addEventListener('contextmenu', (e) => {
   }
 });
 
-// Drag-and-drop image onto canvas
+// Drag-and-drop files onto canvas (images + documents for deadline extraction)
 viewport.addEventListener('dragover', (e) => {
   if(isReadOnly) return;
   if(e.dataTransfer.types.includes('Files')){
-    const files = e.dataTransfer.items ? Array.from(e.dataTransfer.items) : [];
-    const hasImage = files.some(item => item.kind === 'file' && item.type.startsWith('image/'));
-    if(hasImage){ e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
   }
 });
 viewport.addEventListener('drop', async (e) => {
   if(isReadOnly) return;
   if(!e.dataTransfer.files || !e.dataTransfer.files.length) return;
-  const file = Array.from(e.dataTransfer.files).find(f => f.type.startsWith('image/'));
+  const file = e.dataTransfer.files[0];
   if(!file) return;
   e.preventDefault();
   e.stopPropagation();
+
+  // Image files: upload and create image entry (existing behavior)
+  if (file.type.startsWith('image/')) {
+    const worldPos = screenToWorld(e.clientX, e.clientY);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch('/api/upload-image', { method: 'POST', credentials: 'include', body: form });
+      if(!res.ok){
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Upload failed');
+      }
+      const { url } = await res.json();
+      await createImageEntryAtWorld(worldPos.x, worldPos.y, url);
+    } catch(err){
+      console.error('Image upload failed:', err);
+    }
+    return;
+  }
+
+  // Document files: extract deadlines and create a deadline table entry
   const worldPos = screenToWorld(e.clientX, e.clientY);
   try {
-    const form = new FormData();
-    form.append('file', file);
-    const res = await fetch('/api/upload-image', { method: 'POST', credentials: 'include', body: form });
-    if(!res.ok){
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch('/api/extract-deadlines', { method: 'POST', body: formData });
+    if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Upload failed');
+      throw new Error(err.error || 'Failed to extract deadlines');
     }
-    const { url } = await res.json();
-    await createImageEntryAtWorld(worldPos.x, worldPos.y, url);
-  } catch(err){
-    console.error('Image upload failed:', err);
+    const data = await res.json();
+    if (!data.deadlines || data.deadlines.length === 0) return;
+
+    // Build deadline table HTML with extracted rows
+    let rowsHTML = '';
+    for (const d of data.deadlines) {
+      rowsHTML += `<div class="deadline-row">${getDeadlineRowHTML()}</div>`;
+    }
+    const tableHTML = `<div class="deadline-table" contenteditable="false">
+  <div class="deadline-header">
+    <div></div><div>assignment</div><div>deadline</div><div>class</div><div>status</div><div>notes</div>
+  </div>
+  ${rowsHTML}
+  <div class="deadline-ghost-row">
+    <div>+</div><div>Assignment...</div><div>Date...</div><div>Class...</div><div>Status</div><div></div>
+  </div>
+</div>`;
+
+    // Create entry element
+    const entryId = generateEntryId();
+    const entry = document.createElement('div');
+    entry.className = 'entry';
+    entry.id = entryId;
+    entry.style.left = `${worldPos.x}px`;
+    entry.style.top = `${worldPos.y}px`;
+    entry.innerHTML = tableHTML;
+
+    // Fill in the extracted data
+    const rows = entry.querySelectorAll('.deadline-row');
+    data.deadlines.forEach((d, i) => {
+      if (!rows[i]) return;
+      const name = rows[i].querySelector('.deadline-col-name');
+      const deadline = rows[i].querySelector('.deadline-col-deadline');
+      const cls = rows[i].querySelector('.deadline-col-class');
+      const notes = rows[i].querySelector('.deadline-col-notes');
+      if (name) name.textContent = d.assignment || '';
+      if (deadline) deadline.textContent = d.deadline || '';
+      if (cls) cls.textContent = d.class || '';
+      if (notes) notes.textContent = d.notes || '';
+    });
+
+    // Set up handlers and add to world
+    const table = entry.querySelector('.deadline-table');
+    if (table) setupDeadlineTableHandlers(table);
+    world.appendChild(entry);
+
+    const entryData = {
+      id: entryId,
+      element: entry,
+      text: entry.innerText,
+      textHtml: entry.innerHTML,
+      position: { x: worldPos.x, y: worldPos.y },
+      parentEntryId: currentViewEntryId
+    };
+    entries.set(entryId, entryData);
+    updateEntryVisibility();
+    await saveEntryToServer(entryData);
+  } catch(err) {
+    console.error('Deadline extraction failed:', err);
   }
 });
 
@@ -7123,26 +7198,10 @@ function setupDeadlineTableHandlers(table) {
     table.querySelectorAll('.status-dropdown.open').forEach(d => d.classList.remove('open'));
   });
 
-  // Drag and drop file onto deadline table to extract deadlines.
-  // Use document-level capture-phase listeners so we intercept the event
-  // BEFORE contenteditable cells or the browser default can handle it.
-  if (!document._deadlineDragCapture) {
-    document._deadlineDragCapture = true;
-    document.addEventListener('dragover', (e) => {
-      const tbl = e.target.closest ? e.target.closest('.deadline-table') : null;
-      if (tbl && tbl.closest('#editor') && e.dataTransfer.types.includes('Files')) {
-        e.preventDefault();
-        e.dataTransfer.dropEffect = 'copy';
-      }
-    }, true); // capture phase
-    document.addEventListener('drop', (e) => {
-      const tbl = e.target.closest ? e.target.closest('.deadline-table') : null;
-      if (tbl && tbl.closest('#editor') && e.dataTransfer.types.includes('Files')) {
-        e.preventDefault();
-      }
-    }, true); // capture phase
-  }
-
+  // Drag and drop onto deadline table in editor to populate rows.
+  // The viewport dragover already prevents default for all files, so
+  // the browser won't open the file. These handlers add visual feedback
+  // and handle the extraction when dropped directly on the table.
   table.addEventListener('dragover', (e) => {
     if (!table.closest('#editor')) return;
     e.preventDefault();
