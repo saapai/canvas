@@ -5244,22 +5244,21 @@ async function organizeEntriesIntoHubs() {
 
 // Autocomplete toggle functionality
 const toggleButton = document.getElementById('toggle-button');
-const toggleState = toggleButton?.querySelector('.toggle-state');
 
-if (toggleButton && toggleState) {
+if (toggleButton) {
+  // Ensure initial pressed state matches current value
+  toggleButton.classList.toggle('active', mediaAutocompleteEnabled);
+
   toggleButton.addEventListener('click', () => {
     mediaAutocompleteEnabled = !mediaAutocompleteEnabled;
-    
+    toggleButton.classList.toggle('active', mediaAutocompleteEnabled);
+
     if (mediaAutocompleteEnabled) {
-      toggleButton.classList.add('active');
-      toggleState.textContent = 'ON';
       // Trigger autocomplete search if editor has content
       if (editor.style.display !== 'none' && editor.innerText.trim().length >= 3) {
         handleAutocompleteSearch();
       }
     } else {
-      toggleButton.classList.remove('active');
-      toggleState.textContent = 'OFF';
       hideAutocomplete(); // Hide autocomplete when switching to text mode
     }
   });

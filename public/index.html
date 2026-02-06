@@ -24,16 +24,25 @@
     <button type="button" class="format-btn" id="format-italic" title="Italic">I</button>
     <button type="button" class="format-btn" id="format-underline" title="Underline">U</button>
     <button type="button" class="format-btn" id="format-strike" title="Strikethrough">S</button>
+    <span class="format-divider"></span>
+    <button type="button" class="format-btn" id="toggle-button" title="Media autocomplete (music + movies)">
+      <span class="format-icon-duo" aria-hidden="true">
+        <!-- Music note -->
+        <svg viewBox="0 0 24 24" fill="none">
+          <path d="M9 18.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M11.5 16V5l9-2v11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M18 16.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <!-- Film -->
+        <svg viewBox="0 0 24 24" fill="none">
+          <path d="M4 7h16v10H4V7Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
+          <path d="M8 7v10M16 7v10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+          <path d="M4 10h4M4 14h4M20 10h-4M20 14h-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </span>
+    </button>
     </div>
     <div class="topbar-right">
-      <div id="autocomplete-toggle" class="autocomplete-toggle">
-        <button id="toggle-button" class="toggle-button" title="Toggle media autocomplete">
-          <span class="toggle-state">OFF</span>
-        </button>
-        <span class="toggle-label">
-          <span class="toggle-text">media autocomplete</span>
-        </span>
-      </div>
       <div id="user-menu" class="user-menu">
         <button id="user-menu-button" class="user-menu-button" title="User menu">
           <span id="user-menu-label" class="user-name"></span>
