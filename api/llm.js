@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import dotenv from 'dotenv';
 import * as cheerio from 'cheerio';
-import { PDFParse } from 'pdf-parse';
+import pdfParse from 'pdf-parse/lib/pdf-parse.js';
 import mammoth from 'mammoth';
 
 dotenv.config();
@@ -258,8 +258,7 @@ Respond ONLY with valid JSON: { "deadlines": [...] }`;
     } else {
       let text;
       if (mimetype === 'application/pdf') {
-        const parser = new PDFParse({ data: buffer });
-        const parsed = await parser.getText();
+        const parsed = await pdfParse(buffer);
         text = parsed.text;
       } else if (mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
         const result = await mammoth.extractRawText({ buffer });
