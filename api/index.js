@@ -10,7 +10,7 @@ import { dirname, join } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-import { processTextWithLLM, fetchLinkMetadata, generateLinkCard } from './llm.js';
+import { processTextWithLLM, fetchLinkMetadata, generateLinkCard, extractDeadlinesFromFile } from './llm.js';
 import { chatWithCanvas } from '../server/chat.js';
 import {
   initDatabase,
@@ -813,6 +813,26 @@ app.post('/api/upload-image', requireAuth, upload.single('file'), async (req, re
     res.json({ url: publicData.publicUrl });
   } catch (error) {
     console.error('Error uploading image:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/extract-deadlines', requireAuth, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const allowed = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain', 'text/csv', 'text/html', 'text/markdown', 'text/rtf',
+      'image/jpeg', 'image/png', 'image/gif', 'image/webp'
+    ];
+    if (!allowed.includes(req.file.mimetype) && !req.file.mimetype.startsWith('text/')) {
+      return res.status(400).json({ error: 'Unsupported file type. Use PDF, DOCX, text files, or images.' });
+    }
+    const result = await extractDeadlinesFromFile(req.file.buffer, req.file.mimetype, req.file.originalname);
+    res.json(result);
+  } catch (error) {
+    console.error('Error extracting deadlines:', error);
     res.status(500).json({ error: error.message });
   }
 });

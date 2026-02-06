@@ -7122,6 +7122,99 @@ function setupDeadlineTableHandlers(table) {
     // Close any open dropdowns when clicking elsewhere
     table.querySelectorAll('.status-dropdown.open').forEach(d => d.classList.remove('open'));
   });
+
+  // Drag and drop: only when table is inside #editor (editing mode)
+  table.addEventListener('dragover', (e) => {
+    if (!table.closest('#editor')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    table.classList.add('deadline-drop-active');
+  });
+
+  table.addEventListener('dragleave', (e) => {
+    if (!table.closest('#editor')) return;
+    // Only remove if we're actually leaving the table, not entering a child
+    if (!table.contains(e.relatedTarget)) {
+      table.classList.remove('deadline-drop-active');
+    }
+  });
+
+  table.addEventListener('drop', async (e) => {
+    if (!table.closest('#editor')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    table.classList.remove('deadline-drop-active');
+
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+
+    // Show loading overlay
+    let overlay = table.querySelector('.deadline-loading-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.className = 'deadline-loading-overlay';
+      overlay.innerHTML = '<div class="deadline-loading-spinner"></div><div class="deadline-loading-text">Extracting deadlines...</div>';
+      table.appendChild(overlay);
+    }
+    overlay.classList.add('active');
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await fetch('/api/extract-deadlines', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to extract deadlines');
+      }
+
+      const data = await res.json();
+      if (!data.deadlines || data.deadlines.length === 0) {
+        overlay.querySelector('.deadline-loading-text').textContent = 'No deadlines found in file';
+        setTimeout(() => overlay.classList.remove('active'), 1500);
+        return;
+      }
+
+      // Remove empty rows before populating
+      const existingRows = Array.from(table.querySelectorAll('.deadline-row'));
+      existingRows.forEach(row => {
+        if (isDeadlineRowEmpty(row)) row.remove();
+      });
+
+      // Add rows from extracted deadlines
+      const ghostRow = table.querySelector('.deadline-ghost-row');
+      data.deadlines.forEach((d, i) => {
+        const row = document.createElement('div');
+        row.className = 'deadline-row deadline-row-enter';
+        row.innerHTML = getDeadlineRowHTML();
+        const nameCell = row.querySelector('.deadline-col-name');
+        const deadlineCell = row.querySelector('.deadline-col-deadline');
+        const classCell = row.querySelector('.deadline-col-class');
+        const notesCell = row.querySelector('.deadline-col-notes');
+        if (nameCell) nameCell.textContent = d.assignment || '';
+        if (deadlineCell) deadlineCell.textContent = d.deadline || '';
+        if (classCell) classCell.textContent = d.class || '';
+        if (notesCell) notesCell.textContent = d.notes || '';
+        // Stagger entrance animation
+        row.style.animationDelay = `${i * 50}ms`;
+        if (ghostRow) {
+          table.insertBefore(row, ghostRow);
+        } else {
+          table.appendChild(row);
+        }
+      });
+
+      overlay.classList.remove('active');
+    } catch (err) {
+      console.error('Deadline extraction error:', err);
+      overlay.querySelector('.deadline-loading-text').textContent = err.message || 'Extraction failed';
+      setTimeout(() => overlay.classList.remove('active'), 2000);
+    }
+  });
 }
 
 async function insertDeadlinesTemplate() {
