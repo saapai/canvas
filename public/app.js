@@ -25,6 +25,14 @@ const authCodeHint = document.getElementById('auth-code-hint');
 const authCodeBoxes = document.getElementById('auth-code-boxes');
 const authPhoneBoxes = document.getElementById('auth-phone-boxes');
 
+const formatBar = document.getElementById('format-bar');
+const formatBtnSmaller = document.getElementById('format-smaller');
+const formatBtnBigger = document.getElementById('format-bigger');
+const formatBtnBold = document.getElementById('format-bold');
+const formatBtnItalic = document.getElementById('format-italic');
+const formatBtnUnderline = document.getElementById('format-underline');
+const formatBtnStrike = document.getElementById('format-strike');
+
 let verifiedPhone = null;
 let existingUsernames = [];
 
@@ -5240,6 +5248,51 @@ if (helpModal) {
       helpModal.classList.add('hidden');
     }
   });
+}
+
+// ——— Text format bar ———
+function updateFormatBarState() {
+  if (!formatBar || !editor || document.activeElement !== editor) return;
+  if (formatBtnBold) formatBtnBold.classList.toggle('active', document.queryCommandState('bold'));
+  if (formatBtnItalic) formatBtnItalic.classList.toggle('active', document.queryCommandState('italic'));
+  if (formatBtnUnderline) formatBtnUnderline.classList.toggle('active', document.queryCommandState('underline'));
+  if (formatBtnStrike) formatBtnStrike.classList.toggle('active', document.queryCommandState('strikeThrough'));
+}
+
+function applyFormat(cmd, value) {
+  editor.focus();
+  document.execCommand(cmd, false, value);
+  updateFormatBarState();
+}
+
+if (formatBar && editor) {
+  editor.addEventListener('focus', () => {
+    formatBar.classList.remove('hidden');
+    updateFormatBarState();
+  });
+
+  editor.addEventListener('blur', () => {
+    setTimeout(() => {
+      if (document.activeElement && formatBar.contains(document.activeElement)) return;
+      formatBar.classList.add('hidden');
+    }, 150);
+  });
+
+  editor.addEventListener('selectionchange', updateFormatBarState);
+  document.addEventListener('selectionchange', () => {
+    if (document.activeElement === editor) updateFormatBarState();
+  });
+}
+
+if (formatBtnSmaller) formatBtnSmaller.addEventListener('mousedown', (e) => { e.preventDefault(); applyFormat('decreaseFontSize'); });
+if (formatBtnBigger) formatBtnBigger.addEventListener('mousedown', (e) => { e.preventDefault(); applyFormat('increaseFontSize'); });
+if (formatBtnBold) formatBtnBold.addEventListener('mousedown', (e) => { e.preventDefault(); applyFormat('bold'); });
+if (formatBtnItalic) formatBtnItalic.addEventListener('mousedown', (e) => { e.preventDefault(); applyFormat('italic'); });
+if (formatBtnUnderline) formatBtnUnderline.addEventListener('mousedown', (e) => { e.preventDefault(); applyFormat('underline'); });
+if (formatBtnStrike) formatBtnStrike.addEventListener('mousedown', (e) => { e.preventDefault(); applyFormat('strikeThrough'); });
+
+if (formatBar) {
+  formatBar.addEventListener('mousedown', (e) => e.preventDefault());
 }
 
 // ——— Canvas chat (trenches + proactive bot) ———
