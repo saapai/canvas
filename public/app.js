@@ -7124,30 +7124,30 @@ function setupDeadlineTableHandlers(table) {
   });
 
   // Drag and drop file onto deadline table to extract deadlines.
-  // We must prevent the browser default on the editor element, otherwise
-  // the browser opens the file in a new tab before our table handler fires.
-  if (!editor._deadlineDragover) {
-    editor._deadlineDragover = (e) => {
-      if (!editor.querySelector('.deadline-table')) return;
-      if (e.dataTransfer.types.includes('Files')) {
+  // Use document-level capture-phase listeners so we intercept the event
+  // BEFORE contenteditable cells or the browser default can handle it.
+  if (!document._deadlineDragCapture) {
+    document._deadlineDragCapture = true;
+    document.addEventListener('dragover', (e) => {
+      const tbl = e.target.closest ? e.target.closest('.deadline-table') : null;
+      if (tbl && tbl.closest('#editor') && e.dataTransfer.types.includes('Files')) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+      }
+    }, true); // capture phase
+    document.addEventListener('drop', (e) => {
+      const tbl = e.target.closest ? e.target.closest('.deadline-table') : null;
+      if (tbl && tbl.closest('#editor') && e.dataTransfer.types.includes('Files')) {
         e.preventDefault();
       }
-    };
-    editor._deadlineDrop = (e) => {
-      // Only prevent default; the table's own drop handler does the real work
-      if (!editor.querySelector('.deadline-table')) return;
-      if (e.dataTransfer.types.includes('Files')) {
-        e.preventDefault();
-      }
-    };
-    editor.addEventListener('dragover', editor._deadlineDragover);
-    editor.addEventListener('drop', editor._deadlineDrop);
+    }, true); // capture phase
   }
 
   table.addEventListener('dragover', (e) => {
     if (!table.closest('#editor')) return;
     e.preventDefault();
     e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
     table.classList.add('deadline-drop-active');
   });
 
