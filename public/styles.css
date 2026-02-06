@@ -541,6 +541,39 @@ body::before{
   margin: 0 4px;
 }
 
+.format-font-size-wrap {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.format-btn-sm {
+  min-width: 28px;
+  height: 28px;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.format-font-px {
+  width: 40px;
+  height: 28px;
+  padding: 0 4px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  text-align: center;
+  -moz-appearance: textfield;
+}
+
+.format-font-px::-webkit-outer-spin-button,
+.format-font-px::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 #format-bold { font-weight: 700; }
 #format-italic { font-style: italic; }
 #format-underline { text-decoration: underline; }

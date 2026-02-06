@@ -26,8 +26,9 @@ const authCodeBoxes = document.getElementById('auth-code-boxes');
 const authPhoneBoxes = document.getElementById('auth-phone-boxes');
 
 const formatBar = document.getElementById('format-bar');
-const formatBtnSmaller = document.getElementById('format-smaller');
-const formatBtnBigger = document.getElementById('format-bigger');
+const formatFontDecrease = document.getElementById('format-font-decrease');
+const formatFontIncrease = document.getElementById('format-font-increase');
+const formatFontPx = document.getElementById('format-font-px');
 const formatBtnBold = document.getElementById('format-bold');
 const formatBtnItalic = document.getElementById('format-italic');
 const formatBtnUnderline = document.getElementById('format-underline');
@@ -2282,6 +2283,7 @@ function showCursorAtWorld(wx, wy, force = false) {
   editor.style.width = '4px';
   // Ensure editor is visible
   editor.style.display = 'block';
+  if (formatBar) formatBar.classList.remove('hidden');
   // Focus the editor so user can type immediately
   // The focus event will remove idle-cursor class and show native caret
   editor.classList.add('idle-cursor');
@@ -2499,6 +2501,7 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
   editor.classList.remove('idle-cursor');
   // Ensure editor is visible (in case it was hidden during navigation)
   editor.style.display = 'block';
+  if (formatBar) formatBar.classList.remove('hidden');
   
   // Set editor width based on actual content, not fixed entry width
   // This allows the editor to expand/contract based on text content
@@ -2537,6 +2540,7 @@ function hideCursor() {
   editor.textContent = '';
   editor.style.display = 'none'; // Hide editor when hiding cursor
   editor.blur();
+  if (formatBar) formatBar.classList.add('hidden');
 }
 
 async function commitEditor(){
@@ -5259,40 +5263,138 @@ function updateFormatBarState() {
   if (formatBtnStrike) formatBtnStrike.classList.toggle('active', document.queryCommandState('strikeThrough'));
 }
 
-function applyFormat(cmd, value) {
+function saveSelectionInEditor() {
+  const sel = window.getSelection();
+  if (!sel.rangeCount || !editor.contains(sel.anchorNode)) return null;
+  const range = sel.getRangeAt(0).cloneRange();
+  return { range };
+}
+
+function restoreSelection(saved) {
+  if (!saved || !saved.range) return;
+  try {
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(saved.range);
+  } catch (_) {}
+}
+
+function getSelectionFontSize() {
+  const sel = window.getSelection();
+  if (!sel.rangeCount || !editor.contains(sel.anchorNode)) return 16;
+  const range = sel.getRangeAt(0);
+  let node = range.startContainer;
+  if (node.nodeType === Node.TEXT_NODE) node = node.parentNode;
+  if (!editor.contains(node)) return 16;
+  const px = parseFloat(window.getComputedStyle(node).fontSize);
+  return isNaN(px) ? 16 : Math.round(px);
+}
+
+function applyFontSizePx(px, savedSelection) {
   editor.focus();
+  if (savedSelection) restoreSelection(savedSelection);
+  const sel = window.getSelection();
+  if (!sel.rangeCount || !editor.contains(sel.anchorNode)) return;
+  const size = Math.min(72, Math.max(10, Number(px) || 16));
+  const range = sel.getRangeAt(0);
+  const span = document.createElement('span');
+  span.style.fontSize = size + 'px';
+  if (range.collapsed) {
+    span.appendChild(document.createTextNode('\u200B'));
+    range.insertNode(span);
+    range.setStart(span.firstChild, 1);
+    range.setEnd(span.firstChild, 1);
+    span.firstChild.deleteData(0, 1);
+    range.setStart(span, 0);
+    range.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  } else {
+    try {
+      range.surroundContents(span);
+    } catch (_) {
+      const frag = range.extractContents();
+      range.insertNode(span);
+      span.appendChild(frag);
+    }
+  }
+  sel.removeAllRanges();
+  sel.addRange(range);
+  if (formatFontPx) formatFontPx.value = size;
+  updateFormatBarState();
+}
+
+function applyFormat(cmd, value, savedSelection) {
+  editor.focus();
+  if (savedSelection) restoreSelection(savedSelection);
   document.execCommand(cmd, false, value);
   updateFormatBarState();
 }
 
 if (formatBar && editor) {
   editor.addEventListener('focus', () => {
-    formatBar.classList.remove('hidden');
     updateFormatBarState();
+    if (formatFontPx) formatFontPx.value = getSelectionFontSize();
   });
 
-  editor.addEventListener('blur', () => {
-    setTimeout(() => {
-      if (document.activeElement && formatBar.contains(document.activeElement)) return;
-      formatBar.classList.add('hidden');
-    }, 150);
+  editor.addEventListener('selectionchange', () => {
+    updateFormatBarState();
+    if (formatFontPx && document.activeElement === editor) formatFontPx.value = getSelectionFontSize();
   });
-
-  editor.addEventListener('selectionchange', updateFormatBarState);
   document.addEventListener('selectionchange', () => {
-    if (document.activeElement === editor) updateFormatBarState();
+    if (document.activeElement === editor) {
+      updateFormatBarState();
+      if (formatFontPx) formatFontPx.value = getSelectionFontSize();
+    }
   });
 }
 
-if (formatBtnSmaller) formatBtnSmaller.addEventListener('mousedown', (e) => { e.preventDefault(); applyFormat('decreaseFontSize'); });
-if (formatBtnBigger) formatBtnBigger.addEventListener('mousedown', (e) => { e.preventDefault(); applyFormat('increaseFontSize'); });
-if (formatBtnBold) formatBtnBold.addEventListener('mousedown', (e) => { e.preventDefault(); applyFormat('bold'); });
-if (formatBtnItalic) formatBtnItalic.addEventListener('mousedown', (e) => { e.preventDefault(); applyFormat('italic'); });
-if (formatBtnUnderline) formatBtnUnderline.addEventListener('mousedown', (e) => { e.preventDefault(); applyFormat('underline'); });
-if (formatBtnStrike) formatBtnStrike.addEventListener('mousedown', (e) => { e.preventDefault(); applyFormat('strikeThrough'); });
+function handleFormatButton(cmd, value) {
+  return (e) => {
+    e.preventDefault();
+    const saved = saveSelectionInEditor();
+    applyFormat(cmd, value, saved);
+  };
+}
+
+if (formatFontDecrease) formatFontDecrease.addEventListener('mousedown', (e) => {
+  e.preventDefault();
+  const saved = saveSelectionInEditor();
+  const current = getSelectionFontSize();
+  applyFontSizePx(current - 2, saved);
+});
+if (formatFontIncrease) formatFontIncrease.addEventListener('mousedown', (e) => {
+  e.preventDefault();
+  const saved = saveSelectionInEditor();
+  const current = getSelectionFontSize();
+  applyFontSizePx(current + 2, saved);
+});
+if (formatFontPx) {
+  const applyFontPxFromInput = () => {
+    const saved = saveSelectionInEditor();
+    const px = parseInt(formatFontPx.value, 10);
+    if (!isNaN(px)) applyFontSizePx(px, saved);
+  };
+  formatFontPx.addEventListener('change', applyFontPxFromInput);
+  formatFontPx.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      applyFontPxFromInput();
+      editor.focus();
+    }
+  });
+  formatFontPx.addEventListener('mousedown', (e) => e.stopPropagation());
+}
+if (formatBtnBold) formatBtnBold.addEventListener('mousedown', handleFormatButton('bold'));
+if (formatBtnItalic) formatBtnItalic.addEventListener('mousedown', handleFormatButton('italic'));
+if (formatBtnUnderline) formatBtnUnderline.addEventListener('mousedown', handleFormatButton('underline'));
+if (formatBtnStrike) formatBtnStrike.addEventListener('mousedown', handleFormatButton('strikeThrough'));
 
 if (formatBar) {
-  formatBar.addEventListener('mousedown', (e) => e.preventDefault());
+  formatBar.addEventListener('mousedown', (e) => {
+    if (formatFontPx && (e.target === formatFontPx || formatFontPx.contains(e.target))) return;
+    e.preventDefault();
+  });
 }
 
 // ——— Canvas chat (trenches + proactive bot) ———
@@ -6737,11 +6839,16 @@ window.addEventListener('keydown', (e) => {
 
 // Keyboard shortcuts
 window.addEventListener('keydown', async (e) => {
-  // Command+Z / Ctrl+Z for undo
+  // Command+Z / Ctrl+Z for undo — when editor focused, let browser handle (typing, formatting)
   if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+    if (document.activeElement === editor) return;
     e.preventDefault();
     await performUndo();
     return;
+  }
+  // Command+Shift+Z / Ctrl+Y for redo — when editor focused, let browser handle
+  if (((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'z') || ((e.metaKey || e.ctrlKey) && e.key === 'y')) {
+    if (document.activeElement === editor) return;
   }
   
   // Delete key for selected entries

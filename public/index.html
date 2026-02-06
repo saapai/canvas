@@ -33,8 +33,11 @@
     </div>
   </div>
   <div id="format-bar" class="format-bar hidden">
-    <button type="button" class="format-btn" id="format-smaller" title="Smaller text">A−</button>
-    <button type="button" class="format-btn" id="format-bigger" title="Bigger text">A+</button>
+    <div class="format-font-size-wrap">
+      <button type="button" class="format-btn format-btn-sm" id="format-font-decrease" title="Decrease size">−</button>
+      <input type="number" id="format-font-px" class="format-font-px" min="10" max="72" value="16" title="Font size (px)" />
+      <button type="button" class="format-btn format-btn-sm" id="format-font-increase" title="Increase size">+</button>
+    </div>
     <span class="format-divider"></span>
     <button type="button" class="format-btn" id="format-bold" title="Bold">B</button>
     <button type="button" class="format-btn" id="format-italic" title="Italic">I</button>
