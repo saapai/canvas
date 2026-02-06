@@ -6984,23 +6984,23 @@ async function insertTemplate(templateType) {
 }
 
 async function insertDeadlinesTemplate() {
-  // Create a table structure matching the screenshot
+  // Create an elegant Notion-style dark table
   const tableHTML = `
 <div class="deadline-table">
   <div class="deadline-header">
-    <div>☑</div>
-    <div>📄 assignment name</div>
-    <div>📅 deadline</div>
-    <div>⚪ class</div>
-    <div>✨ status</div>
-    <div>≡ notes</div>
+    <div><span class="deadline-header-icon">☐</span></div>
+    <div><span class="deadline-header-icon">Aa</span> assignment name</div>
+    <div><span class="deadline-header-icon">📅</span> deadline</div>
+    <div><span class="deadline-header-icon">◉</span> class</div>
+    <div><span class="deadline-header-icon">✦</span> status</div>
+    <div><span class="deadline-header-icon">≡</span> notes</div>
   </div>
   <div class="deadline-row">
     <div class="deadline-col-check"><input type="checkbox"></div>
     <div class="deadline-col-name" contenteditable="true"></div>
     <div class="deadline-col-deadline" contenteditable="true"></div>
-    <div class="deadline-col-class" contenteditable="true"><span class="class-badge"></span></div>
-    <div class="deadline-col-status" contenteditable="true"><span class="status-badge">Not started</span></div>
+    <div class="deadline-col-class"><span class="class-badge" contenteditable="true"></span></div>
+    <div class="deadline-col-status"><span class="status-badge" contenteditable="true">Not started</span></div>
     <div class="deadline-col-notes" contenteditable="true"></div>
   </div>
 </div>`;
@@ -7053,8 +7053,8 @@ function handleDeadlineTableKeydown(e) {
       <div class="deadline-col-check"><input type="checkbox"></div>
       <div class="deadline-col-name" contenteditable="true"></div>
       <div class="deadline-col-deadline" contenteditable="true"></div>
-      <div class="deadline-col-class" contenteditable="true"><span class="class-badge"></span></div>
-      <div class="deadline-col-status" contenteditable="true"><span class="status-badge">Not started</span></div>
+      <div class="deadline-col-class"><span class="class-badge" contenteditable="true"></span></div>
+      <div class="deadline-col-status"><span class="status-badge" contenteditable="true">Not started</span></div>
       <div class="deadline-col-notes" contenteditable="true"></div>
     `;
     
