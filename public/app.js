@@ -6951,12 +6951,16 @@ function updateTemplatePlusButton() {
   const editorFocused = document.activeElement === editor;
   
   if (editorVisible && editorEmpty && editorFocused) {
-    // Position plus button next to editor
+    // Position plus button just to the left of the idle cursor/editor box
     const editorRect = editor.getBoundingClientRect();
     const worldRect = world.getBoundingClientRect();
     
+    // Button dimensions + small gap
+    const gap = 8;
+    const btnWidth = 32;
+    
     // Position relative to world coordinates
-    const btnLeft = editorRect.left - worldRect.left + editorRect.width + 8;
+    const btnLeft = editorRect.left - worldRect.left - gap - btnWidth;
     const btnTop = editorRect.top - worldRect.top;
     
     templatePlusBtn.style.left = `${btnLeft}px`;
