@@ -6938,78 +6938,44 @@ window.addEventListener('keydown', async (e) => {
 }, true); // Use capture phase to catch event before other handlers
 
 // ——— Template system ———
-const templatePlusBtn = document.getElementById('template-plus-btn');
-const templatePicker = document.getElementById('template-picker');
-const templatePickerClose = document.getElementById('template-picker-close');
+const templateMenuButton = document.getElementById('template-menu-button');
+const templateMenuDropdown = document.getElementById('template-menu-dropdown');
 
-// Show/hide plus button based on editor content
-function updateTemplatePlusButton() {
-  if (!templatePlusBtn || isReadOnly) return;
-  
-  const editorVisible = editor.style.display !== 'none';
-  const editorEmpty = !editor.innerText.trim();
-  const editorFocused = document.activeElement === editor;
-  
-  if (editorVisible && editorEmpty && editorFocused) {
-    // Position plus button just to the left of the idle cursor/editor box
-    const editorRect = editor.getBoundingClientRect();
-    const worldRect = world.getBoundingClientRect();
-    
-    // Button dimensions + small gap
-    const gap = 8;
-    const btnWidth = 32;
-    
-    // Position relative to world coordinates
-    const btnLeft = editorRect.left - worldRect.left - gap - btnWidth;
-    const btnTop = editorRect.top - worldRect.top;
-    
-    templatePlusBtn.style.left = `${btnLeft}px`;
-    templatePlusBtn.style.top = `${btnTop}px`;
-    templatePlusBtn.classList.remove('hidden');
-  } else {
-    templatePlusBtn.classList.add('hidden');
-  }
+function closeTemplateMenu() {
+  if (templateMenuButton) templateMenuButton.classList.remove('active');
+  if (templateMenuDropdown) templateMenuDropdown.classList.add('hidden');
 }
 
-// Update plus button on editor input
-editor.addEventListener('input', updateTemplatePlusButton);
-editor.addEventListener('focus', updateTemplatePlusButton);
-editor.addEventListener('blur', () => {
-  // Delay hiding to allow clicking the button
-  setTimeout(updateTemplatePlusButton, 100);
-});
+function openTemplateMenu() {
+  if (templateMenuButton) templateMenuButton.classList.add('active');
+  if (templateMenuDropdown) templateMenuDropdown.classList.remove('hidden');
+}
 
-// Show template picker
-if (templatePlusBtn) {
-  templatePlusBtn.addEventListener('click', (e) => {
+if (templateMenuButton && templateMenuDropdown) {
+  templateMenuButton.addEventListener('click', (e) => {
     e.stopPropagation();
-    templatePicker.classList.remove('hidden');
-  });
-}
-
-// Close template picker
-if (templatePickerClose) {
-  templatePickerClose.addEventListener('click', () => {
-    templatePicker.classList.add('hidden');
-  });
-}
-
-if (templatePicker) {
-  templatePicker.addEventListener('click', (e) => {
-    if (e.target === templatePicker) {
-      templatePicker.classList.add('hidden');
+    const isOpen = !templateMenuDropdown.classList.contains('hidden');
+    if (isOpen) {
+      closeTemplateMenu();
+    } else {
+      openTemplateMenu();
     }
   });
-}
 
-// Handle template selection
-document.querySelectorAll('.template-option').forEach(btn => {
-  btn.addEventListener('click', () => {
-    const templateType = btn.dataset.template;
-    insertTemplate(templateType);
-    templatePicker.classList.add('hidden');
+  document.addEventListener('click', (e) => {
+    if (!templateMenuDropdown.contains(e.target) && e.target !== templateMenuButton) {
+      closeTemplateMenu();
+    }
   });
-});
+
+  templateMenuDropdown.querySelectorAll('.template-menu-item').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const templateType = btn.dataset.template;
+      insertTemplate(templateType);
+      closeTemplateMenu();
+    });
+  });
+}
 
 async function insertTemplate(templateType) {
   if (templateType === 'deadlines') {
@@ -7041,7 +7007,6 @@ async function insertDeadlinesTemplate() {
   
   editor.innerHTML = tableHTML;
   editor.classList.add('has-content');
-  templatePlusBtn.classList.add('hidden');
   
   // Add event listener for adding new rows with Enter key
   editor.addEventListener('keydown', handleDeadlineTableKeydown);

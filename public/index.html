@@ -14,35 +14,44 @@
   <div id="topbar">
     <div id="breadcrumb"></div>
     <div id="format-bar" class="format-bar hidden">
-    <div class="format-font-size-wrap">
-      <button type="button" class="format-btn format-btn-sm" id="format-font-decrease" title="Decrease size">−</button>
-      <input type="number" id="format-font-px" class="format-font-px" min="10" max="72" value="16" title="Font size (px)" />
-      <button type="button" class="format-btn format-btn-sm" id="format-font-increase" title="Increase size">+</button>
-    </div>
-    <span class="format-divider"></span>
-    <button type="button" class="format-btn" id="format-bold" title="Bold">B</button>
-    <button type="button" class="format-btn" id="format-italic" title="Italic">I</button>
-    <button type="button" class="format-btn" id="format-underline" title="Underline">U</button>
-    <button type="button" class="format-btn" id="format-strike" title="Strikethrough">S</button>
-    <span class="format-divider"></span>
-    <button type="button" class="format-btn" id="toggle-button" title="Media autocomplete (music + movies)">
-      <span class="format-icon-duo" aria-hidden="true">
-        <!-- Music note -->
-        <svg viewBox="0 0 24 24" fill="none">
-          <path d="M9 18.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M11.5 16V5l9-2v11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M18 16.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-        <!-- Film -->
-        <svg viewBox="0 0 24 24" fill="none">
-          <path d="M4 7h16v10H4V7Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-          <path d="M8 7v10M16 7v10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-          <path d="M4 10h4M4 14h4M20 10h-4M20 14h-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-        </svg>
-      </span>
-    </button>
+      <div class="format-font-size-wrap">
+        <button type="button" class="format-btn format-btn-sm" id="format-font-decrease" title="Decrease size">−</button>
+        <input type="number" id="format-font-px" class="format-font-px" min="10" max="72" value="16" title="Font size (px)" />
+        <button type="button" class="format-btn format-btn-sm" id="format-font-increase" title="Increase size">+</button>
+      </div>
+      <span class="format-divider"></span>
+      <button type="button" class="format-btn" id="format-bold" title="Bold">B</button>
+      <button type="button" class="format-btn" id="format-italic" title="Italic">I</button>
+      <button type="button" class="format-btn" id="format-underline" title="Underline">U</button>
+      <button type="button" class="format-btn" id="format-strike" title="Strikethrough">S</button>
+      <span class="format-divider"></span>
+      <button type="button" class="format-btn" id="toggle-button" title="Media autocomplete (music + movies)">
+        <span class="format-icon-duo" aria-hidden="true">
+          <!-- Music note -->
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M9 18.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+            <path d="M11.5 16V5l9-2v11" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+            <path d="M18 16.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path>
+          </svg>
+          <!-- Film -->
+          <svg viewBox="0 0 24 24" fill="none">
+            <path d="M4 7h16v10H4V7Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"></path>
+            <path d="M8 7v10M16 7v10" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+            <path d="M4 10h4M4 14h4M20 10h-4M20 14h-4" stroke="currentColor" stroke-width="2" stroke-linecap="round"></path>
+          </svg>
+        </span>
+      </button>
     </div>
     <div class="topbar-right">
+      <div class="template-menu">
+        <button id="template-menu-button" class="template-menu-button" title="Insert template">+</button>
+        <div id="template-menu-dropdown" class="template-menu-dropdown hidden">
+          <button class="template-menu-item" data-template="deadlines">
+            <span class="template-menu-item-title">Deadlines</span>
+            <span class="template-menu-item-desc">Assignments with deadline, class, and status</span>
+          </button>
+        </div>
+      </div>
       <div id="user-menu" class="user-menu">
         <button id="user-menu-button" class="user-menu-button" title="User menu">
           <span id="user-menu-label" class="user-name"></span>
@@ -222,27 +231,9 @@
   <div id="viewport">
     <div id="world">
       <div id="editor" contenteditable="true" spellcheck="false"></div>
-      <button id="template-plus-btn" class="template-plus-btn hidden" title="Insert template">+</button>
       <div id="anchor">Hello</div>
     </div>
     <div id="autocomplete" class="autocomplete hidden"></div>
-  </div>
-  
-  <!-- Template picker modal -->
-  <div id="template-picker" class="template-picker hidden">
-    <div class="template-picker-content">
-      <button id="template-picker-close" class="template-picker-close">×</button>
-      <h3>Insert Template</h3>
-      <div class="template-list">
-        <button class="template-option" data-template="deadlines">
-          <span class="template-icon">📋</span>
-          <div class="template-info">
-            <div class="template-name">Deadlines</div>
-            <div class="template-desc">Track assignments with checkboxes, deadlines, classes, and status</div>
-          </div>
-        </button>
-      </div>
-    </div>
   </div>
 
   <script src="app.js"></script>
