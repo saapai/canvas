@@ -222,9 +222,27 @@
   <div id="viewport">
     <div id="world">
       <div id="editor" contenteditable="true" spellcheck="false"></div>
+      <button id="template-plus-btn" class="template-plus-btn hidden" title="Insert template">+</button>
       <div id="anchor">Hello</div>
     </div>
     <div id="autocomplete" class="autocomplete hidden"></div>
+  </div>
+  
+  <!-- Template picker modal -->
+  <div id="template-picker" class="template-picker hidden">
+    <div class="template-picker-content">
+      <button id="template-picker-close" class="template-picker-close">×</button>
+      <h3>Insert Template</h3>
+      <div class="template-list">
+        <button class="template-option" data-template="deadlines">
+          <span class="template-icon">📋</span>
+          <div class="template-info">
+            <div class="template-name">Deadlines</div>
+            <div class="template-desc">Track assignments with checkboxes, deadlines, classes, and status</div>
+          </div>
+        </button>
+      </div>
+    </div>
   </div>
 
   <script src="app.js"></script>

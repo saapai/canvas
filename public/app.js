@@ -6937,4 +6937,176 @@ window.addEventListener('keydown', async (e) => {
   }
 }, true); // Use capture phase to catch event before other handlers
 
+// ——— Template system ———
+const templatePlusBtn = document.getElementById('template-plus-btn');
+const templatePicker = document.getElementById('template-picker');
+const templatePickerClose = document.getElementById('template-picker-close');
+
+// Show/hide plus button based on editor content
+function updateTemplatePlusButton() {
+  if (!templatePlusBtn || isReadOnly) return;
+  
+  const editorVisible = editor.style.display !== 'none';
+  const editorEmpty = !editor.innerText.trim();
+  const editorFocused = document.activeElement === editor;
+  
+  if (editorVisible && editorEmpty && editorFocused) {
+    // Position plus button next to editor
+    const editorRect = editor.getBoundingClientRect();
+    const worldRect = world.getBoundingClientRect();
+    
+    // Position relative to world coordinates
+    const btnLeft = editorRect.left - worldRect.left + editorRect.width + 8;
+    const btnTop = editorRect.top - worldRect.top;
+    
+    templatePlusBtn.style.left = `${btnLeft}px`;
+    templatePlusBtn.style.top = `${btnTop}px`;
+    templatePlusBtn.classList.remove('hidden');
+  } else {
+    templatePlusBtn.classList.add('hidden');
+  }
+}
+
+// Update plus button on editor input
+editor.addEventListener('input', updateTemplatePlusButton);
+editor.addEventListener('focus', updateTemplatePlusButton);
+editor.addEventListener('blur', () => {
+  // Delay hiding to allow clicking the button
+  setTimeout(updateTemplatePlusButton, 100);
+});
+
+// Show template picker
+if (templatePlusBtn) {
+  templatePlusBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    templatePicker.classList.remove('hidden');
+  });
+}
+
+// Close template picker
+if (templatePickerClose) {
+  templatePickerClose.addEventListener('click', () => {
+    templatePicker.classList.add('hidden');
+  });
+}
+
+if (templatePicker) {
+  templatePicker.addEventListener('click', (e) => {
+    if (e.target === templatePicker) {
+      templatePicker.classList.add('hidden');
+    }
+  });
+}
+
+// Handle template selection
+document.querySelectorAll('.template-option').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const templateType = btn.dataset.template;
+    insertTemplate(templateType);
+    templatePicker.classList.add('hidden');
+  });
+});
+
+async function insertTemplate(templateType) {
+  if (templateType === 'deadlines') {
+    await insertDeadlinesTemplate();
+  }
+}
+
+async function insertDeadlinesTemplate() {
+  // Create a table structure matching the screenshot
+  const tableHTML = `
+<div class="deadline-table">
+  <div class="deadline-header">
+    <div class="deadline-col-check">☑</div>
+    <div class="deadline-col-name">📄 assignment name</div>
+    <div class="deadline-col-deadline">📅 deadline</div>
+    <div class="deadline-col-class">⚪ class</div>
+    <div class="deadline-col-status">✨ status</div>
+    <div class="deadline-col-notes">≡ notes</div>
+  </div>
+  <div class="deadline-row">
+    <div class="deadline-col-check"><input type="checkbox"></div>
+    <div class="deadline-col-name" contenteditable="true" placeholder="Enter assignment name..."></div>
+    <div class="deadline-col-deadline" contenteditable="true" placeholder="Enter deadline..."></div>
+    <div class="deadline-col-class" contenteditable="true" placeholder="Class..."></div>
+    <div class="deadline-col-status" contenteditable="true">Not started</div>
+    <div class="deadline-col-notes" contenteditable="true" placeholder="Notes..."></div>
+  </div>
+</div>`;
+  
+  editor.innerHTML = tableHTML;
+  editor.classList.add('has-content');
+  templatePlusBtn.classList.add('hidden');
+  
+  // Add event listener for adding new rows with Enter key
+  editor.addEventListener('keydown', handleDeadlineTableKeydown);
+  
+  // Focus first editable cell
+  const firstCell = editor.querySelector('.deadline-col-name');
+  if (firstCell) {
+    setTimeout(() => {
+      firstCell.focus();
+      // Place cursor at end
+      const range = document.createRange();
+      const sel = window.getSelection();
+      range.selectNodeContents(firstCell);
+      range.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }, 0);
+  }
+}
+
+function handleDeadlineTableKeydown(e) {
+  if (e.key !== 'Enter') return;
+  
+  const target = e.target;
+  const isInDeadlineTable = target.closest('.deadline-table');
+  
+  if (!isInDeadlineTable) return;
+  
+  e.preventDefault();
+  
+  // Check if we're in the last row
+  const currentRow = target.closest('.deadline-row');
+  if (!currentRow) return;
+  
+  const table = currentRow.closest('.deadline-table');
+  const allRows = Array.from(table.querySelectorAll('.deadline-row'));
+  const isLastRow = currentRow === allRows[allRows.length - 1];
+  
+  if (isLastRow) {
+    // Add new row
+    const newRow = document.createElement('div');
+    newRow.className = 'deadline-row';
+    newRow.innerHTML = `
+      <div class="deadline-col-check"><input type="checkbox"></div>
+      <div class="deadline-col-name" contenteditable="true" placeholder="Enter assignment name..."></div>
+      <div class="deadline-col-deadline" contenteditable="true" placeholder="Enter deadline..."></div>
+      <div class="deadline-col-class" contenteditable="true" placeholder="Class..."></div>
+      <div class="deadline-col-status" contenteditable="true">Not started</div>
+      <div class="deadline-col-notes" contenteditable="true" placeholder="Notes..."></div>
+    `;
+    
+    table.appendChild(newRow);
+    
+    // Focus first cell of new row
+    const firstCell = newRow.querySelector('.deadline-col-name');
+    if (firstCell) {
+      setTimeout(() => firstCell.focus(), 0);
+    }
+  } else {
+    // Move to next row, same column
+    const currentCol = target.className;
+    const nextRow = allRows[allRows.indexOf(currentRow) + 1];
+    if (nextRow) {
+      const nextCell = nextRow.querySelector(`.${currentCol}`);
+      if (nextCell && nextCell.hasAttribute('contenteditable')) {
+        nextCell.focus();
+      }
+    }
+  }
+}
+
 bootstrap();
