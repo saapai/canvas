@@ -5297,31 +5297,52 @@ function applyFontSizePx(px, savedSelection) {
   if (!sel.rangeCount || !editor.contains(sel.anchorNode)) return;
   const size = Math.min(72, Math.max(10, Number(px) || 16));
   const range = sel.getRangeAt(0);
-  const span = document.createElement('span');
-  span.style.fontSize = size + 'px';
+  
   if (range.collapsed) {
-    span.appendChild(document.createTextNode('\u200B'));
-    range.insertNode(span);
-    range.setStart(span.firstChild, 1);
-    range.setEnd(span.firstChild, 1);
-    span.firstChild.deleteData(0, 1);
-    range.setStart(span, 0);
-    range.collapse(true);
-    sel.removeAllRanges();
-    sel.addRange(range);
+    // For collapsed cursor: insert styled span and place cursor inside
+    const html = `<span style="font-size:${size}px">\u200B</span>`;
+    document.execCommand('insertHTML', false, html);
+    // Find the inserted span and move cursor inside it
+    requestAnimationFrame(() => {
+      const sel = window.getSelection();
+      if (sel.rangeCount) {
+        const range = sel.getRangeAt(0);
+        let node = range.startContainer;
+        // Walk back to find our span
+        while (node && node !== editor) {
+          if (node.nodeType === Node.ELEMENT_NODE && node.tagName === 'SPAN' && node.style.fontSize === size + 'px') {
+            const newRange = document.createRange();
+            newRange.setStart(node, 0);
+            newRange.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(newRange);
+            break;
+          }
+          node = node.previousSibling || node.parentNode;
+        }
+      }
+      if (formatFontPx) formatFontPx.value = size;
+      updateFormatBarState();
+    });
   } else {
+    // For selection: wrap in span with font-size
+    const span = document.createElement('span');
+    span.style.fontSize = size + 'px';
     try {
       range.surroundContents(span);
+      sel.removeAllRanges();
+      sel.addRange(range);
     } catch (_) {
       const frag = range.extractContents();
-      range.insertNode(span);
       span.appendChild(frag);
+      range.insertNode(span);
+      range.selectNodeContents(span);
+      sel.removeAllRanges();
+      sel.addRange(range);
     }
+    if (formatFontPx) formatFontPx.value = size;
+    updateFormatBarState();
   }
-  sel.removeAllRanges();
-  sel.addRange(range);
-  if (formatFontPx) formatFontPx.value = size;
-  updateFormatBarState();
 }
 
 function applyFormat(cmd, value, savedSelection) {

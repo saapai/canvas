@@ -479,21 +479,13 @@ body::before{
   box-shadow: none;
 }
 
-/* Text format bar - floating below topbar */
+/* Text format bar - inside topbar */
 .format-bar {
-  position: fixed;
-  top: 60px;
-  left: 50%;
-  transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 8px 12px;
-  background: var(--paper);
-  border: 1px solid rgba(0, 0, 0, 0.08);
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
-  z-index: 999;
+  padding: 0 12px;
+  margin-left: auto;
   transition: opacity 0.15s ease, visibility 0.15s ease;
 }
 
