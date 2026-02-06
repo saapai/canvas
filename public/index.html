@@ -13,24 +13,6 @@
 <body>
   <div id="topbar">
     <div id="breadcrumb"></div>
-    <div id="autocomplete-toggle" class="autocomplete-toggle">
-      <button id="toggle-button" class="toggle-button" title="Toggle media autocomplete">
-        <span class="toggle-state">OFF</span>
-      </button>
-      <span class="toggle-label">
-        <span class="toggle-text">media autocomplete</span>
-      </span>
-    </div>
-    <div id="user-menu" class="user-menu">
-      <button id="user-menu-button" class="user-menu-button" title="User menu">
-        <span id="user-menu-label" class="user-name"></span>
-        <span class="dropdown-arrow">▼</span>
-      </button>
-      <div id="user-menu-dropdown" class="user-menu-dropdown hidden">
-        <div id="spaces-list" class="spaces-list"></div>
-        <button id="new-space-button" class="new-space-button">+ new duttapad</button>
-      </div>
-    </div>
     <div id="format-bar" class="format-bar hidden">
     <div class="format-font-size-wrap">
       <button type="button" class="format-btn format-btn-sm" id="format-font-decrease" title="Decrease size">−</button>
@@ -42,6 +24,27 @@
     <button type="button" class="format-btn" id="format-italic" title="Italic">I</button>
     <button type="button" class="format-btn" id="format-underline" title="Underline">U</button>
     <button type="button" class="format-btn" id="format-strike" title="Strikethrough">S</button>
+    </div>
+    <div class="topbar-right">
+      <div id="autocomplete-toggle" class="autocomplete-toggle">
+        <button id="toggle-button" class="toggle-button" title="Toggle media autocomplete">
+          <span class="toggle-state">OFF</span>
+        </button>
+        <span class="toggle-label">
+          <span class="toggle-text">media autocomplete</span>
+        </span>
+      </div>
+      <div id="user-menu" class="user-menu">
+        <button id="user-menu-button" class="user-menu-button" title="User menu">
+          <span id="user-menu-label" class="user-name"></span>
+          <span class="dropdown-arrow">▼</span>
+        </button>
+        <div id="user-menu-dropdown" class="user-menu-dropdown hidden">
+          <div id="spaces-list" class="spaces-list"></div>
+          <button id="new-space-button" class="new-space-button">+ new duttapad</button>
+        </div>
+      </div>
+    </div>
   </div>
   <button id="chat-button" class="chat-button" title="Canvas chat">◇</button>
   <button id="help-button" class="help-button" title="Show help">?</button>

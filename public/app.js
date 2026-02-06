@@ -4671,9 +4671,9 @@ editor.addEventListener('blur', (e) => {
     // Use setTimeout to ensure blur completes before commit
     // This prevents issues with focus changes during commit
     setTimeout(() => {
-      // Double-check editor is still blurred and has content
-      // Also check that we're not about to place a new editor (which would refocus)
-      if (document.activeElement !== editor && editor.innerText.trim().length > 0) {
+      const active = document.activeElement;
+      const focusInFormatBar = formatBar && formatBar.contains(active);
+      if (active !== editor && !focusInFormatBar && editor.innerText.trim().length > 0) {
         commitEditor();
       }
     }, 0);
@@ -4681,7 +4681,9 @@ editor.addEventListener('blur', (e) => {
     // If editor is empty and editing existing entry, delete the entry
     // This happens when user deletes all text and clicks away
     setTimeout(async () => {
-      if (document.activeElement !== editor) {
+      const active = document.activeElement;
+      const focusInFormatBar = formatBar && formatBar.contains(active);
+      if (active !== editor && !focusInFormatBar) {
         const entryData = entries.get(editingEntryId);
         if (entryData) {
           // User deleted all text - delete the entry (with confirmation if has children)
@@ -5403,6 +5405,9 @@ if (formatFontPx) {
       applyFontPxFromInput();
       editor.focus();
     }
+  });
+  formatFontPx.addEventListener('blur', () => {
+    if (editor.style.display === 'block') editor.focus();
   });
   formatFontPx.addEventListener('mousedown', (e) => e.stopPropagation());
 }
