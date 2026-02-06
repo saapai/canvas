@@ -2045,65 +2045,58 @@ body::before{
 }
 
 /* Deadline table template - elegant Notion-style for light canvas */
-/* Deadline Table - Notion-style elegant dark theme */
+/* Deadline Table - Native light theme matching canvas aesthetic */
 .deadline-table {
   width: 100%;
-  max-width: 900px;
+  min-width: 700px;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   font-size: 14px;
-  background: #191919;
-  border-radius: 8px;
-  overflow: hidden;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 6px;
+  overflow: visible;
   white-space: normal;
-  line-height: 1.5;
+  line-height: 1.4;
 }
 
 /* Override editor's white-space: pre for tables */
 #editor:has(.deadline-table) {
   white-space: normal;
+  min-width: 720px;
 }
 
 .deadline-header {
   display: grid;
-  grid-template-columns: 32px minmax(180px, 2fr) minmax(120px, 1fr) minmax(100px, 1fr) minmax(110px, 1fr) minmax(80px, 0.8fr);
-  gap: 0;
+  grid-template-columns: 36px 1.8fr 1fr 0.9fr 1fr 0.6fr;
   padding: 0;
-  background: #252525;
-  border-bottom: 1px solid #333;
+  background: rgba(0, 0, 0, 0.03);
+  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
   font-weight: 500;
-  color: rgba(255, 255, 255, 0.5);
+  color: rgba(55, 53, 47, 0.5);
   font-size: 12px;
   user-select: none;
-  text-transform: lowercase;
 }
 
 .deadline-header > div {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 10px 12px;
-  border-right: 1px solid #333;
-}
-
-.deadline-header > div:last-child {
-  border-right: none;
+  padding: 8px 10px;
 }
 
 .deadline-header-icon {
-  font-size: 14px;
-  opacity: 0.7;
+  font-size: 12px;
+  opacity: 0.65;
 }
 
 .deadline-row {
   display: grid;
-  grid-template-columns: 32px minmax(180px, 2fr) minmax(120px, 1fr) minmax(100px, 1fr) minmax(110px, 1fr) minmax(80px, 0.8fr);
-  gap: 0;
+  grid-template-columns: 36px 1.8fr 1fr 0.9fr 1fr 0.6fr;
   padding: 0;
-  border-bottom: 1px solid #2a2a2a;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
   align-items: center;
-  min-height: 42px;
-  transition: background 0.15s ease;
+  min-height: 38px;
+  transition: background 0.1s ease;
 }
 
 .deadline-row:last-child {
@@ -2111,42 +2104,21 @@ body::before{
 }
 
 .deadline-row:hover {
-  background: rgba(255, 255, 255, 0.03);
+  background: rgba(0, 0, 0, 0.015);
 }
 
 .deadline-col-check {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 0 8px;
-  border-right: 1px solid #2a2a2a;
-  height: 100%;
+  padding: 0;
 }
 
 .deadline-col-check input[type="checkbox"] {
   width: 14px;
   height: 14px;
   cursor: pointer;
-  accent-color: #5c9eff;
-  border: 1.5px solid rgba(255, 255, 255, 0.25);
-  border-radius: 3px;
-  background: transparent;
-  appearance: none;
-  -webkit-appearance: none;
-}
-
-.deadline-col-check input[type="checkbox"]:checked {
-  background: #5c9eff;
-  border-color: #5c9eff;
-}
-
-.deadline-col-check input[type="checkbox"]:checked::after {
-  content: '✓';
-  display: block;
-  color: white;
-  font-size: 10px;
-  text-align: center;
-  line-height: 12px;
+  accent-color: var(--ink);
 }
 
 .deadline-col-name,
@@ -2154,23 +2126,18 @@ body::before{
 .deadline-col-class,
 .deadline-col-status,
 .deadline-col-notes {
-  padding: 10px 12px;
+  padding: 8px 10px;
   outline: none;
   border: none;
-  border-right: 1px solid #2a2a2a;
-  min-height: 42px;
+  min-height: 38px;
   display: flex;
   align-items: center;
-  color: rgba(255, 255, 255, 0.9);
+  color: var(--ink);
   font-size: 14px;
   white-space: normal;
   word-wrap: break-word;
   overflow-wrap: break-word;
   background: transparent;
-}
-
-.deadline-col-notes {
-  border-right: none;
 }
 
 .deadline-col-name {
@@ -2180,16 +2147,19 @@ body::before{
 
 .deadline-col-name::before {
   content: '📄';
-  font-size: 14px;
-  opacity: 0.6;
+  font-size: 13px;
+  opacity: 0.5;
   flex-shrink: 0;
 }
 
-.deadline-col-name:empty::after,
-.deadline-col-deadline:empty::after,
-.deadline-col-notes:empty::after {
-  content: '';
-  color: rgba(255, 255, 255, 0.2);
+.deadline-col-name:empty::after {
+  content: 'Assignment...';
+  color: rgba(55, 53, 47, 0.25);
+}
+
+.deadline-col-deadline:empty::after {
+  content: 'Date...';
+  color: rgba(55, 53, 47, 0.25);
 }
 
 .deadline-col-name:focus,
@@ -2197,101 +2167,72 @@ body::before{
 .deadline-col-class:focus,
 .deadline-col-status:focus,
 .deadline-col-notes:focus {
-  background: rgba(100, 150, 255, 0.08);
+  background: rgba(55, 53, 47, 0.04);
+  border-radius: 3px;
 }
 
-/* Class badge styling - multiple colors like Notion */
+/* Class badge - subtle colored pills */
 .class-badge {
   display: inline-flex;
   align-items: center;
-  padding: 3px 8px;
-  border-radius: 4px;
+  padding: 2px 8px;
+  border-radius: 3px;
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
-  background: #4a3728;
-  color: #d9a066;
+  background: rgba(140, 100, 70, 0.15);
+  color: rgba(100, 70, 40, 0.9);
+  min-height: 22px;
 }
 
-/* Different class badge colors */
-.class-badge[data-class="hip hop"],
-.class-badge.brown {
-  background: #4a3728;
-  color: #d9a066;
+.class-badge:empty {
+  background: transparent;
 }
 
-.class-badge[data-class="comm"],
-.class-badge.green {
-  background: #2b4a3e;
-  color: #6bc9a0;
+.class-badge:empty::after {
+  content: 'Class...';
+  color: rgba(55, 53, 47, 0.25);
+  font-weight: 400;
 }
 
-.class-badge[data-class="video"],
-.class-badge.olive {
-  background: #3d4a2b;
-  color: #a8c96b;
-}
-
-.class-badge[data-class="dance"],
-.class-badge.teal {
-  background: #2b4047;
-  color: #6bb8c9;
-}
-
-.class-badge[data-class="ftv"],
-.class-badge.gray {
-  background: #3a3a3a;
-  color: #a0a0a0;
-}
-
-/* Status badge styling */
+/* Status badge - red with dot */
 .status-badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 3px 10px;
-  border-radius: 4px;
+  padding: 2px 8px;
+  border-radius: 3px;
   font-size: 12px;
   font-weight: 500;
   white-space: nowrap;
-  background: rgba(180, 60, 60, 0.2);
-  color: #e88888;
+  background: rgba(180, 70, 70, 0.12);
+  color: rgba(160, 50, 50, 0.9);
+  min-height: 22px;
 }
 
 .status-badge::before {
   content: '';
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  background: #e06060;
+  background: rgba(180, 60, 60, 0.8);
   flex-shrink: 0;
 }
 
-.status-badge.in-progress {
-  background: rgba(200, 160, 60, 0.2);
-  color: #e8c888;
+.status-badge:empty {
+  background: transparent;
 }
 
-.status-badge.in-progress::before {
-  background: #e0c060;
-}
-
-.status-badge.completed {
-  background: rgba(60, 160, 80, 0.2);
-  color: #88e8a0;
-}
-
-.status-badge.completed::before {
-  background: #60c070;
+.status-badge:empty::before {
+  display: none;
 }
 
 .deadline-col-deadline {
-  color: rgba(255, 255, 255, 0.7);
+  color: rgba(55, 53, 47, 0.7);
   font-size: 13px;
 }
 
 .deadline-col-notes {
-  color: rgba(255, 255, 255, 0.4);
+  color: rgba(55, 53, 47, 0.4);
   font-size: 13px;
-  justify-content: center;
 }

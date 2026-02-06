@@ -6984,16 +6984,16 @@ async function insertTemplate(templateType) {
 }
 
 async function insertDeadlinesTemplate() {
-  // Create an elegant Notion-style dark table
+  // Create an elegant table matching canvas aesthetic
   const tableHTML = `
 <div class="deadline-table">
   <div class="deadline-header">
-    <div><span class="deadline-header-icon">☐</span></div>
-    <div><span class="deadline-header-icon">Aa</span> assignment name</div>
-    <div><span class="deadline-header-icon">📅</span> deadline</div>
-    <div><span class="deadline-header-icon">◉</span> class</div>
-    <div><span class="deadline-header-icon">✦</span> status</div>
-    <div><span class="deadline-header-icon">≡</span> notes</div>
+    <div></div>
+    <div>assignment</div>
+    <div>deadline</div>
+    <div>class</div>
+    <div>status</div>
+    <div>notes</div>
   </div>
   <div class="deadline-row">
     <div class="deadline-col-check"><input type="checkbox"></div>
