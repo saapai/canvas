@@ -25,6 +25,15 @@ const authCodeHint = document.getElementById('auth-code-hint');
 const authCodeBoxes = document.getElementById('auth-code-boxes');
 const authPhoneBoxes = document.getElementById('auth-phone-boxes');
 
+const formatBar = document.getElementById('format-bar');
+const formatFontDecrease = document.getElementById('format-font-decrease');
+const formatFontIncrease = document.getElementById('format-font-increase');
+const formatFontPx = document.getElementById('format-font-px');
+const formatBtnBold = document.getElementById('format-bold');
+const formatBtnItalic = document.getElementById('format-italic');
+const formatBtnUnderline = document.getElementById('format-underline');
+const formatBtnStrike = document.getElementById('format-strike');
+
 let verifiedPhone = null;
 let existingUsernames = [];
 
@@ -675,7 +684,7 @@ async function loadUserEntries(username, editable) {
       } else {
         const { processedText, urls } = processTextWithLinks(entryData.text);
         if (processedText) {
-          if (entryData.textHtml && /<(strong|b|em|i|u)>/i.test(entryData.textHtml)) {
+          if (entryData.textHtml && /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(entryData.textHtml)) {
             entry.innerHTML = meltifyHtml(entryData.textHtml);
           } else {
             entry.innerHTML = meltify(processedText);
@@ -1257,7 +1266,7 @@ async function loadEntriesFromServer() {
       
       // Use textHtml if available (preserves formatting), otherwise use processedText
       if (processedText) {
-        if (entryData.textHtml && /<(strong|b|em|i|u)>/i.test(entryData.textHtml)) {
+        if (entryData.textHtml && /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(entryData.textHtml)) {
           // Has formatting, use HTML version
           entry.innerHTML = meltifyHtml(entryData.textHtml);
         } else {
@@ -2272,8 +2281,11 @@ function showCursorAtWorld(wx, wy, force = false) {
   editor.value = ''; // Also clear value just in case
   
   editor.style.width = '4px';
+  // Reset font size to default for new entries
+  editor.style.fontSize = '16px';
   // Ensure editor is visible
   editor.style.display = 'block';
+  if (formatBar) formatBar.classList.remove('hidden');
   // Focus the editor so user can type immediately
   // The focus event will remove idle-cursor class and show native caret
   editor.classList.add('idle-cursor');
@@ -2484,13 +2496,51 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
     } else {
       editor.textContent = text;
     }
+    
+    // Detect font size from the editor's actual content after loading HTML
+    // Walk through the editor's child nodes to find the first text node with styling
+    let detectedFontSize = 16;
+    const detectFontSizeFromContent = (node) => {
+      if (node.nodeType === Node.TEXT_NODE && node.textContent.trim()) {
+        const parent = node.parentNode;
+        if (parent && parent !== editor) {
+          const fontSize = parseFloat(window.getComputedStyle(parent).fontSize);
+          if (!isNaN(fontSize)) {
+            return fontSize;
+          }
+        }
+      }
+      if (node.nodeType === Node.ELEMENT_NODE) {
+        for (let child of node.childNodes) {
+          const size = detectFontSizeFromContent(child);
+          if (size) return size;
+        }
+      }
+      return null;
+    };
+    
+    const contentFontSize = detectFontSizeFromContent(editor);
+    if (contentFontSize) {
+      detectedFontSize = contentFontSize;
+    } else if (entryData && entryData.element) {
+      // Fallback to entry element's computed style
+      const entryStyles = window.getComputedStyle(entryData.element);
+      const fontSize = parseFloat(entryStyles.fontSize);
+      if (!isNaN(fontSize)) {
+        detectedFontSize = fontSize;
+      }
+    }
+    
+    editor.style.fontSize = detectedFontSize + 'px';
   } else {
     editor.textContent = text;
+    editor.style.fontSize = '16px';
   }
   // Always remove idle-cursor when placing editor (will be focused, so native caret shows)
   editor.classList.remove('idle-cursor');
   // Ensure editor is visible (in case it was hidden during navigation)
   editor.style.display = 'block';
+  if (formatBar) formatBar.classList.remove('hidden');
   
   // Set editor width based on actual content, not fixed entry width
   // This allows the editor to expand/contract based on text content
@@ -2529,6 +2579,7 @@ function hideCursor() {
   editor.textContent = '';
   editor.style.display = 'none'; // Hide editor when hiding cursor
   editor.blur();
+  if (formatBar) formatBar.classList.add('hidden');
 }
 
 async function commitEditor(){
@@ -2557,8 +2608,8 @@ async function commitEditor(){
   const trimmedRight = raw.replace(/\s+$/g,'');
   
   // Check if HTML has formatting tags - if so, preserve HTML; otherwise use plain text
-  // execCommand('bold') can create <strong> or <b> tags, or style="font-weight: bold"
-  const hasFormatting = /<(strong|b|em|i|u|span[^>]*style[^>]*font-weight)/i.test(htmlContent);
+  // execCommand can create <strong>, <b>, <em>, <i>, <u>, or <span style="...">
+  const hasFormatting = /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(htmlContent);
   const trimmedHtml = hasFormatting ? htmlContent : null;
   
   console.log('[COMMIT] HTML content length:', htmlContent.length, 'hasFormatting:', hasFormatting);
@@ -4527,38 +4578,33 @@ editor.addEventListener('keydown', (e) => {
 function updateEditingBorderDimensions(entry) {
   if (!entry || !entry.classList.contains('editing')) return;
   
-  // Don't resize if entry has link cards (link cards are hidden during editing)
-  // The border should wrap only the text content, not the hidden cards
-  const hasLinkCards = entry.querySelectorAll('.link-card, .link-card-placeholder').length > 0;
+  // Find the maximum font size in the editor content
+  let maxFontSize = parseFloat(window.getComputedStyle(editor).fontSize);
   
-  // Get the editor's current dimensions
-  const editorWidth = editor.offsetWidth;
-  const editorHeight = editor.scrollHeight;
+  // Walk through all text nodes and their parents to find max font size
+  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null, false);
+  let node;
+  while (node = walker.nextNode()) {
+    if (node.textContent.trim()) {
+      const parent = node.parentNode;
+      if (parent && parent !== editor) {
+        const fontSize = parseFloat(window.getComputedStyle(parent).fontSize);
+        if (!isNaN(fontSize) && fontSize > maxFontSize) {
+          maxFontSize = fontSize;
+        }
+      }
+    }
+  }
   
-  // Calculate one character width for asymmetric padding
-  const temp = document.createElement('span');
-  temp.style.position = 'absolute';
-  temp.style.visibility = 'hidden';
-  temp.style.whiteSpace = 'pre';
-  temp.style.font = window.getComputedStyle(editor).font;
-  temp.style.fontSize = window.getComputedStyle(editor).fontSize;
-  temp.style.fontFamily = window.getComputedStyle(editor).fontFamily;
-  temp.textContent = 'M';
-  document.body.appendChild(temp);
-  const oneCharWidth = temp.offsetWidth;
-  document.body.removeChild(temp);
+  // Set the entry's font-size to match the max font size in content
+  // This makes the em-based CSS padding/border scale automatically
+  entry.style.fontSize = `${maxFontSize}px`;
   
-  // Asymmetric padding: 1 character on left, 2 on right, 0.5 character top/bottom
-  const leftPadding = oneCharWidth;
-  const rightPadding = oneCharWidth * 2;
-  const verticalPadding = oneCharWidth * 0.5;
-  
-  // Set entry dimensions to wrap the editor with padding
-  const entryWidth = editorWidth + leftPadding + rightPadding;
-  const entryHeight = editorHeight + (verticalPadding * 2);
-  
-  entry.style.setProperty('width', `${entryWidth}px`, 'important');
-  entry.style.setProperty('height', `${entryHeight}px`, 'important');
+  // Don't set explicit width/height - let CSS auto sizing handle it
+  // The CSS already has: width: auto !important; height: auto !important;
+  // With em-based padding: 0.5em 2em 0.5em 1em
+  entry.style.removeProperty('width');
+  entry.style.removeProperty('height');
 }
 
 function getWidestLineWidth(element) {
@@ -4659,9 +4705,9 @@ editor.addEventListener('blur', (e) => {
     // Use setTimeout to ensure blur completes before commit
     // This prevents issues with focus changes during commit
     setTimeout(() => {
-      // Double-check editor is still blurred and has content
-      // Also check that we're not about to place a new editor (which would refocus)
-      if (document.activeElement !== editor && editor.innerText.trim().length > 0) {
+      const active = document.activeElement;
+      const focusInFormatBar = formatBar && formatBar.contains(active);
+      if (active !== editor && !focusInFormatBar && editor.innerText.trim().length > 0) {
         commitEditor();
       }
     }, 0);
@@ -4669,7 +4715,9 @@ editor.addEventListener('blur', (e) => {
     // If editor is empty and editing existing entry, delete the entry
     // This happens when user deletes all text and clicks away
     setTimeout(async () => {
-      if (document.activeElement !== editor) {
+      const active = document.activeElement;
+      const focusInFormatBar = formatBar && formatBar.contains(active);
+      if (active !== editor && !focusInFormatBar) {
         const entryData = entries.get(editingEntryId);
         if (entryData) {
           // User deleted all text - delete the entry (with confirmation if has children)
@@ -5239,6 +5287,181 @@ if (helpModal) {
     if (e.target === helpModal) {
       helpModal.classList.add('hidden');
     }
+  });
+}
+
+// ——— Text format bar ———
+function updateFormatBarState() {
+  if (!formatBar || !editor || document.activeElement !== editor) return;
+  if (formatBtnBold) formatBtnBold.classList.toggle('active', document.queryCommandState('bold'));
+  if (formatBtnItalic) formatBtnItalic.classList.toggle('active', document.queryCommandState('italic'));
+  if (formatBtnUnderline) formatBtnUnderline.classList.toggle('active', document.queryCommandState('underline'));
+  if (formatBtnStrike) formatBtnStrike.classList.toggle('active', document.queryCommandState('strikeThrough'));
+}
+
+function saveSelectionInEditor() {
+  const sel = window.getSelection();
+  if (!sel.rangeCount || !editor.contains(sel.anchorNode)) return null;
+  const range = sel.getRangeAt(0).cloneRange();
+  return { range };
+}
+
+function restoreSelection(saved) {
+  if (!saved || !saved.range) return;
+  try {
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(saved.range);
+  } catch (_) {}
+}
+
+function getSelectionFontSize() {
+  const sel = window.getSelection();
+  if (!sel.rangeCount || !editor.contains(sel.anchorNode)) {
+    // No selection - return editor's base font size
+    const editorFontSize = parseFloat(window.getComputedStyle(editor).fontSize);
+    return isNaN(editorFontSize) ? 16 : Math.round(editorFontSize);
+  }
+  const range = sel.getRangeAt(0);
+  let node = range.startContainer;
+  if (node.nodeType === Node.TEXT_NODE) node = node.parentNode;
+  if (!editor.contains(node)) {
+    // Fallback to editor's base font size
+    const editorFontSize = parseFloat(window.getComputedStyle(editor).fontSize);
+    return isNaN(editorFontSize) ? 16 : Math.round(editorFontSize);
+  }
+  const px = parseFloat(window.getComputedStyle(node).fontSize);
+  return isNaN(px) ? 16 : Math.round(px);
+}
+
+function applyFontSizePx(px, savedSelection) {
+  editor.focus();
+  if (savedSelection) restoreSelection(savedSelection);
+  const sel = window.getSelection();
+  if (!sel.rangeCount || !editor.contains(sel.anchorNode)) return;
+  const size = Math.min(72, Math.max(10, Number(px) || 16));
+  const range = sel.getRangeAt(0);
+  
+  if (range.collapsed) {
+    // For collapsed cursor: insert a zero-width space in a span with the font size
+    // This ensures future typing inherits the font size without affecting existing text
+    const span = document.createElement('span');
+    span.style.fontSize = size + 'px';
+    span.appendChild(document.createTextNode('\u200B')); // Zero-width space
+    range.insertNode(span);
+    
+    // Position cursor after the zero-width space inside the span
+    const newRange = document.createRange();
+    newRange.setStart(span.firstChild, 1);
+    newRange.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(newRange);
+    
+    if (formatFontPx) formatFontPx.value = size;
+    updateFormatBarState();
+  } else {
+    // For selection: wrap in span with font-size
+    const span = document.createElement('span');
+    span.style.fontSize = size + 'px';
+    const frag = range.extractContents();
+    span.appendChild(frag);
+    range.insertNode(span);
+    
+    // Select the wrapped content
+    const newRange = document.createRange();
+    newRange.selectNodeContents(span);
+    sel.removeAllRanges();
+    sel.addRange(newRange);
+    
+    if (formatFontPx) formatFontPx.value = size;
+    updateFormatBarState();
+  }
+  
+  // Update editing border dimensions to match new font size
+  if (editingEntryId && editingEntryId !== 'anchor') {
+    const entryData = entries.get(editingEntryId);
+    if (entryData && entryData.element) {
+      // Use requestAnimationFrame to ensure DOM is updated with new font size
+      requestAnimationFrame(() => {
+        updateEditingBorderDimensions(entryData.element);
+      });
+    }
+  }
+}
+
+function applyFormat(cmd, value, savedSelection) {
+  editor.focus();
+  if (savedSelection) restoreSelection(savedSelection);
+  document.execCommand(cmd, false, value);
+  updateFormatBarState();
+}
+
+if (formatBar && editor) {
+  editor.addEventListener('focus', () => {
+    updateFormatBarState();
+    if (formatFontPx) formatFontPx.value = getSelectionFontSize();
+  });
+
+  editor.addEventListener('selectionchange', () => {
+    updateFormatBarState();
+    if (formatFontPx && document.activeElement === editor) formatFontPx.value = getSelectionFontSize();
+  });
+  document.addEventListener('selectionchange', () => {
+    if (document.activeElement === editor) {
+      updateFormatBarState();
+      if (formatFontPx) formatFontPx.value = getSelectionFontSize();
+    }
+  });
+}
+
+function handleFormatButton(cmd, value) {
+  return (e) => {
+    e.preventDefault();
+    const saved = saveSelectionInEditor();
+    applyFormat(cmd, value, saved);
+  };
+}
+
+if (formatFontDecrease) formatFontDecrease.addEventListener('mousedown', (e) => {
+  e.preventDefault();
+  const saved = saveSelectionInEditor();
+  const current = getSelectionFontSize();
+  applyFontSizePx(current - 2, saved);
+});
+if (formatFontIncrease) formatFontIncrease.addEventListener('mousedown', (e) => {
+  e.preventDefault();
+  const saved = saveSelectionInEditor();
+  const current = getSelectionFontSize();
+  applyFontSizePx(current + 2, saved);
+});
+if (formatFontPx) {
+  const applyFontPxFromInput = () => {
+    const saved = saveSelectionInEditor();
+    const px = parseInt(formatFontPx.value, 10);
+    if (!isNaN(px)) applyFontSizePx(px, saved);
+  };
+  formatFontPx.addEventListener('change', applyFontPxFromInput);
+  formatFontPx.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      applyFontPxFromInput();
+      editor.focus();
+    }
+  });
+  formatFontPx.addEventListener('blur', () => {
+    if (editor.style.display === 'block') editor.focus();
+  });
+  formatFontPx.addEventListener('mousedown', (e) => e.stopPropagation());
+}
+if (formatBtnBold) formatBtnBold.addEventListener('mousedown', handleFormatButton('bold'));
+if (formatBtnItalic) formatBtnItalic.addEventListener('mousedown', handleFormatButton('italic'));
+if (formatBtnUnderline) formatBtnUnderline.addEventListener('mousedown', handleFormatButton('underline'));
+if (formatBtnStrike) formatBtnStrike.addEventListener('mousedown', handleFormatButton('strikeThrough'));
+
+if (formatBar) {
+  formatBar.addEventListener('mousedown', (e) => {
+    if (formatFontPx && (e.target === formatFontPx || formatFontPx.contains(e.target))) return;
+    e.preventDefault();
   });
 }
 
@@ -6684,11 +6907,16 @@ window.addEventListener('keydown', (e) => {
 
 // Keyboard shortcuts
 window.addEventListener('keydown', async (e) => {
-  // Command+Z / Ctrl+Z for undo
+  // Command+Z / Ctrl+Z for undo — when editor focused, let browser handle (typing, formatting)
   if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+    if (document.activeElement === editor) return;
     e.preventDefault();
     await performUndo();
     return;
+  }
+  // Command+Shift+Z / Ctrl+Y for redo — when editor focused, let browser handle
+  if (((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'z') || ((e.metaKey || e.ctrlKey) && e.key === 'y')) {
+    if (document.activeElement === editor) return;
   }
   
   // Delete key for selected entries
