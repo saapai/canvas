@@ -99,11 +99,11 @@ body::before{
 }
 
 .entry.editing{
-  border: 2px solid rgba(59, 130, 246, 0.4);
-  border-radius: 4px;
+  border: 0.125em solid rgba(59, 130, 246, 0.4);
+  border-radius: 0.25em;
   box-sizing: border-box;
   /* Asymmetric padding: 1 character on left, 2 on right, 0.5 character top/bottom */
-  padding: 8px 32px 8px 16px;
+  padding: 0.5em 2em 0.5em 1em;
   /* Dynamic dimensions will be set by JS */
   width: auto !important;
   height: auto !important;
@@ -136,12 +136,12 @@ body::before{
 .entry:hover:not(.editing)::before {
   content: '';
   position: absolute;
-  top: -2px;
-  left: -2px;
-  width: calc(100% + 4px);
-  height: calc(100% + 4px);
+  top: -0.125em;
+  left: -0.125em;
+  width: calc(100% + 0.25em);
+  height: calc(100% + 0.25em);
   background-color: rgba(59, 130, 246, 0.1);
-  border-radius: 4px;
+  border-radius: 0.25em;
   pointer-events: none;
   z-index: -1;
   box-sizing: border-box;
@@ -157,12 +157,12 @@ body::before{
 .entry.read-only:hover::before {
   content: '';
   position: absolute;
-  top: -2px;
-  left: -2px;
-  width: calc(100% + 4px);
-  height: calc(100% + 4px);
+  top: -0.125em;
+  left: -0.125em;
+  width: calc(100% + 0.25em);
+  height: calc(100% + 0.25em);
   background-color: rgba(59, 130, 246, 0.1);
-  border-radius: 4px;
+  border-radius: 0.25em;
   pointer-events: none;
   z-index: -1;
   box-sizing: border-box;
@@ -347,9 +347,9 @@ body::before{
 .entry.has-link-card-hover:not(.editing)::before {
   content: '';
   position: absolute;
-  inset: -2px;
+  inset: -0.125em;
   background-color: rgba(59, 130, 246, 0.1);
-  border-radius: 4px;
+  border-radius: 0.25em;
   pointer-events: none;
   z-index: -1;
 }
@@ -1931,12 +1931,12 @@ body::before{
 .entry.has-media-card-hover:not(.editing)::before {
   content: '';
   position: absolute;
-  top: -2px;
-  left: -2px;
-  width: calc(100% + 4px);
-  height: calc(100% + 4px);
+  top: -0.125em;
+  left: -0.125em;
+  width: calc(100% + 0.25em);
+  height: calc(100% + 0.25em);
   background-color: rgba(59, 130, 246, 0.1);
-  border-radius: 10px;
+  border-radius: 0.625em;
   pointer-events: none;
   z-index: -1;
 }

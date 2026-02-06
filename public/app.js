@@ -5348,8 +5348,19 @@ function applyFontSizePx(px, savedSelection) {
   const range = sel.getRangeAt(0);
   
   if (range.collapsed) {
-    // For collapsed cursor: set editor's base font size so new text inherits it
-    editor.style.fontSize = size + 'px';
+    // For collapsed cursor: insert a zero-width space in a span with the font size
+    // This ensures future typing inherits the font size without affecting existing text
+    const span = document.createElement('span');
+    span.style.fontSize = size + 'px';
+    span.appendChild(document.createTextNode('\u200B')); // Zero-width space
+    range.insertNode(span);
+    
+    // Position cursor after the zero-width space inside the span
+    const newRange = document.createRange();
+    newRange.setStart(span.firstChild, 1);
+    newRange.collapse(true);
+    sel.removeAllRanges();
+    sel.addRange(newRange);
     
     if (formatFontPx) formatFontPx.value = size;
     updateFormatBarState();
