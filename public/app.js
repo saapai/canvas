@@ -2986,6 +2986,14 @@ function updateEntryDimensions(entry) {
         entry.style.setProperty('min-width', 'auto', 'important');
         return;
       }
+      if (entry.classList.contains('canvas-file')) {
+        // Use fixed dimensions — DOM measurement is unreliable when entry is hidden
+        entry.style.setProperty('width', 'auto', 'important');
+        entry.style.setProperty('height', 'auto', 'important');
+        entry.style.setProperty('min-width', '200px', 'important');
+        entry.style.setProperty('min-height', 'auto', 'important');
+        return;
+      }
       if (entry.classList.contains('canvas-image')) {
         const img = entry.querySelector('img');
         if (img) {

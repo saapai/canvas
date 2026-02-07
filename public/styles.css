@@ -2338,6 +2338,9 @@ body::before{
 /* File card entry */
 .entry.canvas-file {
   cursor: pointer;
+  width: auto !important;
+  height: auto !important;
+  overflow: visible;
 }
 
 .file-card {
