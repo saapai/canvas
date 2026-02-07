@@ -671,8 +671,9 @@ async function loadUserEntries(username, editable) {
       // Initially hide all entries - visibility will be set after navigation state is determined
       entry.style.display = 'none';
       
-      // Process text with links (skip for image-only entries)
+      // Process text with links (skip for image-only and file entries)
       const isImageOnly = entryData.mediaCardData && entryData.mediaCardData.type === 'image';
+      const isFileEntry = entryData.mediaCardData && entryData.mediaCardData.type === 'file';
       if (isImageOnly) {
         entry.classList.add('canvas-image');
         entry.innerHTML = '';
@@ -681,9 +682,15 @@ async function loadUserEntries(username, editable) {
         img.alt = 'Canvas image';
         img.draggable = false;
         entry.appendChild(img);
+      } else if (isFileEntry) {
+        entry.classList.add('canvas-file');
+        entry.innerHTML = '';
+        entry.appendChild(createFileCard(entryData.mediaCardData));
       } else {
         const { processedText, urls } = processTextWithLinks(entryData.text);
-        if (processedText) {
+        if (entryData.textHtml && entryData.textHtml.includes('deadline-table')) {
+          entry.innerHTML = entryData.textHtml;
+        } else if (processedText) {
           if (entryData.textHtml && /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(entryData.textHtml)) {
             entry.innerHTML = meltifyHtml(entryData.textHtml);
           } else {
@@ -747,7 +754,7 @@ async function loadUserEntries(username, editable) {
       };
       entries.set(entryData.id, storedEntryData);
       
-      if (!isImageOnly && entryData.mediaCardData && entryData.mediaCardData.type !== 'image') {
+      if (!isImageOnly && !isFileEntry && entryData.mediaCardData && entryData.mediaCardData.type !== 'image') {
         const card = createMediaCard(entryData.mediaCardData);
         entry.appendChild(card);
         setTimeout(() => updateEntryDimensions(entry), 100);
@@ -1265,7 +1272,9 @@ async function loadEntriesFromServer() {
       const { processedText, urls } = processTextWithLinks(entryData.text);
       
       // Use textHtml if available (preserves formatting), otherwise use processedText
-      if (processedText) {
+      if (entryData.textHtml && entryData.textHtml.includes('deadline-table')) {
+        entry.innerHTML = entryData.textHtml;
+      } else if (processedText) {
         if (entryData.textHtml && /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(entryData.textHtml)) {
           // Has formatting, use HTML version
           entry.innerHTML = meltifyHtml(entryData.textHtml);
@@ -2493,6 +2502,13 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
     const entryData = entries.get(entryId);
     if(entryData && entryData.textHtml){
       editor.innerHTML = entryData.textHtml;
+      // Re-attach deadline table handlers when editing existing table
+      if (entryData.textHtml.includes('deadline-table')) {
+        editor.removeEventListener('keydown', handleDeadlineTableKeydown);
+        editor.addEventListener('keydown', handleDeadlineTableKeydown);
+        const table = editor.querySelector('.deadline-table');
+        if (table) setupDeadlineTableHandlers(table);
+      }
     } else {
       editor.textContent = text;
     }
@@ -2607,9 +2623,9 @@ async function commitEditor(){
   const raw = editor.innerText;
   const trimmedRight = raw.replace(/\s+$/g,'');
   
-  // Check if HTML has formatting tags - if so, preserve HTML; otherwise use plain text
-  // execCommand can create <strong>, <b>, <em>, <i>, <u>, or <span style="...">
-  const hasFormatting = /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(htmlContent);
+  // Check if content is a deadline table or has formatting tags
+  const isDeadlineTable = htmlContent.includes('deadline-table');
+  const hasFormatting = isDeadlineTable || /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(htmlContent);
   const trimmedHtml = hasFormatting ? htmlContent : null;
   
   console.log('[COMMIT] HTML content length:', htmlContent.length, 'hasFormatting:', hasFormatting);
@@ -2698,20 +2714,25 @@ async function commitEditor(){
       // Remove editing class first so content is visible for melt animation
       entryData.element.classList.remove('editing');
       
-      // Add melt class for animation
-      entryData.element.classList.add('melt');
-      
-      // Update entry content with melt animation, preserving HTML formatting
-      if(processedText){
-        if (trimmedHtml) {
-          // Has formatting, process HTML with formatting preserved
-          entryData.element.innerHTML = meltifyHtml(trimmedHtml);
-        } else {
-          // No formatting, use regular meltify
-          entryData.element.innerHTML = meltify(processedText);
-        }
+      if (isDeadlineTable) {
+        // Deadline tables: use raw HTML directly, no melt animation
+        entryData.element.innerHTML = trimmedHtml;
       } else {
-        entryData.element.innerHTML = '';
+        // Add melt class for animation
+        entryData.element.classList.add('melt');
+
+        // Update entry content with melt animation, preserving HTML formatting
+        if(processedText){
+          if (trimmedHtml) {
+            // Has formatting, process HTML with formatting preserved
+            entryData.element.innerHTML = meltifyHtml(trimmedHtml);
+          } else {
+            // No formatting, use regular meltify
+            entryData.element.innerHTML = meltify(processedText);
+          }
+        } else {
+          entryData.element.innerHTML = '';
+        }
       }
 
       // Generate and add cards for URLs
@@ -2779,9 +2800,16 @@ async function commitEditor(){
         });
       }, maxDuration);
       
-      // After committing, show cursor at bottom-right of edited entry
-      showCursorInDefaultPosition(editingEntryId);
+      // Clear editor content BEFORE showing cursor to prevent stale content
+      // from being committed as a new entry if commitEditor is triggered again
+      const committedEntryId = editingEntryId;
       editingEntryId = null;
+      editor.removeEventListener('keydown', handleDeadlineTableKeydown);
+      editor.textContent = '';
+      editor.innerHTML = '';
+
+      // After committing, show cursor at bottom-right of edited entry
+      showCursorInDefaultPosition(committedEntryId);
       isCommitting = false;
       return;
     }
@@ -2824,14 +2852,16 @@ async function commitEditor(){
 
   const entryId = generateEntryId();
   const entry = document.createElement('div');
-  entry.className = 'entry melt';
+  entry.className = isDeadlineTable ? 'entry' : 'entry melt';
   entry.id = entryId;
 
   entry.style.left = `${editorWorldPos.x}px`;
   entry.style.top  = `${editorWorldPos.y}px`;
 
   // Only render text if there is any
-  if(processedText){
+  if (isDeadlineTable) {
+    entry.innerHTML = trimmedHtml;
+  } else if(processedText){
     if (trimmedHtml) {
       // Has formatting, process HTML with formatting preserved
       entry.innerHTML = meltifyHtml(trimmedHtml);
@@ -2945,6 +2975,25 @@ async function commitEditor(){
 function updateEntryDimensions(entry) {
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
+      // Deadline tables: use actual DOM dimensions
+      const deadlineTable = entry.querySelector('.deadline-table');
+      if (deadlineTable) {
+        const tableWidth = Math.max(deadlineTable.scrollWidth, deadlineTable.offsetWidth);
+        const tableHeight = Math.max(deadlineTable.scrollHeight, deadlineTable.offsetHeight);
+        entry.style.setProperty('width', `${tableWidth}px`, 'important');
+        entry.style.setProperty('height', `${tableHeight}px`, 'important');
+        entry.style.setProperty('min-height', 'auto', 'important');
+        entry.style.setProperty('min-width', 'auto', 'important');
+        return;
+      }
+      if (entry.classList.contains('canvas-file')) {
+        // Use fixed dimensions — DOM measurement is unreliable when entry is hidden
+        entry.style.setProperty('width', 'auto', 'important');
+        entry.style.setProperty('height', 'auto', 'important');
+        entry.style.setProperty('min-width', '200px', 'important');
+        entry.style.setProperty('min-height', 'auto', 'important');
+        return;
+      }
       if (entry.classList.contains('canvas-image')) {
         const img = entry.querySelector('img');
         if (img) {
@@ -3647,6 +3696,12 @@ function isImageEntry(entryEl) {
   return data && data.mediaCardData && data.mediaCardData.type === 'image';
 }
 
+function isFileEntry(entryEl) {
+  if (!entryEl || !entryEl.id || entryEl.id === 'anchor') return false;
+  const data = entries.get(entryEl.id);
+  return data && data.mediaCardData && data.mediaCardData.type === 'file';
+}
+
 function selectOnlyEntry(entryId) {
   clearSelection();
   const entryData = entries.get(entryId);
@@ -4027,7 +4082,7 @@ window.addEventListener('mouseup', async (e) => {
         if(isClick && draggingEntry.id !== 'anchor' && draggingEntry.id && !isReadOnly) {
           const entryData = entries.get(draggingEntry.id);
           if(entryData) {
-            if(isImageEntry(draggingEntry)) {
+            if(isImageEntry(draggingEntry) || isFileEntry(draggingEntry)) {
               selectOnlyEntry(draggingEntry.id);
             } else {
               // If currently editing, commit first and wait for it to complete
@@ -4152,13 +4207,13 @@ window.addEventListener('mouseup', async (e) => {
         navigationJustCompleted = false;
         isNavigating = false; // Also clear isNavigating to allow blur handler to commit
         
-        // If currently editing an entry, blur and commit it first
-        if (editingEntryId && document.activeElement === editor) {
+        // If currently editing an entry or editor has content, commit before moving cursor
+        // Must commit synchronously here because placeEditorAtWorld will clear editor content
+        if (editingEntryId || editor.textContent.trim()) {
           console.log('[CLICK] Committing current edit before moving cursor');
-          // Focus will trigger blur, which will auto-commit via blur event handler
-          // But we need to ensure isNavigating is false so blur handler doesn't skip commit
+          await commitEditor();
         }
-        
+
         // Always place cursor at click position, even during navigation
         // Use force=true to ensure cursor is visible and ready
         placeEditorAtWorld(w.x, w.y, '', null, true); // force = true to allow during navigation
@@ -4186,7 +4241,7 @@ window.addEventListener('mouseup', async (e) => {
       
       if(isClick) {
         const entryEl = clickStart.entryEl;
-        if(isImageEntry(entryEl)) {
+        if(isImageEntry(entryEl) || isFileEntry(entryEl)) {
           selectOnlyEntry(entryEl.id);
           return;
         }
@@ -4547,6 +4602,11 @@ editor.addEventListener('keydown', (e) => {
       }
     }
     
+    // Deadline tables handle Enter themselves via handleDeadlineTableKeydown
+    if (editor.querySelector('.deadline-table')) {
+      return;
+    }
+
     // Not on bullet line: Enter saves the entry
     e.preventDefault();
     console.log('[ENTER] Committing editor, isNavigating:', isNavigating, 'navigationJustCompleted:', navigationJustCompleted);
@@ -4557,7 +4617,7 @@ editor.addEventListener('keydown', (e) => {
 
   if(e.key === 'Escape'){
     e.preventDefault();
-    
+
     // Remove editing class from entry
     if(editingEntryId && editingEntryId !== 'anchor'){
       const entryData = entries.get(editingEntryId);
@@ -4565,10 +4625,15 @@ editor.addEventListener('keydown', (e) => {
         entryData.element.classList.remove('editing');
       }
     }
-    
-    // After committing, show cursor in default position (restore previous or find empty space)
-    showCursorInDefaultPosition();
+
+    // Clear editor content to prevent stale content from creating duplicates
+    editor.removeEventListener('keydown', handleDeadlineTableKeydown);
+    editor.textContent = '';
+    editor.innerHTML = '';
     editingEntryId = null;
+
+    // After escaping, show cursor in default position
+    showCursorInDefaultPosition();
     return;
   }
 });
@@ -4577,10 +4642,18 @@ editor.addEventListener('keydown', (e) => {
 // Update editing border dimensions to wrap content dynamically
 function updateEditingBorderDimensions(entry) {
   if (!entry || !entry.classList.contains('editing')) return;
-  
+
+  // Deadline tables: size border to match table dimensions
+  const deadlineTable = entry.querySelector('.deadline-table');
+  if (deadlineTable) {
+    entry.style.removeProperty('width');
+    entry.style.removeProperty('height');
+    return;
+  }
+
   // Find the maximum font size in the editor content
   let maxFontSize = parseFloat(window.getComputedStyle(editor).fontSize);
-  
+
   // Walk through all text nodes and their parents to find max font size
   const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null, false);
   let node;
@@ -4595,11 +4668,11 @@ function updateEditingBorderDimensions(entry) {
       }
     }
   }
-  
+
   // Set the entry's font-size to match the max font size in content
   // This makes the em-based CSS padding/border scale automatically
   entry.style.fontSize = `${maxFontSize}px`;
-  
+
   // Don't set explicit width/height - let CSS auto sizing handle it
   // The CSS already has: width: auto !important; height: auto !important;
   // With em-based padding: 0.5em 2em 0.5em 1em
@@ -4707,7 +4780,7 @@ editor.addEventListener('blur', (e) => {
     setTimeout(() => {
       const active = document.activeElement;
       const focusInFormatBar = formatBar && formatBar.contains(active);
-      if (active !== editor && !focusInFormatBar && editor.innerText.trim().length > 0) {
+      if (active !== editor && !editor.contains(active) && !focusInFormatBar && editor.innerText.trim().length > 0) {
         commitEditor();
       }
     }, 0);
@@ -4717,7 +4790,7 @@ editor.addEventListener('blur', (e) => {
     setTimeout(async () => {
       const active = document.activeElement;
       const focusInFormatBar = formatBar && formatBar.contains(active);
-      if (active !== editor && !focusInFormatBar) {
+      if (active !== editor && !editor.contains(active) && !focusInFormatBar) {
         const entryData = entries.get(editingEntryId);
         if (entryData) {
           // User deleted all text - delete the entry (with confirmation if has children)
@@ -4796,7 +4869,7 @@ viewport.addEventListener('contextmenu', (e) => {
   if(e.target.closest('.link-card')) return;
   
   if(entryEl && entryEl.id !== 'anchor' && entryEl.id){
-    if(isImageEntry(entryEl)){
+    if(isImageEntry(entryEl) || isFileEntry(entryEl)){
       e.preventDefault();
       e.stopPropagation();
       selectOnlyEntry(entryEl.id);
@@ -4813,37 +4886,197 @@ viewport.addEventListener('contextmenu', (e) => {
   }
 });
 
-// Drag-and-drop image onto canvas
+// Drag-and-drop files onto canvas
 viewport.addEventListener('dragover', (e) => {
   if(isReadOnly) return;
   if(e.dataTransfer.types.includes('Files')){
-    const files = e.dataTransfer.items ? Array.from(e.dataTransfer.items) : [];
-    const hasImage = files.some(item => item.kind === 'file' && item.type.startsWith('image/'));
-    if(hasImage){ e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; }
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
   }
 });
 viewport.addEventListener('drop', async (e) => {
   if(isReadOnly) return;
   if(!e.dataTransfer.files || !e.dataTransfer.files.length) return;
-  const file = Array.from(e.dataTransfer.files).find(f => f.type.startsWith('image/'));
+  const file = e.dataTransfer.files[0];
   if(!file) return;
   e.preventDefault();
   e.stopPropagation();
+
+  // Check if dropped onto an existing deadline table on the canvas
+  const targetTable = e.target.closest ? e.target.closest('.deadline-table') : null;
+  const targetEntry = targetTable ? targetTable.closest('.entry') : null;
+  if (targetTable && targetEntry && !targetTable.closest('#editor')) {
+    await extractDeadlinesIntoEntry(targetEntry, targetTable, file);
+    return;
+  }
+
+  // Image files: upload and create image entry (existing behavior)
+  if (file.type.startsWith('image/')) {
+    const worldPos = screenToWorld(e.clientX, e.clientY);
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch('/api/upload-image', { method: 'POST', credentials: 'include', body: form });
+      if(!res.ok){
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Upload failed');
+      }
+      const { url } = await res.json();
+      await createImageEntryAtWorld(worldPos.x, worldPos.y, url);
+    } catch(err){
+      console.error('Image upload failed:', err);
+    }
+    return;
+  }
+
+  // Non-image files: upload and create file entry
   const worldPos = screenToWorld(e.clientX, e.clientY);
+  await createFileEntryAtWorld(worldPos.x, worldPos.y, file);
+});
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function getFileIcon(mimetype) {
+  if (mimetype === 'application/pdf') return '📄';
+  if (mimetype.includes('word') || mimetype.includes('document')) return '📝';
+  if (mimetype.includes('sheet') || mimetype.includes('csv')) return '📊';
+  if (mimetype.includes('presentation')) return '📽';
+  if (mimetype.startsWith('text/')) return '📃';
+  return '📎';
+}
+
+async function createFileEntryAtWorld(worldX, worldY, file) {
+  const entryId = generateEntryId();
+  const entry = document.createElement('div');
+  entry.className = 'entry canvas-file';
+  entry.id = entryId;
+  entry.style.left = `${worldX}px`;
+  entry.style.top = `${worldY}px`;
+  // Show placeholder while uploading
+  entry.innerHTML = `<div class="file-card"><div class="file-card-icon">${getFileIcon(file.type)}</div><div class="file-card-info"><div class="file-card-name">${escapeHtml(file.name)}</div><div class="file-card-meta">Uploading...</div></div></div>`;
+  world.appendChild(entry);
+
   try {
     const form = new FormData();
     form.append('file', file);
-    const res = await fetch('/api/upload-image', { method: 'POST', credentials: 'include', body: form });
-    if(!res.ok){
+    const res = await fetch('/api/upload-file', { method: 'POST', credentials: 'include', body: form });
+    if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error || 'Upload failed');
     }
-    const { url } = await res.json();
-    await createImageEntryAtWorld(worldPos.x, worldPos.y, url);
-  } catch(err){
-    console.error('Image upload failed:', err);
+    const data = await res.json();
+    const mediaData = { type: 'file', url: data.url, name: data.name, size: data.size, mimetype: data.mimetype };
+
+    entry.innerHTML = '';
+    entry.appendChild(createFileCard(mediaData));
+    updateEntryDimensions(entry);
+
+    const entryData = {
+      id: entryId,
+      element: entry,
+      text: data.name,
+      position: { x: worldX, y: worldY },
+      parentEntryId: currentViewEntryId,
+      mediaCardData: mediaData
+    };
+    entries.set(entryId, entryData);
+    updateEntryVisibility();
+    await saveEntryToServer(entryData);
+  } catch (err) {
+    console.error('File upload failed:', err);
+    entry.remove();
   }
-});
+}
+
+function createFileCard(mediaData) {
+  const card = document.createElement('div');
+  card.className = 'file-card';
+  card.innerHTML = `<div class="file-card-icon">${getFileIcon(mediaData.mimetype || '')}</div>
+    <div class="file-card-info"><div class="file-card-name">${escapeHtml(mediaData.name || 'File')}</div><div class="file-card-meta">${formatFileSize(mediaData.size || 0)}</div></div>
+    <div class="file-card-actions">
+      <a class="file-action-btn" href="${escapeHtml(mediaData.url)}" target="_blank" title="View"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></a>
+      <a class="file-action-btn" href="${escapeHtml(mediaData.url)}" download="${escapeHtml(mediaData.name || 'file')}" title="Download"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></a>
+    </div>`;
+  // Prevent clicks on action buttons from triggering entry editing
+  card.querySelectorAll('.file-action-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => e.stopPropagation());
+    btn.addEventListener('dblclick', (e) => e.stopPropagation());
+  });
+  return card;
+}
+
+async function extractDeadlinesIntoEntry(entryEl, table, file) {
+  // Add loading overlay to the entry
+  entryEl.classList.add('deadline-extracting');
+  let overlay = table.querySelector('.deadline-loading-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.className = 'deadline-loading-overlay';
+    overlay.innerHTML = '<div class="deadline-loading-spinner"></div><div class="deadline-loading-text">Extracting deadlines...</div>';
+    table.appendChild(overlay);
+  }
+  overlay.classList.add('active');
+
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch('/api/extract-deadlines', { method: 'POST', body: formData });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Extraction failed');
+    }
+    const data = await res.json();
+    if (!data.deadlines || data.deadlines.length === 0) {
+      overlay.querySelector('.deadline-loading-text').textContent = 'No deadlines found';
+      setTimeout(() => { overlay.classList.remove('active'); entryEl.classList.remove('deadline-extracting'); }, 1500);
+      return;
+    }
+
+    // Remove existing empty rows
+    Array.from(table.querySelectorAll('.deadline-row')).forEach(row => {
+      if (isDeadlineRowEmpty(row)) row.remove();
+    });
+
+    // Add extracted rows
+    const ghostRow = table.querySelector('.deadline-ghost-row');
+    data.deadlines.forEach((d, i) => {
+      const row = document.createElement('div');
+      row.className = 'deadline-row deadline-row-enter';
+      row.innerHTML = getDeadlineRowHTML();
+      const nameCell = row.querySelector('.deadline-col-name');
+      const deadlineCell = row.querySelector('.deadline-col-deadline');
+      const classCell = row.querySelector('.deadline-col-class');
+      const notesCell = row.querySelector('.deadline-col-notes');
+      if (nameCell) nameCell.textContent = d.assignment || '';
+      if (deadlineCell) deadlineCell.textContent = d.deadline || '';
+      if (classCell) classCell.textContent = d.class || '';
+      if (notesCell) notesCell.textContent = d.notes || '';
+      row.style.animationDelay = `${i * 50}ms`;
+      if (ghostRow) table.insertBefore(row, ghostRow);
+      else table.appendChild(row);
+    });
+
+    sortDeadlineRows(table);
+    overlay.classList.remove('active');
+    entryEl.classList.remove('deadline-extracting');
+
+    // Save updated entry
+    const entryData = entries.get(entryEl.id);
+    if (entryData) {
+      entryData.text = entryEl.innerText;
+      entryData.textHtml = entryEl.innerHTML;
+      await updateEntryOnServer(entryData);
+    }
+  } catch (err) {
+    console.error('Deadline extraction failed:', err);
+    overlay.querySelector('.deadline-loading-text').textContent = err.message || 'Extraction failed';
+    setTimeout(() => { overlay.classList.remove('active'); entryEl.classList.remove('deadline-extracting'); }, 2000);
+  }
+}
 
 requestAnimationFrame(() => {
   centerAnchor();
@@ -6647,7 +6880,9 @@ async function performUndo() {
           entry.appendChild(img);
         } else {
           const { processedText, urls } = processTextWithLinks(entryData.text);
-          if (processedText) {
+          if (entryData.textHtml && entryData.textHtml.includes('deadline-table')) {
+            entry.innerHTML = entryData.textHtml;
+          } else if (processedText) {
             entry.innerHTML = meltify(processedText);
           } else {
             entry.innerHTML = '';
@@ -6733,7 +6968,9 @@ async function performUndo() {
         
         // Process and restore text
         const { processedText, urls } = processTextWithLinks(state.data.oldText);
-        if (processedText) {
+        if (editEntryData.textHtml && editEntryData.textHtml.includes('deadline-table')) {
+          editEntryData.element.innerHTML = editEntryData.textHtml;
+        } else if (processedText) {
           editEntryData.element.innerHTML = meltify(processedText);
         } else {
           editEntryData.element.innerHTML = '';
@@ -6936,5 +7173,382 @@ window.addEventListener('keydown', async (e) => {
     navigateToRoot();
   }
 }, true); // Use capture phase to catch event before other handlers
+
+// ——— Template system ———
+const templateMenuButton = document.getElementById('template-menu-button');
+const templateMenuDropdown = document.getElementById('template-menu-dropdown');
+
+function closeTemplateMenu() {
+  if (templateMenuButton) templateMenuButton.classList.remove('active');
+  if (templateMenuDropdown) templateMenuDropdown.classList.add('hidden');
+}
+
+function openTemplateMenu() {
+  if (templateMenuButton) templateMenuButton.classList.add('active');
+  if (templateMenuDropdown) templateMenuDropdown.classList.remove('hidden');
+}
+
+if (templateMenuButton && templateMenuDropdown) {
+  templateMenuButton.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const isOpen = !templateMenuDropdown.classList.contains('hidden');
+    if (isOpen) {
+      closeTemplateMenu();
+    } else {
+      openTemplateMenu();
+    }
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!templateMenuDropdown.contains(e.target) && e.target !== templateMenuButton) {
+      closeTemplateMenu();
+    }
+  });
+
+  templateMenuDropdown.querySelectorAll('.template-menu-item').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const templateType = btn.dataset.template;
+      insertTemplate(templateType);
+      closeTemplateMenu();
+    });
+  });
+}
+
+async function insertTemplate(templateType) {
+  if (templateType === 'deadlines') {
+    await insertDeadlinesTemplate();
+  }
+}
+
+function getDeadlineRowHTML() {
+  return `<div class="deadline-col-check"><input type="checkbox"></div>
+    <div class="deadline-col-name" contenteditable="true"></div>
+    <div class="deadline-col-deadline" contenteditable="true"></div>
+    <div class="deadline-col-class" contenteditable="true"></div>
+    <div class="deadline-col-status"><button class="status-badge" data-status="not-started" type="button">Not started</button><div class="status-dropdown"><div class="status-option" data-status="not-started">Not started</div><div class="status-option" data-status="overdue">Overdue</div><div class="status-option" data-status="done">Done</div></div></div>
+    <div class="deadline-col-notes" contenteditable="true"></div>`;
+}
+
+function addDeadlineRow(table) {
+  const ghostRow = table.querySelector('.deadline-ghost-row');
+  const newRow = document.createElement('div');
+  newRow.className = 'deadline-row';
+  newRow.innerHTML = getDeadlineRowHTML();
+  if (ghostRow) {
+    table.insertBefore(newRow, ghostRow);
+  } else {
+    table.appendChild(newRow);
+  }
+  const firstCell = newRow.querySelector('.deadline-col-name');
+  if (firstCell) {
+    setTimeout(() => firstCell.focus(), 0);
+  }
+}
+
+function parseDeadlineDateForSort(dateStr) {
+  if (!dateStr || !dateStr.trim()) return Infinity;
+  const s = dateStr.trim();
+  const year = new Date().getFullYear();
+  const months = {
+    jan:0,january:0,feb:1,february:1,mar:2,march:2,apr:3,april:3,
+    may:4,jun:5,june:5,jul:6,july:6,aug:7,august:7,sep:8,september:8,
+    oct:9,october:9,nov:10,november:10,dec:11,december:11
+  };
+  // Strip day-of-week names/abbreviations and trailing comma/space
+  const cleaned = s.replace(/^(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun|M|Tu|T|W|Th|F|Sa|Su)\s*,?\s*/i, '');
+  // "February 4th", "Mar 14", "March 18, 8am-11am"
+  const monthDay = cleaned.match(/^([a-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?\b/i);
+  if (monthDay && months[monthDay[1].toLowerCase()] !== undefined) {
+    return new Date(year, months[monthDay[1].toLowerCase()], parseInt(monthDay[2])).getTime();
+  }
+  // "1/13", "2/3", "1/15/2025"
+  const slash = cleaned.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/);
+  if (slash) {
+    const y = slash[3] ? (slash[3].length === 2 ? 2000 + parseInt(slash[3]) : parseInt(slash[3])) : year;
+    return new Date(y, parseInt(slash[1]) - 1, parseInt(slash[2])).getTime();
+  }
+  // Unparseable — put at end
+  return Infinity;
+}
+
+function sortDeadlineRows(table) {
+  const rows = Array.from(table.querySelectorAll('.deadline-row'));
+  const ghostRow = table.querySelector('.deadline-ghost-row');
+  rows.sort((a, b) => {
+    const aT = parseDeadlineDateForSort(a.querySelector('.deadline-col-deadline')?.textContent);
+    const bT = parseDeadlineDateForSort(b.querySelector('.deadline-col-deadline')?.textContent);
+    return aT - bT;
+  });
+  rows.forEach((row, i) => {
+    row.style.animationDelay = `${i * 50}ms`;
+    if (ghostRow) table.insertBefore(row, ghostRow);
+    else table.appendChild(row);
+  });
+}
+
+function isDeadlineRowEmpty(row) {
+  const cells = row.querySelectorAll('[contenteditable="true"]');
+  for (const cell of cells) {
+    if (cell.textContent.trim() !== '') return false;
+  }
+  const badge = row.querySelector('.status-badge');
+  if (badge && badge.dataset.status !== 'not-started') return false;
+  const checkbox = row.querySelector('input[type="checkbox"]');
+  if (checkbox && checkbox.checked) return false;
+  return true;
+}
+
+function setupDeadlineTableHandlers(table) {
+  // Event delegation for clicks within the table
+  table.addEventListener('click', (e) => {
+    // Status badge click - toggle dropdown
+    const badge = e.target.closest('.status-badge');
+    if (badge) {
+      e.preventDefault();
+      e.stopPropagation();
+      // Close any other open dropdowns
+      table.querySelectorAll('.status-dropdown.open').forEach(d => d.classList.remove('open'));
+      const dropdown = badge.closest('.deadline-col-status').querySelector('.status-dropdown');
+      if (dropdown) dropdown.classList.toggle('open');
+      return;
+    }
+
+    // Status option click - update badge
+    const option = e.target.closest('.status-option');
+    if (option) {
+      e.preventDefault();
+      e.stopPropagation();
+      const status = option.dataset.status;
+      const text = option.textContent;
+      const statusCell = option.closest('.deadline-col-status');
+      const statusBadge = statusCell.querySelector('.status-badge');
+      if (statusBadge) {
+        statusBadge.dataset.status = status;
+        statusBadge.textContent = text;
+      }
+      option.closest('.status-dropdown').classList.remove('open');
+      return;
+    }
+
+    // Ghost row click - add new row
+    const ghostRow = e.target.closest('.deadline-ghost-row');
+    if (ghostRow) {
+      e.preventDefault();
+      e.stopPropagation();
+      addDeadlineRow(table);
+      return;
+    }
+
+    // Close any open dropdowns when clicking elsewhere
+    table.querySelectorAll('.status-dropdown.open').forEach(d => d.classList.remove('open'));
+  });
+
+  // Drag and drop onto deadline table in editor to populate rows.
+  // The viewport dragover already prevents default for all files, so
+  // the browser won't open the file. These handlers add visual feedback
+  // and handle the extraction when dropped directly on the table.
+  table.addEventListener('dragover', (e) => {
+    if (!table.closest('#editor')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'copy';
+    table.classList.add('deadline-drop-active');
+  });
+
+  table.addEventListener('dragleave', (e) => {
+    if (!table.closest('#editor')) return;
+    // Only remove if we're actually leaving the table, not entering a child
+    if (!table.contains(e.relatedTarget)) {
+      table.classList.remove('deadline-drop-active');
+    }
+  });
+
+  table.addEventListener('drop', async (e) => {
+    if (!table.closest('#editor')) return;
+    e.preventDefault();
+    e.stopPropagation();
+    table.classList.remove('deadline-drop-active');
+
+    const file = e.dataTransfer.files[0];
+    if (!file) return;
+
+    // Show loading overlay
+    let overlay = table.querySelector('.deadline-loading-overlay');
+    if (!overlay) {
+      overlay = document.createElement('div');
+      overlay.className = 'deadline-loading-overlay';
+      overlay.innerHTML = '<div class="deadline-loading-spinner"></div><div class="deadline-loading-text">Extracting deadlines...</div>';
+      table.appendChild(overlay);
+    }
+    overlay.classList.add('active');
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const res = await fetch('/api/extract-deadlines', {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to extract deadlines');
+      }
+
+      const data = await res.json();
+      if (!data.deadlines || data.deadlines.length === 0) {
+        overlay.querySelector('.deadline-loading-text').textContent = 'No deadlines found in file';
+        setTimeout(() => overlay.classList.remove('active'), 1500);
+        return;
+      }
+
+      // Remove empty rows before populating
+      const existingRows = Array.from(table.querySelectorAll('.deadline-row'));
+      existingRows.forEach(row => {
+        if (isDeadlineRowEmpty(row)) row.remove();
+      });
+
+      // Add rows from extracted deadlines
+      const ghostRow = table.querySelector('.deadline-ghost-row');
+      data.deadlines.forEach((d, i) => {
+        const row = document.createElement('div');
+        row.className = 'deadline-row deadline-row-enter';
+        row.innerHTML = getDeadlineRowHTML();
+        const nameCell = row.querySelector('.deadline-col-name');
+        const deadlineCell = row.querySelector('.deadline-col-deadline');
+        const classCell = row.querySelector('.deadline-col-class');
+        const notesCell = row.querySelector('.deadline-col-notes');
+        if (nameCell) nameCell.textContent = d.assignment || '';
+        if (deadlineCell) deadlineCell.textContent = d.deadline || '';
+        if (classCell) classCell.textContent = d.class || '';
+        if (notesCell) notesCell.textContent = d.notes || '';
+        // Stagger entrance animation
+        row.style.animationDelay = `${i * 50}ms`;
+        if (ghostRow) {
+          table.insertBefore(row, ghostRow);
+        } else {
+          table.appendChild(row);
+        }
+      });
+
+      sortDeadlineRows(table);
+      overlay.classList.remove('active');
+    } catch (err) {
+      console.error('Deadline extraction error:', err);
+      overlay.querySelector('.deadline-loading-text').textContent = err.message || 'Extraction failed';
+      setTimeout(() => overlay.classList.remove('active'), 2000);
+    }
+  });
+}
+
+async function insertDeadlinesTemplate() {
+  const tableHTML = `
+<div class="deadline-table" contenteditable="false">
+  <div class="deadline-header">
+    <div></div>
+    <div>assignment</div>
+    <div>deadline</div>
+    <div>class</div>
+    <div>status</div>
+    <div>notes</div>
+  </div>
+  <div class="deadline-row">
+    ${getDeadlineRowHTML()}
+  </div>
+  <div class="deadline-ghost-row">
+    <div>+</div>
+    <div>Assignment...</div>
+    <div>Date...</div>
+    <div>Class...</div>
+    <div>Status</div>
+    <div></div>
+  </div>
+</div>`;
+
+  editor.innerHTML = tableHTML;
+  editor.classList.add('has-content');
+
+  // Set up event handlers
+  const table = editor.querySelector('.deadline-table');
+  if (table) setupDeadlineTableHandlers(table);
+
+  editor.removeEventListener('keydown', handleDeadlineTableKeydown);
+  editor.addEventListener('keydown', handleDeadlineTableKeydown);
+
+  // Focus first editable cell
+  const firstCell = editor.querySelector('.deadline-col-name');
+  if (firstCell) {
+    setTimeout(() => firstCell.focus(), 0);
+  }
+}
+
+function handleDeadlineTableKeydown(e) {
+  const target = e.target;
+  const deadlineTable = target.closest('.deadline-table');
+  if (!deadlineTable) return;
+
+  // Cmd/Ctrl+A: select all text within the current cell only
+  if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
+    const cell = target.closest('[contenteditable="true"]');
+    if (cell) {
+      e.preventDefault();
+      const range = document.createRange();
+      range.selectNodeContents(cell);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+    return;
+  }
+
+  // Backspace/Delete handling
+  if (e.key === 'Backspace' || e.key === 'Delete') {
+    const cell = target.closest('[contenteditable="true"]');
+    if (cell && cell.textContent === '') {
+      e.preventDefault();
+      // Check if entire row is empty - if so, delete the row
+      const row = cell.closest('.deadline-row');
+      if (row && isDeadlineRowEmpty(row)) {
+        const table = row.closest('.deadline-table');
+        const allRows = Array.from(table.querySelectorAll('.deadline-row'));
+        if (allRows.length <= 1) {
+          // Only row left - delete the whole deadline entry
+          editor.innerHTML = '';
+          setTimeout(() => commitEditor(), 0);
+        } else {
+          const rowIndex = allRows.indexOf(row);
+          row.remove();
+          // Focus the previous row, or next if first was deleted
+          const remaining = Array.from(table.querySelectorAll('.deadline-row'));
+          const focusRow = remaining[Math.min(rowIndex, remaining.length - 1)] || remaining[0];
+          if (focusRow) {
+            const focusCell = focusRow.querySelector('[contenteditable="true"]');
+            if (focusCell) focusCell.focus();
+          }
+        }
+      }
+      return;
+    }
+  }
+
+  if (e.key !== 'Enter') return;
+
+  e.preventDefault();
+
+  const currentRow = target.closest('.deadline-row');
+  if (!currentRow) return;
+
+  const table = currentRow.closest('.deadline-table');
+  const allRows = Array.from(table.querySelectorAll('.deadline-row'));
+  const isLastRow = currentRow === allRows[allRows.length - 1];
+
+  if (isLastRow) {
+    addDeadlineRow(table);
+  } else {
+    // Commit the entry
+    setTimeout(() => commitEditor(), 0);
+  }
+}
 
 bootstrap();

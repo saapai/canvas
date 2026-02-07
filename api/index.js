@@ -10,7 +10,7 @@ import { dirname, join } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-import { processTextWithLLM, fetchLinkMetadata, generateLinkCard } from './llm.js';
+import { processTextWithLLM, fetchLinkMetadata, generateLinkCard, extractDeadlinesFromFile } from './llm.js';
 import { chatWithCanvas } from '../server/chat.js';
 import {
   initDatabase,
@@ -813,6 +813,56 @@ app.post('/api/upload-image', requireAuth, upload.single('file'), async (req, re
     res.json({ url: publicData.publicUrl });
   } catch (error) {
     console.error('Error uploading image:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/upload-file', requireAuth, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    if (!supabase) {
+      return res.status(503).json({ error: 'File storage not configured.' });
+    }
+    const ext = req.file.originalname.split('.').pop() || 'bin';
+    const safeExt = /^[a-z0-9]+$/i.test(ext) ? ext : 'bin';
+    const path = `${req.user.id}/files/${Date.now()}-${Math.random().toString(36).slice(2)}.${safeExt}`;
+    const { data, error } = await supabase.storage.from(supabaseBucket).upload(path, req.file.buffer, {
+      contentType: req.file.mimetype,
+      upsert: false
+    });
+    if (error) {
+      console.error('Supabase file upload error:', error);
+      return res.status(500).json({ error: error.message || 'Upload failed' });
+    }
+    const { data: publicData } = supabase.storage.from(supabaseBucket).getPublicUrl(data.path);
+    res.json({
+      url: publicData.publicUrl,
+      name: req.file.originalname,
+      size: req.file.size,
+      mimetype: req.file.mimetype
+    });
+  } catch (error) {
+    console.error('Error uploading file:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/extract-deadlines', requireAuth, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    const allowed = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain', 'text/csv', 'text/html', 'text/markdown', 'text/rtf',
+      'image/jpeg', 'image/png', 'image/gif', 'image/webp'
+    ];
+    if (!allowed.includes(req.file.mimetype) && !req.file.mimetype.startsWith('text/')) {
+      return res.status(400).json({ error: 'Unsupported file type. Use PDF, DOCX, text files, or images.' });
+    }
+    const result = await extractDeadlinesFromFile(req.file.buffer, req.file.mimetype, req.file.originalname);
+    res.json(result);
+  } catch (error) {
+    console.error('Error extracting deadlines:', error);
     res.status(500).json({ error: error.message });
   }
 });

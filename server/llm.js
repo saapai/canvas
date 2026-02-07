@@ -1,6 +1,8 @@
 import OpenAI from 'openai';
 import dotenv from 'dotenv';
 import * as cheerio from 'cheerio';
+import pdfParse from 'pdf-parse/lib/pdf-parse.js';
+import mammoth from 'mammoth';
 
 dotenv.config();
 
@@ -212,5 +214,75 @@ Respond ONLY with valid JSON in this exact format:
       image: metadata.image,
       url: metadata.url
     };
+  }
+}
+
+export async function extractDeadlinesFromFile(buffer, mimetype, originalname) {
+  const deadlinePrompt = `Extract ALL deadlines, assignments, due dates, exams, and tasks from the following content.
+
+Return a JSON array of objects. Each object should have:
+- "assignment": the name/description of the assignment or task
+- "deadline": the due date in M/D format (e.g. "1/15", "2/3", "3/20"). Convert ALL dates to this numeric M/D format. If a year is given use M/D/YYYY. If only a relative reference like "Week 3" with no specific date, keep as-is. Do NOT include day-of-week names.
+- "class": the course or class name if mentioned (empty string if not found)
+- "notes": any additional relevant details like weight/percentage, time, instructions, or location (empty string if none)
+
+If no deadlines are found, return an empty array.
+Respond ONLY with valid JSON: { "deadlines": [...] }`;
+
+  try {
+    let messages;
+
+    if (mimetype.startsWith('image/')) {
+      const base64 = buffer.toString('base64');
+      const dataUrl = `data:${mimetype};base64,${base64}`;
+      messages = [
+        { role: 'system', content: 'You extract deadlines and assignments from documents. Respond ONLY with valid JSON, no other text.' },
+        { role: 'user', content: [
+          { type: 'text', text: deadlinePrompt },
+          { type: 'image_url', image_url: { url: dataUrl } }
+        ]}
+      ];
+    } else {
+      let text;
+      if (mimetype === 'application/pdf') {
+        const parsed = await pdfParse(buffer);
+        text = parsed.text;
+      } else if (mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+        const result = await mammoth.extractRawText({ buffer });
+        text = result.value;
+      } else {
+        text = buffer.toString('utf-8');
+      }
+
+      if (!text || !text.trim()) {
+        return { deadlines: [] };
+      }
+
+      // Truncate to ~12k chars to stay within token limits
+      const truncated = text.length > 12000 ? text.slice(0, 12000) + '\n...(truncated)' : text;
+
+      messages = [
+        { role: 'system', content: 'You extract deadlines and assignments from documents. Respond ONLY with valid JSON, no other text.' },
+        { role: 'user', content: `${deadlinePrompt}\n\n---\nDocument content:\n${truncated}` }
+      ];
+    }
+
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages,
+      temperature: 0.2,
+      max_tokens: 2000
+    });
+
+    const content = completion.choices[0].message.content.trim();
+    let jsonStr = content;
+    const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/);
+    if (jsonMatch) jsonStr = jsonMatch[1];
+
+    const result = JSON.parse(jsonStr);
+    return { deadlines: Array.isArray(result.deadlines) ? result.deadlines : [] };
+  } catch (error) {
+    console.error('Error extracting deadlines:', error);
+    return { deadlines: [], error: error.message };
   }
 }

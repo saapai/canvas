@@ -1989,3 +1989,513 @@ body::before{
   pointer-events: none;
   z-index: -1;
 }
+
+/* Template dropdown in format bar */
+.template-menu {
+  position: relative;
+  display: inline-block;
+}
+
+.template-menu-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 240px;
+  background: var(--paper);
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+  padding: 6px;
+  z-index: 2000;
+}
+
+.template-menu-dropdown.hidden {
+  display: none;
+}
+
+.template-menu-item {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  transition: background 0.15s ease;
+}
+
+.template-menu-item:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.template-menu-item-title {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.template-menu-item-desc {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.5);
+  line-height: 1.3;
+}
+
+/* Deadline table template */
+.deadline-table {
+  position: relative;
+  width: 100%;
+  min-width: 620px;
+  font: inherit;
+  font-size: 13px;
+  background: rgba(255, 255, 255, 0.45);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 6px;
+  overflow: visible;
+  white-space: normal;
+  line-height: 1.5;
+  letter-spacing: normal;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+}
+
+/* Prevent melt animation spans from breaking table layout */
+.melt .deadline-table span:not(.status-badge) {
+  display: inline;
+  position: static;
+  animation: none !important;
+  opacity: 1;
+  filter: none;
+  transform: none;
+  will-change: auto;
+}
+
+/* Entries containing deadline tables need normal whitespace and proper sizing */
+.entry:has(.deadline-table) {
+  white-space: normal;
+  overflow: visible;
+}
+
+/* Editing border should tightly wrap the table */
+.entry.editing:has(.deadline-table) {
+  padding: 0;
+  border: 2px solid rgba(59, 130, 246, 0.3);
+  border-radius: 6px;
+}
+
+/* Aggressively hide entry content during editing to prevent silhouette/ghost */
+.entry.editing:has(.deadline-table) > * {
+  opacity: 0 !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+}
+
+/* Override editor's white-space: pre for tables */
+#editor:has(.deadline-table) {
+  white-space: normal;
+  min-width: 620px;
+}
+
+.deadline-header {
+  display: grid;
+  grid-template-columns: 32px 2fr 1fr 0.9fr 1fr 1fr;
+  padding: 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.35);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  user-select: none;
+}
+
+.deadline-header > div {
+  padding: 9px 14px;
+}
+
+.deadline-row {
+  display: grid;
+  grid-template-columns: 32px 2fr 1fr 0.9fr 1fr 1fr;
+  padding: 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.045);
+  align-items: stretch;
+  min-height: 38px;
+  transition: background 0.15s ease;
+}
+
+.deadline-row:last-child {
+  border-bottom: none;
+}
+
+.deadline-row:hover {
+  background: rgba(0, 0, 0, 0.015);
+}
+
+.deadline-col-check {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+}
+
+.deadline-col-check input[type="checkbox"] {
+  width: 13px;
+  height: 13px;
+  cursor: pointer;
+  accent-color: var(--ink);
+  opacity: 0.7;
+}
+
+.deadline-col-name,
+.deadline-col-deadline,
+.deadline-col-class,
+.deadline-col-notes {
+  padding: 9px 14px;
+  outline: none;
+  border: none;
+  min-height: 38px;
+  display: block;
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 20px;
+  white-space: normal;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  min-width: 0;
+  background: transparent;
+}
+
+.deadline-col-status {
+  padding: 9px 14px;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  position: relative;
+}
+
+.deadline-col-name:empty::after {
+  content: 'Assignment...';
+  color: rgba(0, 0, 0, 0.2);
+}
+
+.deadline-col-deadline:empty::after {
+  content: 'Date...';
+  color: rgba(0, 0, 0, 0.2);
+}
+
+.deadline-col-class:empty::after {
+  content: 'Class...';
+  color: rgba(0, 0, 0, 0.2);
+}
+
+.deadline-col-name:focus,
+.deadline-col-deadline:focus,
+.deadline-col-class:focus,
+.deadline-col-notes:focus {
+  background: rgba(0, 0, 0, 0.018);
+  border-radius: 3px;
+}
+
+/* Status badge button */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px;
+  border-radius: 4px;
+  font: inherit;
+  font-size: 11.5px;
+  font-weight: 500;
+  white-space: nowrap;
+  background: rgba(0, 0, 0, 0.035);
+  color: rgba(0, 0, 0, 0.55);
+  min-height: 22px;
+  border: none;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.status-badge:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.status-badge::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.18);
+  flex-shrink: 0;
+}
+
+/* Status colors */
+.status-badge[data-status="not-started"]::before { background: rgba(0, 0, 0, 0.18); }
+.status-badge[data-status="not-started"] { color: rgba(0, 0, 0, 0.45); }
+.status-badge[data-status="overdue"]::before { background: rgba(185, 55, 55, 0.7); }
+.status-badge[data-status="overdue"] { background: rgba(185, 55, 55, 0.06); color: rgba(160, 45, 45, 0.85); }
+.status-badge[data-status="done"]::before { background: rgba(45, 140, 80, 0.7); }
+.status-badge[data-status="done"] { background: rgba(45, 140, 80, 0.06); color: rgba(35, 120, 65, 0.85); }
+
+/* Status dropdown */
+.status-dropdown {
+  display: none;
+  position: absolute;
+  top: calc(100% - 4px);
+  left: 14px;
+  min-width: 128px;
+  background: var(--paper);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  padding: 3px;
+  z-index: 2000;
+}
+
+.status-dropdown.open {
+  display: block;
+}
+
+.status-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink);
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.status-option:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.status-option::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-option[data-status="not-started"]::before { background: rgba(0, 0, 0, 0.18); }
+.status-option[data-status="overdue"]::before { background: rgba(185, 55, 55, 0.7); }
+.status-option[data-status="done"]::before { background: rgba(45, 140, 80, 0.7); }
+
+/* Ghost row - translucent preview of a new row, only visible in editor */
+.deadline-ghost-row {
+  display: none;
+  grid-template-columns: 32px 2fr 1fr 0.9fr 1fr 1fr;
+  padding: 0;
+  min-height: 38px;
+  align-items: stretch;
+  cursor: pointer;
+  color: rgba(0, 0, 0, 0.15);
+  font-size: 13px;
+  opacity: 0.6;
+  border-top: 1px dashed rgba(0, 0, 0, 0.06);
+  transition: opacity 0.15s ease, background 0.15s ease;
+  user-select: none;
+}
+
+/* Only show ghost row inside the editor (edit mode) */
+#editor .deadline-ghost-row {
+  display: grid;
+}
+
+.deadline-ghost-row:hover {
+  opacity: 0.85;
+  background: rgba(0, 0, 0, 0.01);
+}
+
+.deadline-ghost-row > div {
+  padding: 9px 14px;
+  line-height: 20px;
+}
+
+.deadline-ghost-row > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 400;
+  opacity: 0.7;
+}
+
+.deadline-col-deadline {
+  color: rgba(0, 0, 0, 0.4);
+}
+
+.deadline-col-notes {
+  color: rgba(0, 0, 0, 0.35);
+}
+
+/* File card entry */
+.entry.canvas-file {
+  cursor: pointer;
+  width: auto !important;
+  height: auto !important;
+  overflow: visible;
+}
+
+.file-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  min-width: 200px;
+  max-width: 320px;
+  position: relative;
+  transition: box-shadow 0.15s ease;
+}
+
+.file-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.file-card-icon {
+  font-size: 28px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.file-card-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.file-card-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.8);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-card-meta {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.4);
+  margin-top: 2px;
+}
+
+.file-card-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  flex-shrink: 0;
+}
+
+.file-card:hover .file-card-actions {
+  opacity: 1;
+}
+
+.file-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: rgba(0, 0, 0, 0.45);
+  background: rgba(0, 0, 0, 0.04);
+  text-decoration: none;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.file-action-btn:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: rgba(0, 0, 0, 0.7);
+}
+
+/* Deadline table extracting state */
+.entry.deadline-extracting {
+  pointer-events: none;
+}
+
+.entry.deadline-extracting .deadline-table {
+  opacity: 0.5;
+}
+
+/* Re-enable pointer events for dragging during extraction */
+.entry.deadline-extracting {
+  pointer-events: auto;
+  cursor: grab;
+}
+
+.entry.deadline-extracting [contenteditable] {
+  pointer-events: none;
+}
+
+.entry.deadline-extracting .status-badge,
+.entry.deadline-extracting .deadline-ghost-row {
+  pointer-events: none;
+}
+
+/* Deadline drop zone */
+.deadline-table.deadline-drop-active {
+  outline: 2px dashed rgba(59, 130, 246, 0.5);
+  outline-offset: -2px;
+  background: rgba(59, 130, 246, 0.04);
+}
+
+/* Deadline loading overlay */
+.deadline-loading-overlay {
+  display: none;
+  position: absolute;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.85);
+  z-index: 10;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  border-radius: 6px;
+}
+
+.deadline-loading-overlay.active {
+  display: flex;
+}
+
+.deadline-loading-spinner {
+  width: 24px;
+  height: 24px;
+  border: 2.5px solid rgba(59, 130, 246, 0.2);
+  border-top-color: rgba(59, 130, 246, 0.7);
+  border-radius: 50%;
+  animation: dl-spin 0.6s linear infinite;
+}
+
+@keyframes dl-spin {
+  to { transform: rotate(360deg); }
+}
+
+.deadline-loading-text {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.5);
+}
+
+/* Row entrance animation */
+.deadline-row-enter {
+  animation: dl-row-in 0.25s ease-out both;
+}
+
+@keyframes dl-row-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
