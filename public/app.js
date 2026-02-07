@@ -671,8 +671,9 @@ async function loadUserEntries(username, editable) {
       // Initially hide all entries - visibility will be set after navigation state is determined
       entry.style.display = 'none';
       
-      // Process text with links (skip for image-only entries)
+      // Process text with links (skip for image-only and file entries)
       const isImageOnly = entryData.mediaCardData && entryData.mediaCardData.type === 'image';
+      const isFileEntry = entryData.mediaCardData && entryData.mediaCardData.type === 'file';
       if (isImageOnly) {
         entry.classList.add('canvas-image');
         entry.innerHTML = '';
@@ -681,6 +682,10 @@ async function loadUserEntries(username, editable) {
         img.alt = 'Canvas image';
         img.draggable = false;
         entry.appendChild(img);
+      } else if (isFileEntry) {
+        entry.classList.add('canvas-file');
+        entry.innerHTML = '';
+        entry.appendChild(createFileCard(entryData.mediaCardData));
       } else {
         const { processedText, urls } = processTextWithLinks(entryData.text);
         if (entryData.textHtml && entryData.textHtml.includes('deadline-table')) {
@@ -4867,7 +4872,7 @@ viewport.addEventListener('contextmenu', (e) => {
   }
 });
 
-// Drag-and-drop files onto canvas (images + documents for deadline extraction)
+// Drag-and-drop files onto canvas
 viewport.addEventListener('dragover', (e) => {
   if(isReadOnly) return;
   if(e.dataTransfer.types.includes('Files')){
@@ -4882,6 +4887,14 @@ viewport.addEventListener('drop', async (e) => {
   if(!file) return;
   e.preventDefault();
   e.stopPropagation();
+
+  // Check if dropped onto an existing deadline table on the canvas
+  const targetTable = e.target.closest ? e.target.closest('.deadline-table') : null;
+  const targetEntry = targetTable ? targetTable.closest('.entry') : null;
+  if (targetTable && targetEntry && !targetTable.closest('#editor')) {
+    await extractDeadlinesIntoEntry(targetEntry, targetTable, file);
+    return;
+  }
 
   // Image files: upload and create image entry (existing behavior)
   if (file.type.startsWith('image/')) {
@@ -4902,77 +4915,153 @@ viewport.addEventListener('drop', async (e) => {
     return;
   }
 
-  // Document files: extract deadlines and create a deadline table entry
+  // Non-image files: upload and create file entry
   const worldPos = screenToWorld(e.clientX, e.clientY);
+  await createFileEntryAtWorld(worldPos.x, worldPos.y, file);
+});
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function getFileIcon(mimetype) {
+  if (mimetype === 'application/pdf') return '📄';
+  if (mimetype.includes('word') || mimetype.includes('document')) return '📝';
+  if (mimetype.includes('sheet') || mimetype.includes('csv')) return '📊';
+  if (mimetype.includes('presentation')) return '📽';
+  if (mimetype.startsWith('text/')) return '📃';
+  return '📎';
+}
+
+async function createFileEntryAtWorld(worldX, worldY, file) {
+  const entryId = generateEntryId();
+  const entry = document.createElement('div');
+  entry.className = 'entry canvas-file';
+  entry.id = entryId;
+  entry.style.left = `${worldX}px`;
+  entry.style.top = `${worldY}px`;
+  // Show placeholder while uploading
+  entry.innerHTML = `<div class="file-card"><div class="file-card-icon">${getFileIcon(file.type)}</div><div class="file-card-info"><div class="file-card-name">${escapeHtml(file.name)}</div><div class="file-card-meta">Uploading...</div></div></div>`;
+  world.appendChild(entry);
+
+  try {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await fetch('/api/upload-file', { method: 'POST', credentials: 'include', body: form });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Upload failed');
+    }
+    const data = await res.json();
+    const mediaData = { type: 'file', url: data.url, name: data.name, size: data.size, mimetype: data.mimetype };
+
+    entry.innerHTML = '';
+    entry.appendChild(createFileCard(mediaData));
+    updateEntryDimensions(entry);
+
+    const entryData = {
+      id: entryId,
+      element: entry,
+      text: data.name,
+      position: { x: worldX, y: worldY },
+      parentEntryId: currentViewEntryId,
+      mediaCardData: mediaData
+    };
+    entries.set(entryId, entryData);
+    updateEntryVisibility();
+    await saveEntryToServer(entryData);
+  } catch (err) {
+    console.error('File upload failed:', err);
+    entry.remove();
+  }
+}
+
+function createFileCard(mediaData) {
+  const card = document.createElement('div');
+  card.className = 'file-card';
+  card.innerHTML = `<div class="file-card-icon">${getFileIcon(mediaData.mimetype || '')}</div>
+    <div class="file-card-info"><div class="file-card-name">${escapeHtml(mediaData.name || 'File')}</div><div class="file-card-meta">${formatFileSize(mediaData.size || 0)}</div></div>
+    <div class="file-card-actions">
+      <a class="file-action-btn" href="${escapeHtml(mediaData.url)}" target="_blank" title="View"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></a>
+      <a class="file-action-btn" href="${escapeHtml(mediaData.url)}" download="${escapeHtml(mediaData.name || 'file')}" title="Download"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg></a>
+    </div>`;
+  // Prevent clicks on action buttons from triggering entry editing
+  card.querySelectorAll('.file-action-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => e.stopPropagation());
+    btn.addEventListener('dblclick', (e) => e.stopPropagation());
+  });
+  return card;
+}
+
+async function extractDeadlinesIntoEntry(entryEl, table, file) {
+  // Add loading overlay to the entry
+  entryEl.classList.add('deadline-extracting');
+  let overlay = table.querySelector('.deadline-loading-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.className = 'deadline-loading-overlay';
+    overlay.innerHTML = '<div class="deadline-loading-spinner"></div><div class="deadline-loading-text">Extracting deadlines...</div>';
+    table.appendChild(overlay);
+  }
+  overlay.classList.add('active');
+
   try {
     const formData = new FormData();
     formData.append('file', file);
     const res = await fetch('/api/extract-deadlines', { method: 'POST', body: formData });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to extract deadlines');
+      throw new Error(err.error || 'Extraction failed');
     }
     const data = await res.json();
-    if (!data.deadlines || data.deadlines.length === 0) return;
-
-    // Build deadline table HTML with extracted rows
-    let rowsHTML = '';
-    for (const d of data.deadlines) {
-      rowsHTML += `<div class="deadline-row">${getDeadlineRowHTML()}</div>`;
+    if (!data.deadlines || data.deadlines.length === 0) {
+      overlay.querySelector('.deadline-loading-text').textContent = 'No deadlines found';
+      setTimeout(() => { overlay.classList.remove('active'); entryEl.classList.remove('deadline-extracting'); }, 1500);
+      return;
     }
-    const tableHTML = `<div class="deadline-table" contenteditable="false">
-  <div class="deadline-header">
-    <div></div><div>assignment</div><div>deadline</div><div>class</div><div>status</div><div>notes</div>
-  </div>
-  ${rowsHTML}
-  <div class="deadline-ghost-row">
-    <div>+</div><div>Assignment...</div><div>Date...</div><div>Class...</div><div>Status</div><div></div>
-  </div>
-</div>`;
 
-    // Create entry element
-    const entryId = generateEntryId();
-    const entry = document.createElement('div');
-    entry.className = 'entry';
-    entry.id = entryId;
-    entry.style.left = `${worldPos.x}px`;
-    entry.style.top = `${worldPos.y}px`;
-    entry.innerHTML = tableHTML;
-
-    // Fill in the extracted data
-    const rows = entry.querySelectorAll('.deadline-row');
-    data.deadlines.forEach((d, i) => {
-      if (!rows[i]) return;
-      const name = rows[i].querySelector('.deadline-col-name');
-      const deadline = rows[i].querySelector('.deadline-col-deadline');
-      const cls = rows[i].querySelector('.deadline-col-class');
-      const notes = rows[i].querySelector('.deadline-col-notes');
-      if (name) name.textContent = d.assignment || '';
-      if (deadline) deadline.textContent = d.deadline || '';
-      if (cls) cls.textContent = d.class || '';
-      if (notes) notes.textContent = d.notes || '';
+    // Remove existing empty rows
+    Array.from(table.querySelectorAll('.deadline-row')).forEach(row => {
+      if (isDeadlineRowEmpty(row)) row.remove();
     });
 
-    // Set up handlers and add to world
-    const table = entry.querySelector('.deadline-table');
-    if (table) setupDeadlineTableHandlers(table);
-    world.appendChild(entry);
+    // Add extracted rows
+    const ghostRow = table.querySelector('.deadline-ghost-row');
+    data.deadlines.forEach((d, i) => {
+      const row = document.createElement('div');
+      row.className = 'deadline-row deadline-row-enter';
+      row.innerHTML = getDeadlineRowHTML();
+      const nameCell = row.querySelector('.deadline-col-name');
+      const deadlineCell = row.querySelector('.deadline-col-deadline');
+      const classCell = row.querySelector('.deadline-col-class');
+      const notesCell = row.querySelector('.deadline-col-notes');
+      if (nameCell) nameCell.textContent = d.assignment || '';
+      if (deadlineCell) deadlineCell.textContent = d.deadline || '';
+      if (classCell) classCell.textContent = d.class || '';
+      if (notesCell) notesCell.textContent = d.notes || '';
+      row.style.animationDelay = `${i * 50}ms`;
+      if (ghostRow) table.insertBefore(row, ghostRow);
+      else table.appendChild(row);
+    });
 
-    const entryData = {
-      id: entryId,
-      element: entry,
-      text: entry.innerText,
-      textHtml: entry.innerHTML,
-      position: { x: worldPos.x, y: worldPos.y },
-      parentEntryId: currentViewEntryId
-    };
-    entries.set(entryId, entryData);
-    updateEntryVisibility();
-    await saveEntryToServer(entryData);
-  } catch(err) {
+    overlay.classList.remove('active');
+    entryEl.classList.remove('deadline-extracting');
+
+    // Save updated entry
+    const entryData = entries.get(entryEl.id);
+    if (entryData) {
+      entryData.text = entryEl.innerText;
+      entryData.textHtml = entryEl.innerHTML;
+      await updateEntryOnServer(entryData);
+    }
+  } catch (err) {
     console.error('Deadline extraction failed:', err);
+    overlay.querySelector('.deadline-loading-text').textContent = err.message || 'Extraction failed';
+    setTimeout(() => { overlay.classList.remove('active'); entryEl.classList.remove('deadline-extracting'); }, 2000);
   }
-});
+}
 
 requestAnimationFrame(() => {
   centerAnchor();

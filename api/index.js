@@ -817,6 +817,36 @@ app.post('/api/upload-image', requireAuth, upload.single('file'), async (req, re
   }
 });
 
+app.post('/api/upload-file', requireAuth, upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
+    if (!supabase) {
+      return res.status(503).json({ error: 'File storage not configured.' });
+    }
+    const ext = req.file.originalname.split('.').pop() || 'bin';
+    const safeExt = /^[a-z0-9]+$/i.test(ext) ? ext : 'bin';
+    const path = `${req.user.id}/files/${Date.now()}-${Math.random().toString(36).slice(2)}.${safeExt}`;
+    const { data, error } = await supabase.storage.from(supabaseBucket).upload(path, req.file.buffer, {
+      contentType: req.file.mimetype,
+      upsert: false
+    });
+    if (error) {
+      console.error('Supabase file upload error:', error);
+      return res.status(500).json({ error: error.message || 'Upload failed' });
+    }
+    const { data: publicData } = supabase.storage.from(supabaseBucket).getPublicUrl(data.path);
+    res.json({
+      url: publicData.publicUrl,
+      name: req.file.originalname,
+      size: req.file.size,
+      mimetype: req.file.mimetype
+    });
+  } catch (error) {
+    console.error('Error uploading file:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/extract-deadlines', requireAuth, upload.single('file'), async (req, res) => {
   try {
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });

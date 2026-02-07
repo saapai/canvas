@@ -2335,6 +2335,109 @@ body::before{
   color: rgba(0, 0, 0, 0.35);
 }
 
+/* File card entry */
+.entry.canvas-file {
+  cursor: pointer;
+}
+
+.file-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  border-radius: 8px;
+  min-width: 200px;
+  max-width: 320px;
+  position: relative;
+  transition: box-shadow 0.15s ease;
+}
+
+.file-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.file-card-icon {
+  font-size: 28px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.file-card-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.file-card-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.8);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-card-meta {
+  font-size: 11px;
+  color: rgba(0, 0, 0, 0.4);
+  margin-top: 2px;
+}
+
+.file-card-actions {
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  flex-shrink: 0;
+}
+
+.file-card:hover .file-card-actions {
+  opacity: 1;
+}
+
+.file-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: rgba(0, 0, 0, 0.45);
+  background: rgba(0, 0, 0, 0.04);
+  text-decoration: none;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.file-action-btn:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: rgba(0, 0, 0, 0.7);
+}
+
+/* Deadline table extracting state */
+.entry.deadline-extracting {
+  pointer-events: none;
+}
+
+.entry.deadline-extracting .deadline-table {
+  opacity: 0.5;
+}
+
+/* Re-enable pointer events for dragging during extraction */
+.entry.deadline-extracting {
+  pointer-events: auto;
+  cursor: grab;
+}
+
+.entry.deadline-extracting [contenteditable] {
+  pointer-events: none;
+}
+
+.entry.deadline-extracting .status-badge,
+.entry.deadline-extracting .deadline-ghost-row {
+  pointer-events: none;
+}
+
 /* Deadline drop zone */
 .deadline-table.deadline-drop-active {
   outline: 2px dashed rgba(59, 130, 246, 0.5);
