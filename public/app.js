@@ -3688,6 +3688,12 @@ function isImageEntry(entryEl) {
   return data && data.mediaCardData && data.mediaCardData.type === 'image';
 }
 
+function isFileEntry(entryEl) {
+  if (!entryEl || !entryEl.id || entryEl.id === 'anchor') return false;
+  const data = entries.get(entryEl.id);
+  return data && data.mediaCardData && data.mediaCardData.type === 'file';
+}
+
 function selectOnlyEntry(entryId) {
   clearSelection();
   const entryData = entries.get(entryId);
@@ -4068,7 +4074,7 @@ window.addEventListener('mouseup', async (e) => {
         if(isClick && draggingEntry.id !== 'anchor' && draggingEntry.id && !isReadOnly) {
           const entryData = entries.get(draggingEntry.id);
           if(entryData) {
-            if(isImageEntry(draggingEntry)) {
+            if(isImageEntry(draggingEntry) || isFileEntry(draggingEntry)) {
               selectOnlyEntry(draggingEntry.id);
             } else {
               // If currently editing, commit first and wait for it to complete
@@ -4227,7 +4233,7 @@ window.addEventListener('mouseup', async (e) => {
       
       if(isClick) {
         const entryEl = clickStart.entryEl;
-        if(isImageEntry(entryEl)) {
+        if(isImageEntry(entryEl) || isFileEntry(entryEl)) {
           selectOnlyEntry(entryEl.id);
           return;
         }
@@ -4855,7 +4861,7 @@ viewport.addEventListener('contextmenu', (e) => {
   if(e.target.closest('.link-card')) return;
   
   if(entryEl && entryEl.id !== 'anchor' && entryEl.id){
-    if(isImageEntry(entryEl)){
+    if(isImageEntry(entryEl) || isFileEntry(entryEl)){
       e.preventDefault();
       e.stopPropagation();
       selectOnlyEntry(entryEl.id);
