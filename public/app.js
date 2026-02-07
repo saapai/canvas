@@ -754,7 +754,7 @@ async function loadUserEntries(username, editable) {
       };
       entries.set(entryData.id, storedEntryData);
       
-      if (!isImageOnly && entryData.mediaCardData && entryData.mediaCardData.type !== 'image') {
+      if (!isImageOnly && !isFileEntry && entryData.mediaCardData && entryData.mediaCardData.type !== 'image') {
         const card = createMediaCard(entryData.mediaCardData);
         entry.appendChild(card);
         setTimeout(() => updateEntryDimensions(entry), 100);
