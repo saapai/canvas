@@ -7246,8 +7246,8 @@ function parseDeadlineDateForSort(dateStr) {
     may:4,jun:5,june:5,jul:6,july:6,aug:7,august:7,sep:8,september:8,
     oct:9,october:9,nov:10,november:10,dec:11,december:11
   };
-  // Strip day-of-week prefixes like "T ", "Th ", "F ", "M ", "W "
-  const cleaned = s.replace(/^(?:M|Tu|T|W|Th|F|Sa|Su)\s+/i, '');
+  // Strip day-of-week names/abbreviations and trailing comma/space
+  const cleaned = s.replace(/^(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun|M|Tu|T|W|Th|F|Sa|Su)\s*,?\s*/i, '');
   // "February 4th", "Mar 14", "March 18, 8am-11am"
   const monthDay = cleaned.match(/^([a-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?\b/i);
   if (monthDay && months[monthDay[1].toLowerCase()] !== undefined) {

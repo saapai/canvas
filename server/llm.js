@@ -222,9 +222,9 @@ export async function extractDeadlinesFromFile(buffer, mimetype, originalname) {
 
 Return a JSON array of objects. Each object should have:
 - "assignment": the name/description of the assignment or task
-- "deadline": the due date (keep the original format from the document, e.g. "Jan 15", "1/15/2025", "Week 3")
+- "deadline": the due date in M/D format (e.g. "1/15", "2/3", "3/20"). Convert ALL dates to this numeric M/D format. If a year is given use M/D/YYYY. If only a relative reference like "Week 3" with no specific date, keep as-is. Do NOT include day-of-week names.
 - "class": the course or class name if mentioned (empty string if not found)
-- "notes": any additional relevant details like weight/percentage, instructions, or location (empty string if none)
+- "notes": any additional relevant details like weight/percentage, time, instructions, or location (empty string if none)
 
 If no deadlines are found, return an empty array.
 Respond ONLY with valid JSON: { "deadlines": [...] }`;
