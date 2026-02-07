@@ -5052,6 +5052,7 @@ async function extractDeadlinesIntoEntry(entryEl, table, file) {
       else table.appendChild(row);
     });
 
+    sortDeadlineRows(table);
     overlay.classList.remove('active');
     entryEl.classList.remove('deadline-extracting');
 
@@ -7236,6 +7237,47 @@ function addDeadlineRow(table) {
   }
 }
 
+function parseDeadlineDateForSort(dateStr) {
+  if (!dateStr || !dateStr.trim()) return Infinity;
+  const s = dateStr.trim();
+  const year = new Date().getFullYear();
+  const months = {
+    jan:0,january:0,feb:1,february:1,mar:2,march:2,apr:3,april:3,
+    may:4,jun:5,june:5,jul:6,july:6,aug:7,august:7,sep:8,september:8,
+    oct:9,october:9,nov:10,november:10,dec:11,december:11
+  };
+  // Strip day-of-week prefixes like "T ", "Th ", "F ", "M ", "W "
+  const cleaned = s.replace(/^(?:M|Tu|T|W|Th|F|Sa|Su)\s+/i, '');
+  // "February 4th", "Mar 14", "March 18, 8am-11am"
+  const monthDay = cleaned.match(/^([a-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?\b/i);
+  if (monthDay && months[monthDay[1].toLowerCase()] !== undefined) {
+    return new Date(year, months[monthDay[1].toLowerCase()], parseInt(monthDay[2])).getTime();
+  }
+  // "1/13", "2/3", "1/15/2025"
+  const slash = cleaned.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/);
+  if (slash) {
+    const y = slash[3] ? (slash[3].length === 2 ? 2000 + parseInt(slash[3]) : parseInt(slash[3])) : year;
+    return new Date(y, parseInt(slash[1]) - 1, parseInt(slash[2])).getTime();
+  }
+  // Unparseable — put at end
+  return Infinity;
+}
+
+function sortDeadlineRows(table) {
+  const rows = Array.from(table.querySelectorAll('.deadline-row'));
+  const ghostRow = table.querySelector('.deadline-ghost-row');
+  rows.sort((a, b) => {
+    const aT = parseDeadlineDateForSort(a.querySelector('.deadline-col-deadline')?.textContent);
+    const bT = parseDeadlineDateForSort(b.querySelector('.deadline-col-deadline')?.textContent);
+    return aT - bT;
+  });
+  rows.forEach((row, i) => {
+    row.style.animationDelay = `${i * 50}ms`;
+    if (ghostRow) table.insertBefore(row, ghostRow);
+    else table.appendChild(row);
+  });
+}
+
 function isDeadlineRowEmpty(row) {
   const cells = row.querySelectorAll('[contenteditable="true"]');
   for (const cell of cells) {
@@ -7382,6 +7424,7 @@ function setupDeadlineTableHandlers(table) {
         }
       });
 
+      sortDeadlineRows(table);
       overlay.classList.remove('active');
     } catch (err) {
       console.error('Deadline extraction error:', err);
