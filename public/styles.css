@@ -2515,6 +2515,7 @@ body::before{
 .latex-content {
   line-height: 1.8;
   padding: 4px 0;
+  animation: latex-fadein 0.35s ease-out both;
 }
 
 .latex-content .katex-display {
@@ -2527,10 +2528,10 @@ body::before{
   font-size: 1.1em;
 }
 
-/* LaTeX converting shimmer animation */
+/* LaTeX converting – gentle top-to-bottom opacity pulse */
 .latex-converting {
   position: relative;
-  overflow: hidden;
+  min-height: 1.4em;
 }
 
 .latex-converting::after {
@@ -2538,17 +2539,24 @@ body::before{
   position: absolute;
   inset: 0;
   background: linear-gradient(
-    90deg,
-    transparent 0%,
-    rgba(20, 184, 166, 0.08) 50%,
+    180deg,
+    rgba(20, 184, 166, 0.12) 0%,
+    rgba(20, 184, 166, 0.03) 60%,
     transparent 100%
   );
-  animation: latex-shimmer 1.5s ease-in-out infinite;
+  animation: latex-pulse 1.6s ease-in-out infinite;
 }
 
-@keyframes latex-shimmer {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
+@keyframes latex-pulse {
+  0%   { opacity: 0;   transform: translateY(-30%); }
+  40%  { opacity: 1;   transform: translateY(0); }
+  70%  { opacity: 0.4; transform: translateY(20%); }
+  100% { opacity: 0;   transform: translateY(40%); }
+}
+
+@keyframes latex-fadein {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 /* KaTeX display math overflow handling */
