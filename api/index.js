@@ -773,8 +773,14 @@ app.post('/api/generate-link-card', async (req, res) => {
     }
 
     const metadata = await fetchLinkMetadata(url);
+
+    // YouTube metadata from oEmbed is already accurate — skip LLM rewrite
+    if (metadata.isVideo) {
+      return res.json(metadata);
+    }
+
     const card = await generateLinkCard(metadata);
-    
+
     res.json(card);
   } catch (error) {
     console.error('Error generating link card:', error);

@@ -95,45 +95,83 @@ Respond ONLY with valid JSON in this exact format:
   }
 }
 
+function extractYouTubeVideoId(url) {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.replace('www.', '');
+    if (host === 'youtube.com' || host === 'm.youtube.com') {
+      if (parsed.pathname === '/watch') return parsed.searchParams.get('v');
+      const shortsMatch = parsed.pathname.match(/^\/shorts\/([a-zA-Z0-9_-]{11})/);
+      if (shortsMatch) return shortsMatch[1];
+    }
+    if (host === 'youtu.be') {
+      return parsed.pathname.slice(1).split('/')[0] || null;
+    }
+  } catch {}
+  return null;
+}
+
 export async function fetchLinkMetadata(url) {
+  // YouTube: use oEmbed API for accurate metadata
+  const videoId = extractYouTubeVideoId(url);
+  if (videoId) {
+    try {
+      const oembedRes = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`);
+      if (oembedRes.ok) {
+        const oembed = await oembedRes.json();
+        return {
+          title: oembed.title,
+          description: oembed.author_name,
+          image: `https://img.youtube.com/vi/${videoId}/maxresdefault.jpg`,
+          siteName: 'YouTube',
+          url,
+          videoId,
+          isVideo: true
+        };
+      }
+    } catch (e) {
+      console.error('YouTube oEmbed failed, falling back to generic fetch:', e);
+    }
+  }
+
   try {
     const response = await fetch(url, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
       }
     });
-    
+
     if (!response.ok) {
       throw new Error(`HTTP error! status: ${response.status}`);
     }
-    
+
     const html = await response.text();
     const $ = cheerio.load(html);
-    
+
     // Extract Open Graph tags, fallback to standard meta tags
     const metadata = {
-      title: $('meta[property="og:title"]').attr('content') || 
+      title: $('meta[property="og:title"]').attr('content') ||
              $('meta[name="twitter:title"]').attr('content') ||
-             $('title').text() || 
+             $('title').text() ||
              url,
       description: $('meta[property="og:description"]').attr('content') ||
                    $('meta[name="twitter:description"]').attr('content') ||
-                   $('meta[name="description"]').attr('content') || 
+                   $('meta[name="description"]').attr('content') ||
                    '',
       image: $('meta[property="og:image"]').attr('content') ||
              $('meta[name="twitter:image"]').attr('content') ||
-             $('meta[name="twitter:image:src"]').attr('content') || 
+             $('meta[name="twitter:image:src"]').attr('content') ||
              '',
-      siteName: $('meta[property="og:site_name"]').attr('content') || 
+      siteName: $('meta[property="og:site_name"]').attr('content') ||
                 new URL(url).hostname.replace('www.', ''),
       url: url
     };
-    
+
     // Clean up description
     if (metadata.description) {
       metadata.description = metadata.description.trim().substring(0, 300);
     }
-    
+
     return metadata;
   } catch (error) {
     console.error('Error fetching link metadata:', error);

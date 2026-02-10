@@ -3638,21 +3638,43 @@ function createLinkCardPlaceholder(url) {
 
 function createLinkCard(cardData) {
   const card = document.createElement('div');
-  card.className = cardData.image ? 'link-card' : 'link-card link-card-no-image';
+  const isYouTube = cardData.isVideo && cardData.videoId;
+
+  if (isYouTube) {
+    card.className = 'link-card link-card-yt';
+    card.dataset.videoId = cardData.videoId;
+    card.dataset.isVideo = 'true';
+  } else {
+    card.className = cardData.image ? 'link-card' : 'link-card link-card-no-image';
+  }
+
   card.dataset.url = cardData.url;
   card.dataset.title = cardData.title;
   card.dataset.siteName = cardData.siteName;
   card.dataset.description = cardData.description || '';
-  
-  const cardContent = `
-    ${cardData.image ? `<div class="link-card-image" style="background-image: url('${cardData.image}')"></div>` : ''}
-    <div class="link-card-content">
-      <div class="link-card-site">${escapeHtml(cardData.siteName)}</div>
-      <div class="link-card-title">${escapeHtml(cardData.title)}</div>
-      ${cardData.description ? `<div class="link-card-description">${escapeHtml(cardData.description)}</div>` : ''}
-    </div>
-  `;
-  
+
+  let cardContent;
+  if (isYouTube) {
+    cardContent = `
+      <div class="link-card-yt-thumb" style="background-image: url('${cardData.image}')">
+        <div class="link-card-yt-play"><span></span></div>
+      </div>
+      <div class="link-card-content">
+        <div class="link-card-yt-channel">${escapeHtml(cardData.description || '')}</div>
+        <div class="link-card-title">${escapeHtml(cardData.title)}</div>
+      </div>
+    `;
+  } else {
+    cardContent = `
+      ${cardData.image ? `<div class="link-card-image" style="background-image: url('${cardData.image}')"></div>` : ''}
+      <div class="link-card-content">
+        <div class="link-card-site">${escapeHtml(cardData.siteName)}</div>
+        <div class="link-card-title">${escapeHtml(cardData.title)}</div>
+        ${cardData.description ? `<div class="link-card-description">${escapeHtml(cardData.description)}</div>` : ''}
+      </div>
+    `;
+  }
+
   card.innerHTML = cardContent;
   
   // Change cursor to pointer when hovering over link-card
