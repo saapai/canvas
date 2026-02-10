@@ -230,6 +230,53 @@ Respond ONLY with valid JSON in this exact format:
   }
 }
 
+export async function convertTextToLatex(text) {
+  try {
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a LaTeX expert that converts plain text and math expressions into proper LaTeX notation. Respond ONLY with valid JSON, no other text.'
+        },
+        {
+          role: 'user',
+          content: `Convert the following text into LaTeX notation. Convert math expressions, equations, Greek letters, operations, fractions, integrals, summations, matrices, and any mathematical notation into proper LaTeX.
+
+If the text is primarily a math expression or equation, wrap it in display math mode ($$...$$).
+If the text contains inline math mixed with regular text, wrap math parts in inline math mode ($...$) and keep regular text as-is.
+
+Text to convert:
+"${text}"
+
+Respond ONLY with valid JSON in this exact format:
+{
+  "latex": "the LaTeX source string",
+  "isFullMath": true
+}
+
+Where "isFullMath" is true if the entire content is mathematical, false if it's mixed text and math.`
+        }
+      ],
+      temperature: 0.1,
+      max_tokens: 1000
+    });
+
+    const content = completion.choices[0].message.content.trim();
+
+    let jsonStr = content;
+    const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/);
+    if (jsonMatch) {
+      jsonStr = jsonMatch[1];
+    }
+
+    return JSON.parse(jsonStr);
+  } catch (error) {
+    console.error('Error converting text to LaTeX:', error);
+    return { latex: text, isFullMath: false, error: error.message };
+  }
+}
+
 export async function extractDeadlinesFromFile(buffer, mimetype, originalname) {
   const deadlinePrompt = `Extract ALL deadlines, assignments, due dates, exams, and tasks from the following content.
 

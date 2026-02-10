@@ -114,10 +114,20 @@ export async function initDatabase() {
       console.log('Note: media_card_data column check:', error.message);
     }
 
+    // Add latex_data column if it doesn't exist (migration for LaTeX)
+    try {
+      await db.query(`
+        ALTER TABLE entries
+        ADD COLUMN IF NOT EXISTS latex_data JSONB;
+      `);
+    } catch (error) {
+      console.log('Note: latex_data column check:', error.message);
+    }
+
     // Add text_html column if it doesn't exist (migration for HTML formatting)
     try {
       await db.query(`
-        ALTER TABLE entries 
+        ALTER TABLE entries
         ADD COLUMN IF NOT EXISTS text_html TEXT;
       `);
       // Verify the column was added/exists
@@ -174,7 +184,7 @@ export async function getAllEntries(userId) {
     try {
       // Try to select with text_html column
       result = await db.query(
-        `SELECT id, text, text_html, position_x, position_y, parent_entry_id, link_cards_data, media_card_data
+        `SELECT id, text, text_html, position_x, position_y, parent_entry_id, link_cards_data, media_card_data, latex_data
          FROM entries
          WHERE user_id = $1 AND deleted_at IS NULL
          ORDER BY created_at ASC`,
@@ -204,9 +214,10 @@ export async function getAllEntries(userId) {
       position: { x: row.position_x, y: row.position_y },
       parentEntryId: row.parent_entry_id || null,
       linkCardsData: row.link_cards_data || null,
-      mediaCardData: row.media_card_data || null
+      mediaCardData: row.media_card_data || null,
+      latexData: row.latex_data || null
     }));
-    
+
     const withHtml = mapped.filter(e => e.textHtml);
     console.log(`[DB] getAllEntries: ${mapped.length} total, ${withHtml.length} with textHtml`);
     if (withHtml.length > 0) {
@@ -264,16 +275,17 @@ export async function saveEntry(entry) {
     const db = getPool();
     const linkCardsData = entry.linkCardsData ? JSON.stringify(entry.linkCardsData) : null;
     const mediaCardData = entry.mediaCardData ? JSON.stringify(entry.mediaCardData) : null;
-    
+    const latexData = entry.latexData ? JSON.stringify(entry.latexData) : null;
+
     // Try to save with text_html, but handle case where column might not exist yet
     let result;
     let textHtmlActuallySaved = false;
     try {
       result = await db.query(
-        `INSERT INTO entries (id, text, text_html, position_x, position_y, parent_entry_id, user_id, link_cards_data, media_card_data, updated_at, deleted_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, NULL)
-         ON CONFLICT (id) 
-         DO UPDATE SET 
+        `INSERT INTO entries (id, text, text_html, position_x, position_y, parent_entry_id, user_id, link_cards_data, media_card_data, latex_data, updated_at, deleted_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CURRENT_TIMESTAMP, NULL)
+         ON CONFLICT (id)
+         DO UPDATE SET
            text = EXCLUDED.text,
            text_html = EXCLUDED.text_html,
            position_x = EXCLUDED.position_x,
@@ -282,9 +294,10 @@ export async function saveEntry(entry) {
            user_id = EXCLUDED.user_id,
            link_cards_data = EXCLUDED.link_cards_data,
            media_card_data = EXCLUDED.media_card_data,
+           latex_data = EXCLUDED.latex_data,
            deleted_at = NULL,
            updated_at = CURRENT_TIMESTAMP`,
-        [entry.id, entry.text, entry.textHtml || null, entry.position.x, entry.position.y, entry.parentEntryId || null, entry.userId, linkCardsData, mediaCardData]
+        [entry.id, entry.text, entry.textHtml || null, entry.position.x, entry.position.y, entry.parentEntryId || null, entry.userId, linkCardsData, mediaCardData, latexData]
       );
       textHtmlActuallySaved = !!entry.textHtml; // Successfully saved with text_html column
       console.log('[DB] Successfully saved with text_html column');
@@ -400,11 +413,12 @@ export async function saveAllEntries(entries, userId) {
       for (const entry of entries) {
         const linkCardsData = entry.linkCardsData ? JSON.stringify(entry.linkCardsData) : null;
         const mediaCardData = entry.mediaCardData ? JSON.stringify(entry.mediaCardData) : null;
+        const latexData = entry.latexData ? JSON.stringify(entry.latexData) : null;
         await client.query(
-          `INSERT INTO entries (id, text, position_x, position_y, parent_entry_id, user_id, link_cards_data, media_card_data, updated_at, deleted_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, CURRENT_TIMESTAMP, NULL)
-           ON CONFLICT (id) 
-           DO UPDATE SET 
+          `INSERT INTO entries (id, text, position_x, position_y, parent_entry_id, user_id, link_cards_data, media_card_data, latex_data, updated_at, deleted_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, CURRENT_TIMESTAMP, NULL)
+           ON CONFLICT (id)
+           DO UPDATE SET
              text = EXCLUDED.text,
              position_x = EXCLUDED.position_x,
              position_y = EXCLUDED.position_y,
@@ -412,9 +426,10 @@ export async function saveAllEntries(entries, userId) {
              user_id = EXCLUDED.user_id,
              link_cards_data = EXCLUDED.link_cards_data,
              media_card_data = EXCLUDED.media_card_data,
+             latex_data = EXCLUDED.latex_data,
              deleted_at = NULL,
              updated_at = CURRENT_TIMESTAMP`,
-          [entry.id, entry.text, entry.position.x, entry.position.y, entry.parentEntryId || null, userId, linkCardsData, mediaCardData]
+          [entry.id, entry.text, entry.position.x, entry.position.y, entry.parentEntryId || null, userId, linkCardsData, mediaCardData, latexData]
         );
       }
       
@@ -515,7 +530,7 @@ export async function getEntriesByUsername(username) {
     try {
       // Try to select with text_html column
       result = await db.query(
-        `SELECT e.id, e.text, e.text_html, e.position_x, e.position_y, e.parent_entry_id, e.link_cards_data, e.media_card_data, e.created_at
+        `SELECT e.id, e.text, e.text_html, e.position_x, e.position_y, e.parent_entry_id, e.link_cards_data, e.media_card_data, e.latex_data, e.created_at
          FROM entries e
          JOIN users u ON e.user_id = u.id
          WHERE u.username = $1 AND e.deleted_at IS NULL
@@ -547,9 +562,10 @@ export async function getEntriesByUsername(username) {
       parentEntryId: row.parent_entry_id || null,
       linkCardsData: row.link_cards_data || null,
       mediaCardData: row.media_card_data || null,
+      latexData: row.latex_data || null,
       createdAt: row.created_at
     }));
-    
+
     const withHtml = mapped.filter(e => e.textHtml);
     console.log(`[DB] getEntriesByUsername: ${mapped.length} total, ${withHtml.length} with textHtml`);
     

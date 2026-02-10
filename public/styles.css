@@ -2499,3 +2499,62 @@ body::before{
     transform: translateY(0);
   }
 }
+
+/* LaTeX toggle button active state */
+#latex-toggle-button.active {
+  background: rgba(20, 184, 166, 0.15);
+  color: #0d9488;
+  font-weight: 600;
+}
+
+#latex-toggle-button.active:hover {
+  background: rgba(20, 184, 166, 0.22);
+}
+
+/* LaTeX rendered content */
+.latex-content {
+  line-height: 1.8;
+  padding: 4px 0;
+}
+
+.latex-content .katex-display {
+  margin: 0.5em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.latex-content .katex {
+  font-size: 1.1em;
+}
+
+/* LaTeX converting shimmer animation */
+.latex-converting {
+  position: relative;
+  overflow: hidden;
+}
+
+.latex-converting::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(20, 184, 166, 0.08) 50%,
+    transparent 100%
+  );
+  animation: latex-shimmer 1.5s ease-in-out infinite;
+}
+
+@keyframes latex-shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
+
+/* KaTeX display math overflow handling */
+.entry .katex-display > .katex {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 2px 0;
+}

@@ -9,7 +9,7 @@ import rateLimit from 'express-rate-limit';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-import { processTextWithLLM, fetchLinkMetadata, generateLinkCard, extractDeadlinesFromFile } from './llm.js';
+import { processTextWithLLM, fetchLinkMetadata, generateLinkCard, extractDeadlinesFromFile, convertTextToLatex } from './llm.js';
 import { chatWithCanvas } from './chat.js';
 import {
   initDatabase,
@@ -754,6 +754,20 @@ app.post('/api/extract-deadlines', requireAuth, upload.single('file'), async (re
   }
 });
 
+app.post('/api/convert-latex', requireAuth, async (req, res) => {
+  try {
+    const { text } = req.body;
+    if (!text || typeof text !== 'string') {
+      return res.status(400).json({ error: 'Text is required' });
+    }
+    const result = await convertTextToLatex(text);
+    res.json(result);
+  } catch (error) {
+    console.error('Error converting to LaTeX:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Search for movies using TMDB API
 app.get('/api/search/movies', async (req, res) => {
   try {
@@ -903,8 +917,8 @@ app.post('/api/entries', async (req, res) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });
     }
-    const { id, text, textHtml, position, parentEntryId, linkCardsData, mediaCardData, pageOwnerId } = req.body;
-    
+    const { id, text, textHtml, position, parentEntryId, linkCardsData, mediaCardData, latexData, pageOwnerId } = req.body;
+
     debugLog(`[SAVE] Received request for entry ${id}`);
     
     if (!id || !text || !position) {
@@ -945,6 +959,7 @@ app.post('/api/entries', async (req, res) => {
       parentEntryId: parentEntryId || null,
       linkCardsData: linkCardsData || null,
       mediaCardData: mediaCardData || null,
+      latexData: latexData || null,
       userId: targetUserId
     };
 
@@ -963,8 +978,8 @@ app.put('/api/entries/:id', async (req, res) => {
       return res.status(401).json({ error: 'Authentication required' });
     }
     const { id } = req.params;
-    const { text, textHtml, position, parentEntryId, linkCardsData, mediaCardData, pageOwnerId } = req.body;
-    
+    const { text, textHtml, position, parentEntryId, linkCardsData, mediaCardData, latexData, pageOwnerId } = req.body;
+
     debugLog(`[UPDATE] Received request for entry ${id}`);
     
     if (!text || !position) {
@@ -1003,6 +1018,7 @@ app.put('/api/entries/:id', async (req, res) => {
       parentEntryId: parentEntryId || null,
       linkCardsData: linkCardsData || null,
       mediaCardData: mediaCardData || null,
+      latexData: latexData || null,
       userId: targetUserId
     };
 

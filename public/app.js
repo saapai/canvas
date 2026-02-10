@@ -686,6 +686,9 @@ async function loadUserEntries(username, editable) {
         entry.classList.add('canvas-file');
         entry.innerHTML = '';
         entry.appendChild(createFileCard(entryData.mediaCardData));
+      } else if (entryData.latexData && entryData.latexData.enabled) {
+        // LaTeX entries: render via KaTeX
+        renderLatex(entryData.latexData.source, entry);
       } else {
         const { processedText, urls } = processTextWithLinks(entryData.text);
         if (entryData.textHtml && entryData.textHtml.includes('deadline-table')) {
@@ -747,6 +750,7 @@ async function loadUserEntries(username, editable) {
         element: entry,
         text: entryData.text,
         textHtml: entryData.textHtml,
+        latexData: entryData.latexData || null,
         position: entryData.position,
         parentEntryId: entryData.parentEntryId,
         linkCardsData: entryData.linkCardsData || [],
@@ -893,7 +897,7 @@ async function saveEntriesBatch(entriesToSave) {
       headers: {
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ 
+      body: JSON.stringify({
         entries: entriesToSave.map(entryData => ({
           id: entryData.id,
           text: entryData.text,
@@ -901,7 +905,8 @@ async function saveEntriesBatch(entriesToSave) {
           position: entryData.position,
           parentEntryId: entryData.parentEntryId,
           linkCardsData: entryData.linkCardsData || null,
-          mediaCardData: entryData.mediaCardData || null
+          mediaCardData: entryData.mediaCardData || null,
+          latexData: entryData.latexData || null
         })),
         pageOwnerId: window.PAGE_OWNER_ID
       })
@@ -935,9 +940,10 @@ async function saveEntryImmediate(entryData) {
     parentEntryId: entryData.parentEntryId,
     linkCardsData: entryData.linkCardsData || null,
     mediaCardData: entryData.mediaCardData || null,
+    latexData: entryData.latexData || null,
     pageOwnerId: window.PAGE_OWNER_ID
   };
-  
+
   try {
     const response = await fetch('/api/entries', {
       method: 'POST',
@@ -994,9 +1000,10 @@ async function updateEntryOnServer(entryData) {
     parentEntryId: entryData.parentEntryId,
     linkCardsData: entryData.linkCardsData || null,
     mediaCardData: entryData.mediaCardData || null,
+    latexData: entryData.latexData || null,
     pageOwnerId: window.PAGE_OWNER_ID // Include page owner's user ID
   };
-  
+
   console.log('[UPDATE] updateEntryOnServer called for:', entryData.id, 'textHtml:', payload.textHtml ? payload.textHtml.substring(0, 100) : 'null');
   
   try {
@@ -1270,9 +1277,11 @@ async function loadEntriesFromServer() {
       
       // Process text with links
       const { processedText, urls } = processTextWithLinks(entryData.text);
-      
-      // Use textHtml if available (preserves formatting), otherwise use processedText
-      if (entryData.textHtml && entryData.textHtml.includes('deadline-table')) {
+
+      // LaTeX entries: render via KaTeX
+      if (entryData.latexData && entryData.latexData.enabled) {
+        renderLatex(entryData.latexData.source, entry);
+      } else if (entryData.textHtml && entryData.textHtml.includes('deadline-table')) {
         entry.innerHTML = entryData.textHtml;
       } else if (processedText) {
         if (entryData.textHtml && /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(entryData.textHtml)) {
@@ -1285,18 +1294,19 @@ async function loadEntriesFromServer() {
       } else {
         entry.innerHTML = '';
       }
-      
+
       world.appendChild(entry);
-      
+
       // Update entry dimensions based on actual content after rendering
       updateEntryDimensions(entry);
-      
+
       // Store entry data
       const storedEntryData = {
         id: entryData.id,
         element: entry,
         text: entryData.text,
         textHtml: entryData.textHtml, // Preserve HTML formatting
+        latexData: entryData.latexData || null,
         position: entryData.position,
         parentEntryId: entryData.parentEntryId
       };
@@ -2500,7 +2510,13 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
   // Restore HTML formatting if available, otherwise use plain text
   if(entryId && entryId !== 'anchor'){
     const entryData = entries.get(entryId);
-    if(entryData && entryData.textHtml){
+    // LaTeX entries: load original plain text for editing, enable latex toggle
+    if(entryData && entryData.latexData && entryData.latexData.enabled){
+      editor.textContent = entryData.latexData.originalText || entryData.text;
+      latexModeEnabled = true;
+      const latexBtn = document.getElementById('latex-toggle-button');
+      if (latexBtn) latexBtn.classList.add('active');
+    } else if(entryData && entryData.textHtml){
       editor.innerHTML = entryData.textHtml;
       // Re-attach deadline table handlers when editing existing table
       if (entryData.textHtml.includes('deadline-table')) {
@@ -2710,10 +2726,31 @@ async function commitEditor(){
       entryData.textHtml = trimmedHtml;
       console.log('[COMMIT] Saving entryData.textHtml:', trimmedHtml ? trimmedHtml.substring(0, 200) : 'null');
       console.log('[COMMIT] entryData.textHtml length:', trimmedHtml ? trimmedHtml.length : 0);
-      
+
       // Remove editing class first so content is visible for melt animation
       entryData.element.classList.remove('editing');
-      
+
+      // LaTeX mode: convert and render
+      if (latexModeEnabled) {
+        entryData.element.classList.add('latex-converting');
+        const latexResult = await convertToLatex(trimmedRight);
+        entryData.element.classList.remove('latex-converting');
+        if (latexResult && latexResult.latex) {
+          entryData.latexData = {
+            enabled: true,
+            source: latexResult.latex,
+            originalText: trimmedRight
+          };
+          renderLatex(latexResult.latex, entryData.element);
+        } else {
+          // Fallback: render as normal text
+          entryData.latexData = null;
+          entryData.element.innerHTML = meltify(processedText || '');
+        }
+      } else {
+        // Clear latex data when latex mode is off
+        entryData.latexData = null;
+
       if (isDeadlineTable) {
         // Deadline tables: use raw HTML directly, no melt animation
         entryData.element.innerHTML = trimmedHtml;
@@ -2734,6 +2771,7 @@ async function commitEditor(){
           entryData.element.innerHTML = '';
         }
       }
+      } // end else (non-latex)
 
       // Generate and add cards for URLs
       if(urls.length > 0){
@@ -2858,6 +2896,26 @@ async function commitEditor(){
   entry.style.left = `${editorWorldPos.x}px`;
   entry.style.top  = `${editorWorldPos.y}px`;
 
+  let newEntryLatexData = null;
+
+  // LaTeX mode for new entries
+  if (latexModeEnabled && !isDeadlineTable) {
+    entry.classList.remove('melt');
+    entry.classList.add('latex-converting');
+    world.appendChild(entry);
+    const latexResult = await convertToLatex(trimmedRight);
+    entry.classList.remove('latex-converting');
+    if (latexResult && latexResult.latex) {
+      newEntryLatexData = {
+        enabled: true,
+        source: latexResult.latex,
+        originalText: trimmedRight
+      };
+      renderLatex(latexResult.latex, entry);
+    } else {
+      entry.innerHTML = meltify(processedText || '');
+    }
+  } else {
   // Only render text if there is any
   if (isDeadlineTable) {
     entry.innerHTML = trimmedHtml;
@@ -2873,7 +2931,8 @@ async function commitEditor(){
     entry.innerHTML = '';
   }
   world.appendChild(entry);
-  
+  }
+
   // Update entry dimensions based on actual content after rendering
   // Wait a bit for DOM to update
   setTimeout(() => {
@@ -2886,6 +2945,7 @@ async function commitEditor(){
     element: entry,
     text: trimmedRight,
     textHtml: trimmedHtml || null, // Store HTML to preserve formatting (null if no formatting)
+    latexData: newEntryLatexData,
     position: { x: editorWorldPos.x, y: editorWorldPos.y },
     parentEntryId: currentViewEntryId
   };
@@ -3286,6 +3346,57 @@ function meltify(text){
     idx++;
   }
   return out;
+}
+
+// LaTeX conversion helper: POST text to server, return { latex, isFullMath }
+async function convertToLatex(text) {
+  try {
+    const response = await fetch('/api/convert-latex', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text })
+    });
+    if (!response.ok) throw new Error('LaTeX conversion failed');
+    return await response.json();
+  } catch (error) {
+    console.error('[LATEX] Conversion error:', error);
+    return null;
+  }
+}
+
+// Render LaTeX source into an element using KaTeX
+function renderLatex(latexSource, element) {
+  // Wrap in a latex-content container
+  const container = document.createElement('div');
+  container.className = 'latex-content';
+  container.textContent = latexSource; // Set as text first, KaTeX will process
+
+  element.innerHTML = '';
+  element.appendChild(container);
+
+  // Guard: wait for KaTeX to be loaded
+  function doRender() {
+    if (typeof renderMathInElement === 'function') {
+      try {
+        renderMathInElement(container, {
+          delimiters: [
+            { left: '$$', right: '$$', display: true },
+            { left: '$', right: '$', display: false },
+            { left: '\\[', right: '\\]', display: true },
+            { left: '\\(', right: '\\)', display: false }
+          ],
+          throwOnError: false
+        });
+      } catch (e) {
+        console.error('[LATEX] KaTeX render error:', e);
+      }
+    } else {
+      // Retry after a short delay if KaTeX hasn't loaded yet
+      setTimeout(doRender, 200);
+    }
+  }
+  doRender();
 }
 
 function escapeHtml(s){
@@ -4728,6 +4839,7 @@ let autocompleteSelectedIndex = -1;
 let autocompleteResults = [];
 let autocompleteKeyboardNavigation = false; // Track if user used arrow keys to navigate
 let mediaAutocompleteEnabled = false; // Toggle for media autocomplete mode
+let latexModeEnabled = false; // Toggle for LaTeX conversion mode
 
 // Update editor width and entry border dimensions as content changes
 editor.addEventListener('input', () => {
@@ -5494,6 +5606,16 @@ if (toggleButton) {
     } else {
       hideAutocomplete(); // Hide autocomplete when switching to text mode
     }
+  });
+}
+
+// LaTeX toggle functionality
+const latexToggleButton = document.getElementById('latex-toggle-button');
+if (latexToggleButton) {
+  latexToggleButton.classList.toggle('active', latexModeEnabled);
+  latexToggleButton.addEventListener('click', () => {
+    latexModeEnabled = !latexModeEnabled;
+    latexToggleButton.classList.toggle('active', latexModeEnabled);
   });
 }
 
