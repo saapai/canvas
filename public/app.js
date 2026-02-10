@@ -2732,6 +2732,7 @@ async function commitEditor(){
 
       // LaTeX mode: convert and render
       if (latexModeEnabled) {
+        entryData.element.innerHTML = '';
         entryData.element.classList.add('latex-converting');
         const latexResult = await convertToLatex(trimmedRight);
         entryData.element.classList.remove('latex-converting');
@@ -3370,26 +3371,40 @@ function renderLatex(latexSource, element) {
   // Wrap in a latex-content container
   const container = document.createElement('div');
   container.className = 'latex-content';
-  container.textContent = latexSource; // Set as text first, KaTeX will process
 
   element.innerHTML = '';
   element.appendChild(container);
 
+  // Check if source has math delimiters already
+  const hasDelimiters = /\$\$|(?<!\$)\$(?!\$)|\\\\?\[|\\\\?\(/.test(latexSource);
+
   // Guard: wait for KaTeX to be loaded
   function doRender() {
-    if (typeof renderMathInElement === 'function') {
+    if (typeof katex !== 'undefined') {
       try {
-        renderMathInElement(container, {
-          delimiters: [
-            { left: '$$', right: '$$', display: true },
-            { left: '$', right: '$', display: false },
-            { left: '\\[', right: '\\]', display: true },
-            { left: '\\(', right: '\\)', display: false }
-          ],
-          throwOnError: false
-        });
+        if (hasDelimiters && typeof renderMathInElement === 'function') {
+          // Has delimiters - use renderMathInElement to parse mixed content
+          container.textContent = latexSource;
+          renderMathInElement(container, {
+            delimiters: [
+              { left: '$$', right: '$$', display: true },
+              { left: '$', right: '$', display: false },
+              { left: '\\[', right: '\\]', display: true },
+              { left: '\\(', right: '\\)', display: false }
+            ],
+            throwOnError: false
+          });
+        } else {
+          // No delimiters - render directly as a single math expression
+          katex.render(latexSource, container, {
+            displayMode: true,
+            throwOnError: false
+          });
+        }
       } catch (e) {
         console.error('[LATEX] KaTeX render error:', e);
+        // Fallback: show raw source
+        container.textContent = latexSource;
       }
     } else {
       // Retry after a short delay if KaTeX hasn't loaded yet
