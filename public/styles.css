@@ -1075,7 +1075,7 @@ body::before{
   top: 72px;
   right: 28px;
   height: 30px;
-  padding: 0 14px;
+  padding: 0 18px;
   border-radius: 999px;
   background: var(--paper);
   color: var(--ink);
@@ -1088,7 +1088,6 @@ body::before{
   z-index: 999;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   opacity: 0.6;
-  padding: 0;
 }
 
 .bg-picker-button:hover {
