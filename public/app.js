@@ -3435,8 +3435,8 @@ function renderLatex(latexSource, element) {
   element.innerHTML = '';
   element.appendChild(container);
 
-  // Check if source has math delimiters ($...$, $$...$$, \[...\], \(...\))
-  const hasDelimiters = /\$\$[\s\S]+?\$\$|\$[^$]+?\$|\\[\[\]]|\\[()]/.test(latexSource);
+  // Check if source has math delimiters ($...$, $$...$$, \[...\], \(...\), or \begin{env})
+  const hasDelimiters = /\$\$[\s\S]+?\$\$|\$[^$]+?\$|\\[\[\]]|\\[()]|\\begin\{/.test(latexSource);
 
   // Guard: wait for KaTeX to be loaded
   function doRender() {
@@ -3450,7 +3450,15 @@ function renderLatex(latexSource, element) {
               { left: '$$', right: '$$', display: true },
               { left: '\\[', right: '\\]', display: true },
               { left: '\\(', right: '\\)', display: false },
-              { left: '$', right: '$', display: false }
+              { left: '$', right: '$', display: false },
+              { left: '\\begin{equation}', right: '\\end{equation}', display: true },
+              { left: '\\begin{align}', right: '\\end{align}', display: true },
+              { left: '\\begin{aligned}', right: '\\end{aligned}', display: true },
+              { left: '\\begin{gather}', right: '\\end{gather}', display: true },
+              { left: '\\begin{cases}', right: '\\end{cases}', display: true },
+              { left: '\\begin{pmatrix}', right: '\\end{pmatrix}', display: true },
+              { left: '\\begin{bmatrix}', right: '\\end{bmatrix}', display: true },
+              { left: '\\begin{vmatrix}', right: '\\end{vmatrix}', display: true }
             ],
             ...katexOptions
           });
