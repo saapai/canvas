@@ -6,6 +6,7 @@ import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import rateLimit from 'express-rate-limit';
+import sharp from 'sharp';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -720,11 +721,26 @@ app.post('/api/upload-image', requireAuth, upload.single('file'), async (req, re
     if (!supabase) {
       return res.status(503).json({ error: 'Image storage not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.' });
     }
-    const ext = req.file.originalname.split('.').pop() || 'png';
+    let buffer = req.file.buffer;
+    let mime = req.file.mimetype;
+    let ext = (req.file.originalname.split('.').pop() || 'png').toLowerCase();
+
+    const isHeic = mime === 'image/heic' || mime === 'image/heif' || ext === 'heic' || ext === 'heif';
+    if (isHeic) {
+      try {
+        buffer = await sharp(req.file.buffer).jpeg({ quality: 90 }).toBuffer();
+        mime = 'image/jpeg';
+        ext = 'jpg';
+      } catch (err) {
+        console.error('[upload-image] HEIC conversion failed:', err);
+        return res.status(500).json({ error: 'Failed to convert HEIC image. Try a JPEG or PNG instead.' });
+      }
+    }
+
     const safeExt = /^[a-z0-9]+$/i.test(ext) ? ext : 'png';
     const path = `${req.user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${safeExt}`;
-    const { data, error } = await supabase.storage.from(supabaseBucket).upload(path, req.file.buffer, {
-      contentType: req.file.mimetype,
+    const { data, error } = await supabase.storage.from(supabaseBucket).upload(path, buffer, {
+      contentType: mime,
       upsert: false
     });
     if (error) {
@@ -739,13 +755,6 @@ app.post('/api/upload-image', requireAuth, upload.single('file'), async (req, re
   }
 });
 
-function isImageMimeOrExtension(mimetype, originalname) {
-  if (!mimetype && !originalname) return false;
-  if (mimetype && (mimetype.startsWith('image/') || ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/x-png', 'image/heic', 'image/heif'].includes(mimetype))) return true;
-  const ext = (originalname || '').split('.').pop()?.toLowerCase();
-  return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif'].includes(ext);
-}
-
 app.post('/api/upload-background-image', requireAuth, upload.single('file'), async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: 'Authentication required' });
@@ -757,11 +766,26 @@ app.post('/api/upload-background-image', requireAuth, upload.single('file'), asy
     if (!supabase) {
       return res.status(503).json({ error: 'Image storage not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.' });
     }
-    const ext = req.file.originalname.split('.').pop() || 'png';
+    let buffer = req.file.buffer;
+    let mime = req.file.mimetype;
+    let ext = (req.file.originalname.split('.').pop() || 'png').toLowerCase();
+
+    const isHeic = mime === 'image/heic' || mime === 'image/heif' || ext === 'heic' || ext === 'heif';
+    if (isHeic) {
+      try {
+        buffer = await sharp(req.file.buffer).jpeg({ quality: 90 }).toBuffer();
+        mime = 'image/jpeg';
+        ext = 'jpg';
+      } catch (err) {
+        console.error('[upload-background-image] HEIC conversion failed:', err);
+        return res.status(500).json({ error: 'Failed to convert HEIC image. Try a JPEG or PNG instead.' });
+      }
+    }
+
     const safeExt = /^[a-z0-9]+$/i.test(ext) ? ext : 'png';
     const path = `${req.user.id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${safeExt}`;
-    const { data, error } = await supabase.storage.from(supabaseBucket).upload(path, req.file.buffer, {
-      contentType: req.file.mimetype,
+    const { data, error } = await supabase.storage.from(supabaseBucket).upload(path, buffer, {
+      contentType: mime,
       upsert: false
     });
     if (error) {
