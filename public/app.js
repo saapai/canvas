@@ -7998,7 +7998,75 @@ function handleDeadlineTableKeydown(e) {
     return u ? 'canvas-bg-' + u : null;
   }
 
+  function uploadsStorageKey() {
+    const u = currentUser && currentUser.username;
+    return u ? 'canvas-bg-uploads-' + u : null;
+  }
+
+  // --- Uploaded images list (persisted in localStorage) ---
+  function getSavedUploads() {
+    const key = uploadsStorageKey();
+    if (!key) return [];
+    try {
+      return JSON.parse(localStorage.getItem(key)) || [];
+    } catch (e) { return []; }
+  }
+
+  function addSavedUpload(url) {
+    const key = uploadsStorageKey();
+    if (!key) return;
+    var uploads = getSavedUploads();
+    if (uploads.indexOf(url) === -1) {
+      uploads.push(url);
+      localStorage.setItem(key, JSON.stringify(uploads));
+    }
+  }
+
+  function removeSavedUpload(url) {
+    const key = uploadsStorageKey();
+    if (!key) return;
+    var uploads = getSavedUploads().filter(function(u) { return u !== url; });
+    localStorage.setItem(key, JSON.stringify(uploads));
+  }
+
+  // Build a thumbnail option element for an uploaded image
+  function createUploadedOption(url) {
+    var btn = document.createElement('button');
+    btn.className = 'bg-picker-option bg-picker-preset bg-picker-uploaded';
+    btn.setAttribute('data-bg', url);
+    btn.title = 'Uploaded image';
+    var img = document.createElement('img');
+    img.src = url;
+    img.alt = 'uploaded bg';
+    btn.appendChild(img);
+    // Remove button (x) on long-press / right-click
+    btn.addEventListener('contextmenu', function(e) {
+      e.preventDefault();
+      removeSavedUpload(url);
+      btn.remove();
+      // If this was the active bg, clear it
+      if (document.body.style.getPropertyValue('--bg-url') === 'url(' + url + ')') {
+        removeBg();
+        saveBg('none', null);
+        markActive(null);
+      }
+    });
+    return btn;
+  }
+
+  // Render saved uploads into the dropdown (before the upload button)
+  function renderSavedUploads() {
+    // Remove any existing uploaded options first
+    bgDropdown.querySelectorAll('.bg-picker-uploaded').forEach(function(el) { el.remove(); });
+    var uploads = getSavedUploads();
+    uploads.forEach(function(url) {
+      bgDropdown.insertBefore(createUploadedOption(url), bgUploadBtn);
+    });
+  }
+
+  // --- Core functions ---
   function loadBg() {
+    renderSavedUploads();
     const key = bgStorageKey();
     if (!key) return;
     try {
@@ -8035,13 +8103,41 @@ function handleDeadlineTableKeydown(e) {
     });
   }
 
+  // Read file as a data URL (fallback when server upload fails)
+  function fileToDataURL(file) {
+    return new Promise(function(resolve, reject) {
+      var reader = new FileReader();
+      reader.onload = function() { resolve(reader.result); };
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // Resize image client-side to keep data URLs reasonable
+  function resizeImage(dataUrl, maxWidth) {
+    return new Promise(function(resolve) {
+      var img = new Image();
+      img.onload = function() {
+        var w = img.width, h = img.height;
+        if (w <= maxWidth) { resolve(dataUrl); return; }
+        var ratio = maxWidth / w;
+        var canvas = document.createElement('canvas');
+        canvas.width = maxWidth;
+        canvas.height = Math.round(h * ratio);
+        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+        resolve(canvas.toDataURL('image/jpeg', 0.75));
+      };
+      img.src = dataUrl;
+    });
+  }
+
   // Toggle dropdown
   bgBtn.addEventListener('click', function(e) {
     e.stopPropagation();
     bgDropdown.classList.toggle('hidden');
   });
 
-  // Option clicks
+  // Option clicks (presets, none, uploaded, and upload button)
   bgDropdown.addEventListener('click', function(e) {
     var opt = e.target.closest('.bg-picker-option');
     if (!opt) return;
@@ -8055,7 +8151,7 @@ function handleDeadlineTableKeydown(e) {
       return; // don't close dropdown yet
     } else {
       applyBg(bg);
-      saveBg('preset', bg);
+      saveBg(opt.classList.contains('bg-picker-uploaded') ? 'upload' : 'preset', bg);
       markActive(bg);
     }
     bgDropdown.classList.add('hidden');
@@ -8066,22 +8162,42 @@ function handleDeadlineTableKeydown(e) {
     bgUploadInput.addEventListener('change', async function() {
       var file = bgUploadInput.files[0];
       if (!file) return;
+      bgDropdown.classList.add('hidden');
+
+      var finalUrl = null;
+
+      // 1. Try server upload first
       try {
         var form = new FormData();
         form.append('file', file);
         var res = await fetch('/api/upload-image', { method: 'POST', credentials: 'include', body: form });
-        if (!res.ok) throw new Error('Upload failed');
-        var data = await res.json();
-        if (data.url) {
-          applyBg(data.url);
-          saveBg('upload', data.url);
-          markActive(data.url);
+        if (res.ok) {
+          var data = await res.json();
+          if (data.url) finalUrl = data.url;
         }
       } catch (err) {
-        console.error('Background upload failed:', err);
+        console.warn('Background server upload failed, using local image:', err);
       }
+
+      // 2. Fallback: read as resized data URL
+      if (!finalUrl) {
+        try {
+          var raw = await fileToDataURL(file);
+          finalUrl = await resizeImage(raw, 1920);
+        } catch (err) {
+          console.error('Background image read failed:', err);
+        }
+      }
+
+      if (finalUrl) {
+        addSavedUpload(finalUrl);
+        renderSavedUploads();
+        applyBg(finalUrl);
+        saveBg('upload', finalUrl);
+        markActive(finalUrl);
+      }
+
       bgUploadInput.value = '';
-      bgDropdown.classList.add('hidden');
     });
   }
 
