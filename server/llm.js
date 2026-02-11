@@ -309,21 +309,23 @@ export async function extractDeadlinesFromFile(buffer, mimetype, originalname) {
   const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
   const todayFull = `${dayNames[pacificNow.getDay()]}, ${monthNames[pacificNow.getMonth()]} ${pacificNow.getDate()}, ${pacificNow.getFullYear()}`;
 
-  const deadlinePrompt = `IMPORTANT: Today's date is ${todayFull}. You MUST use this exact date as your reference when resolving relative terms like "today", "tomorrow", "next Monday", "this Thursday", "in 2 weeks", etc.
+  const deadlinePrompt = `IMPORTANT: Today's date is ${todayFull}. You MUST use this exact date as your reference when resolving ALL dates. The current year is ${pacificNow.getFullYear()}.
 
-For example, if today is Tuesday, February 10, 2026:
-- "today" = 2/10/2026
-- "tomorrow" = 2/11/2026
-- "Thursday" (this week) = 2/12/2026
-- "next Monday" = 2/16/2026
+RULES:
+1. Extract EVERY deadline, assignment, due date, exam, quiz, midterm, final, paper, essay, reading response, homework, project, presentation, and task with a specific or inferrable date.
+2. For recurring assignments (e.g. "weekly reading responses due every Tuesday", or a schedule showing the same type of assignment multiple times), number them sequentially: "Reading Response 1", "Reading Response 2", etc. or "Homework 1", "Homework 2", etc.
+3. Convert ALL dates to M/D/YYYY format. For dates shown as "T 2/10" or "Th 2/12" or "W 2/4" or "F 3/20", these are weekday abbreviations + month/day — convert to M/D/${pacificNow.getFullYear()} format.
+4. If a course schedule shows topics/readings assigned on specific dates with due dates on the following Tuesday (or another pattern described in the syllabus), create a deadline entry for each one.
+5. Look for patterns like "responses due on the Tuesday after assigned" — if a reading is assigned on T 1/13, the response is due T 1/20 (the next Tuesday).
+6. Include exams with their specific date and time in the notes field.
+7. Use the course name/number (e.g. "PSYCH 85", "PIC 10B") as the "class" value.
+8. Only include items from today (${todayFull}) onwards.
 
-Extract ALL deadlines, assignments, due dates, exams, and tasks from the following content.
-
-Return a JSON array of objects. Each object should have:
-- "assignment": the name/description of the assignment or task
-- "deadline": the due date in M/D/YYYY format (e.g. "2/11/2026", "3/15/2026"). Convert ALL dates including relative ones to this numeric M/D/YYYY format. If only a vague reference like "Week 3" with no specific date, keep as-is. Do NOT include day-of-week names.
-- "class": the course or class name if mentioned (empty string if not found)
-- "notes": any additional relevant details like weight/percentage, time, instructions, or location (empty string if none)
+Return a JSON array of objects with these fields:
+- "assignment": name of the assignment (use numbered names for recurring items, e.g. "Reading Response 3", "Homework 2", "Quiz 4")
+- "deadline": due date in M/D/YYYY format (e.g. "2/11/2026"). Do NOT include day-of-week names.
+- "class": course name/number (empty string if not found)
+- "notes": additional details like weight/percentage, time, location, reading name (empty string if none)
 
 If no deadlines are found, return an empty array.
 Respond ONLY with valid JSON: { "deadlines": [...] }`;
@@ -369,8 +371,8 @@ Respond ONLY with valid JSON: { "deadlines": [...] }`;
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages,
-      temperature: 0.2,
-      max_tokens: 2000
+      temperature: 0.1,
+      max_tokens: 4000
     });
 
     const content = completion.choices[0].message.content.trim();

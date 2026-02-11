@@ -5133,8 +5133,6 @@ viewport.addEventListener('dragover', (e) => {
 viewport.addEventListener('drop', async (e) => {
   if(isReadOnly) return;
   if(!e.dataTransfer.files || !e.dataTransfer.files.length) return;
-  const file = e.dataTransfer.files[0];
-  if(!file) return;
   e.preventDefault();
   e.stopPropagation();
 
@@ -5142,9 +5140,13 @@ viewport.addEventListener('drop', async (e) => {
   const targetTable = e.target.closest ? e.target.closest('.deadline-table') : null;
   const targetEntry = targetTable ? targetTable.closest('.entry') : null;
   if (targetTable && targetEntry && !targetTable.closest('#editor')) {
-    await extractDeadlinesIntoEntry(targetEntry, targetTable, file);
+    const allFiles = Array.from(e.dataTransfer.files);
+    await extractDeadlinesIntoEntry(targetEntry, targetTable, allFiles);
     return;
   }
+
+  const file = e.dataTransfer.files[0];
+  if(!file) return;
 
   // Image files: upload and create image entry (existing behavior)
   if (file.type.startsWith('image/')) {
@@ -5245,84 +5247,22 @@ function createFileCard(mediaData) {
   return card;
 }
 
-async function extractDeadlinesIntoEntry(entryEl, table, file) {
-  // Add loading overlay to the entry
+async function extractDeadlinesIntoEntry(entryEl, table, files) {
+  // Accept a single file or array of files
+  const fileList = Array.isArray(files) ? files : [files];
   entryEl.classList.add('deadline-extracting');
-  let overlay = table.querySelector('.deadline-loading-overlay');
-  if (!overlay) {
-    overlay = document.createElement('div');
-    overlay.className = 'deadline-loading-overlay';
-    overlay.innerHTML = '<div class="deadline-loading-spinner"></div><div class="deadline-loading-text">Extracting deadlines...</div>';
-    table.appendChild(overlay);
-  }
-  overlay.classList.add('active');
 
-  try {
-    const formData = new FormData();
-    formData.append('file', file);
-    const res = await fetch('/api/extract-deadlines', { method: 'POST', credentials: 'include', body: formData });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Extraction failed');
-    }
-    const data = await res.json();
-    // Filter to today onwards
-    if (data.deadlines) {
-      const todayMs = getPacificToday(); todayMs.setHours(0,0,0,0);
-      data.deadlines = data.deadlines.filter(d => {
-        const parsed = parseRawDeadlineDate(d.deadline);
-        return !parsed || parsed.getTime() >= todayMs.getTime();
-      });
-    }
-    if (!data.deadlines || data.deadlines.length === 0) {
-      overlay.querySelector('.deadline-loading-text').textContent = 'No deadlines found';
-      setTimeout(() => { overlay.classList.remove('active'); entryEl.classList.remove('deadline-extracting'); }, 1500);
-      return;
-    }
+  const promises = fileList.map(file => extractFileIntoTable(table, file));
+  await Promise.allSettled(promises);
 
-    // Remove existing empty rows
-    Array.from(table.querySelectorAll('.deadline-row')).forEach(row => {
-      if (isDeadlineRowEmpty(row)) row.remove();
-    });
+  entryEl.classList.remove('deadline-extracting');
 
-    // Add extracted rows
-    const ghostRow = table.querySelector('.deadline-ghost-row');
-    data.deadlines.forEach((d, i) => {
-      const row = document.createElement('div');
-      row.className = 'deadline-row';
-      row.innerHTML = getDeadlineRowHTML();
-      const nameCell = row.querySelector('.deadline-col-name');
-      const deadlineCell = row.querySelector('.deadline-col-deadline');
-      const classCell = row.querySelector('.deadline-col-class');
-      const notesCell = row.querySelector('.deadline-col-notes');
-      if (nameCell) nameCell.textContent = d.assignment || '';
-      if (deadlineCell) {
-        deadlineCell.dataset.rawDate = d.deadline || '';
-        deadlineCell.textContent = formatDeadlineDisplay(d.deadline);
-      }
-      if (classCell) classCell.textContent = d.class || '';
-      if (notesCell) notesCell.textContent = d.notes || '';
-
-
-      if (ghostRow) table.insertBefore(row, ghostRow);
-      else table.appendChild(row);
-    });
-
-    sortDeadlineRows(table);
-    overlay.classList.remove('active');
-    entryEl.classList.remove('deadline-extracting');
-
-    // Save updated entry
-    const entryData = entries.get(entryEl.id);
-    if (entryData) {
-      entryData.text = entryEl.innerText;
-      entryData.textHtml = entryEl.innerHTML;
-      await updateEntryOnServer(entryData);
-    }
-  } catch (err) {
-    console.error('Deadline extraction failed:', err);
-    overlay.querySelector('.deadline-loading-text').textContent = err.message || 'Extraction failed';
-    setTimeout(() => { overlay.classList.remove('active'); entryEl.classList.remove('deadline-extracting'); }, 2000);
+  // Save updated entry
+  const entryData = entries.get(entryEl.id);
+  if (entryData) {
+    entryData.text = entryEl.innerText;
+    entryData.textHtml = entryEl.innerHTML;
+    await updateEntryOnServer(entryData);
   }
 }
 
@@ -7513,7 +7453,7 @@ function getPacificToday() {
 function parseRawDeadlineDate(raw) {
   if (!raw || !raw.trim()) return null;
   const s = raw.trim();
-  const year = new Date().getFullYear();
+  const year = getPacificToday().getFullYear();
   const months = {
     jan:0,january:0,feb:1,february:1,mar:2,march:2,apr:3,april:3,
     may:4,jun:5,june:5,jul:6,july:6,aug:7,august:7,sep:8,september:8,
@@ -7686,6 +7626,96 @@ function uncompleteDeadlineRow(row, table) {
   saveDeadlineTableState(table);
 }
 
+async function extractFileIntoTable(table, file) {
+  // Show or update loading overlay
+  let overlay = table.querySelector('.deadline-loading-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.className = 'deadline-loading-overlay';
+    overlay.innerHTML = '<div class="deadline-loading-spinner"></div><div class="deadline-loading-text">Extracting deadlines...</div>';
+    table.appendChild(overlay);
+  }
+  // Track active extraction count so overlay stays visible until all finish
+  table._extractionCount = (table._extractionCount || 0) + 1;
+  overlay.querySelector('.deadline-loading-text').textContent =
+    table._extractionCount > 1 ? `Extracting (${table._extractionCount} files)...` : 'Extracting deadlines...';
+  overlay.classList.add('active');
+
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const res = await fetch('/api/extract-deadlines', {
+      method: 'POST',
+      credentials: 'include',
+      body: formData
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || 'Failed to extract deadlines');
+    }
+
+    const data = await res.json();
+    // Filter to today onwards
+    if (data.deadlines) {
+      const todayMs = getPacificToday(); todayMs.setHours(0,0,0,0);
+      data.deadlines = data.deadlines.filter(d => {
+        const parsed = parseRawDeadlineDate(d.deadline);
+        return !parsed || parsed.getTime() >= todayMs.getTime();
+      });
+    }
+
+    if (!data.deadlines || data.deadlines.length === 0) {
+      table._extractionCount--;
+      if (table._extractionCount <= 0) {
+        overlay.querySelector('.deadline-loading-text').textContent = 'No deadlines found';
+        setTimeout(() => overlay.classList.remove('active'), 1500);
+      }
+      return;
+    }
+
+    // Remove empty rows before adding first batch
+    Array.from(table.querySelectorAll('.deadline-row')).forEach(row => {
+      if (isDeadlineRowEmpty(row)) row.remove();
+    });
+
+    // Add rows from extracted deadlines
+    const ghostRow = table.querySelector('.deadline-ghost-row');
+    data.deadlines.forEach(d => {
+      const row = document.createElement('div');
+      row.className = 'deadline-row';
+      row.innerHTML = getDeadlineRowHTML();
+      const nameCell = row.querySelector('.deadline-col-name');
+      const deadlineCell = row.querySelector('.deadline-col-deadline');
+      const classCell = row.querySelector('.deadline-col-class');
+      const notesCell = row.querySelector('.deadline-col-notes');
+      if (nameCell) nameCell.textContent = d.assignment || '';
+      if (deadlineCell) {
+        deadlineCell.dataset.rawDate = d.deadline || '';
+        deadlineCell.textContent = formatDeadlineDisplay(d.deadline);
+      }
+      if (classCell) classCell.textContent = d.class || '';
+      if (notesCell) notesCell.textContent = d.notes || '';
+      if (ghostRow) table.insertBefore(row, ghostRow);
+      else table.appendChild(row);
+    });
+
+    sortDeadlineRows(table);
+    table._extractionCount--;
+    if (table._extractionCount <= 0) {
+      overlay.classList.remove('active');
+    }
+  } catch (err) {
+    console.error('Deadline extraction error:', err);
+    table._extractionCount--;
+    if (table._extractionCount <= 0) {
+      overlay.querySelector('.deadline-loading-text').textContent = err.message || 'Extraction failed';
+      setTimeout(() => overlay.classList.remove('active'), 2000);
+    }
+  }
+}
+
 function saveDeadlineTableState(table) {
   const entry = table.closest('.entry');
   if (!entry) return;
@@ -7854,89 +7884,12 @@ function setupDeadlineTableHandlers(table) {
     e.stopPropagation();
     table.classList.remove('deadline-drop-active');
 
-    const file = e.dataTransfer.files[0];
-    if (!file) return;
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length === 0) return;
 
-    // Show loading overlay
-    let overlay = table.querySelector('.deadline-loading-overlay');
-    if (!overlay) {
-      overlay = document.createElement('div');
-      overlay.className = 'deadline-loading-overlay';
-      overlay.innerHTML = '<div class="deadline-loading-spinner"></div><div class="deadline-loading-text">Extracting deadlines...</div>';
-      table.appendChild(overlay);
-    }
-    overlay.classList.add('active');
-
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-
-      const res = await fetch('/api/extract-deadlines', {
-        method: 'POST',
-        credentials: 'include',
-        body: formData
-      });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || 'Failed to extract deadlines');
-      }
-
-      const data = await res.json();
-      // Filter to today onwards
-      if (data.deadlines) {
-        const todayMs = getPacificToday(); todayMs.setHours(0,0,0,0);
-        data.deadlines = data.deadlines.filter(d => {
-          const parsed = parseRawDeadlineDate(d.deadline);
-          return !parsed || parsed.getTime() >= todayMs.getTime();
-        });
-      }
-      if (!data.deadlines || data.deadlines.length === 0) {
-        overlay.querySelector('.deadline-loading-text').textContent = 'No deadlines found in file';
-        setTimeout(() => overlay.classList.remove('active'), 1500);
-        return;
-      }
-
-      // Remove empty rows before populating
-      const existingRows = Array.from(table.querySelectorAll('.deadline-row'));
-      existingRows.forEach(row => {
-        if (isDeadlineRowEmpty(row)) row.remove();
-      });
-
-      // Add rows from extracted deadlines
-      const ghostRow = table.querySelector('.deadline-ghost-row');
-      data.deadlines.forEach((d, i) => {
-        const row = document.createElement('div');
-        row.className = 'deadline-row';
-        row.innerHTML = getDeadlineRowHTML();
-        const nameCell = row.querySelector('.deadline-col-name');
-        const deadlineCell = row.querySelector('.deadline-col-deadline');
-        const classCell = row.querySelector('.deadline-col-class');
-        const notesCell = row.querySelector('.deadline-col-notes');
-        if (nameCell) nameCell.textContent = d.assignment || '';
-        if (deadlineCell) {
-          deadlineCell.dataset.rawDate = d.deadline || '';
-          deadlineCell.textContent = formatDeadlineDisplay(d.deadline);
-        }
-        if (classCell) classCell.textContent = d.class || '';
-        if (notesCell) notesCell.textContent = d.notes || '';
-
-  
-
-        if (ghostRow) {
-          table.insertBefore(row, ghostRow);
-        } else {
-          table.appendChild(row);
-        }
-      });
-
-      sortDeadlineRows(table);
-      overlay.classList.remove('active');
-    } catch (err) {
-      console.error('Deadline extraction error:', err);
-      overlay.querySelector('.deadline-loading-text').textContent = err.message || 'Extraction failed';
-      setTimeout(() => overlay.classList.remove('active'), 2000);
-    }
+    // Process each file concurrently — results append to table as they arrive
+    const promises = files.map(file => extractFileIntoTable(table, file));
+    await Promise.allSettled(promises);
   });
 }
 
