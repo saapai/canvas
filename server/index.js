@@ -713,9 +713,9 @@ app.post('/api/upload-image', requireAuth, upload.single('file'), async (req, re
   try {
     if (!req.user) return res.status(401).json({ error: 'Authentication required' });
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif'];
     if (!allowed.includes(req.file.mimetype)) {
-      return res.status(400).json({ error: 'Invalid file type. Use JPEG, PNG, GIF, or WebP.' });
+      return res.status(400).json({ error: 'Invalid file type. Use JPEG, PNG, GIF, WebP, or HEIC.' });
     }
     if (!supabase) {
       return res.status(503).json({ error: 'Image storage not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.' });
@@ -741,18 +741,18 @@ app.post('/api/upload-image', requireAuth, upload.single('file'), async (req, re
 
 function isImageMimeOrExtension(mimetype, originalname) {
   if (!mimetype && !originalname) return false;
-  if (mimetype && (mimetype.startsWith('image/') || ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/x-png'].includes(mimetype))) return true;
+  if (mimetype && (mimetype.startsWith('image/') || ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/x-png', 'image/heic', 'image/heif'].includes(mimetype))) return true;
   const ext = (originalname || '').split('.').pop()?.toLowerCase();
-  return ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
+  return ['jpg', 'jpeg', 'png', 'gif', 'webp', 'heic', 'heif'].includes(ext);
 }
 
 app.post('/api/upload-background-image', requireAuth, upload.single('file'), async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: 'Authentication required' });
     if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif'];
     if (!allowed.includes(req.file.mimetype)) {
-      return res.status(400).json({ error: 'Invalid file type. Use JPEG, PNG, GIF, or WebP.' });
+      return res.status(400).json({ error: 'Invalid file type. Use JPEG, PNG, GIF, WebP, or HEIC.' });
     }
     if (!supabase) {
       return res.status(503).json({ error: 'Image storage not configured. Set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.' });
