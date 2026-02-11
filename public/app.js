@@ -4014,6 +4014,10 @@ viewport.addEventListener('mousedown', (e) => {
     const trimmedRight = raw.replace(/\s+$/g,'');
     const htmlContent = editor.innerHTML;
     if(entryData) {
+      const hasCards =
+        !!entryData.mediaCardData ||
+        (Array.isArray(entryData.linkCardsData) && entryData.linkCardsData.length > 0) ||
+        !!entryData.element.querySelector('.link-card, .link-card-placeholder, .media-card');
       entryData.element.classList.remove('editing', 'deadline-editing');
       if(trimmedRight) {
         const isDeadline = htmlContent.includes('deadline-table');
@@ -4022,7 +4026,7 @@ viewport.addEventListener('mousedown', (e) => {
         entryData.textHtml = hasFmt ? htmlContent : null;
         if(isDeadline) {
           entryData.element.innerHTML = htmlContent;
-        } else {
+        } else if (!hasCards) {
           const { processedText } = processTextWithLinks(trimmedRight);
           entryData.element.innerHTML = hasFmt ? meltifyHtml(htmlContent) : meltify(processedText || '');
         }
