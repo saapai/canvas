@@ -1139,7 +1139,7 @@ async function deleteEntryWithConfirmation(entryId, skipConfirmation = false, sk
         saveUndoState('delete', { entries: [deletedEntry] });
       }
       
-      entryData.element.classList.remove('editing');
+      entryData.element.classList.remove('editing', 'deadline-editing');
       entryData.element.remove();
       entries.delete(entryId);
       await deleteEntryFromServer(entryId);
@@ -1201,7 +1201,7 @@ async function deleteEntryWithConfirmation(entryId, skipConfirmation = false, sk
       }
       
       // Then delete the parent entry
-      entryData.element.classList.remove('editing');
+      entryData.element.classList.remove('editing', 'deadline-editing');
       entryData.element.remove();
       entries.delete(entryId);
       await deleteEntryFromServer(entryId);
@@ -1723,7 +1723,7 @@ function navigateToEntry(entryId) {
   if (editingEntryId && editingEntryId !== 'anchor') {
     const entryData = entries.get(editingEntryId);
     if (entryData && entryData.element) {
-      entryData.element.classList.remove('editing');
+      entryData.element.classList.remove('editing', 'deadline-editing');
     }
     editingEntryId = null;
   }
@@ -1830,7 +1830,7 @@ function navigateBack(level = 1) {
   if (editingEntryId && editingEntryId !== 'anchor') {
     const entryData = entries.get(editingEntryId);
     if (entryData && entryData.element) {
-      entryData.element.classList.remove('editing');
+      entryData.element.classList.remove('editing', 'deadline-editing');
     }
     editingEntryId = null;
   }
@@ -1944,7 +1944,7 @@ function navigateToRoot() {
   if (editingEntryId && editingEntryId !== 'anchor') {
     const entryData = entries.get(editingEntryId);
     if (entryData && entryData.element) {
-      entryData.element.classList.remove('editing');
+      entryData.element.classList.remove('editing', 'deadline-editing');
     }
     editingEntryId = null;
   }
@@ -2497,21 +2497,19 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
   editorWorldPos = { x: wx, y: wy };
   editingEntryId = entryId;
   
-  // Remove editing class from any previously editing entry
-  const previousEditing = document.querySelector('.entry.editing');
-  if(previousEditing){
-    previousEditing.classList.remove('editing');
+  const previousEditing = document.querySelector('.entry.editing, .entry.deadline-editing');
+  if (previousEditing) {
+    previousEditing.classList.remove('editing', 'deadline-editing');
   }
   
-  // Add editing class to current entry if editing
   if(entryId && entryId !== 'anchor'){
     const entryData = entries.get(entryId);
     if(entryData && entryData.element){
-      entryData.element.classList.add('editing');
-      // Set initial border dimensions after a brief delay to ensure editor is sized
-      setTimeout(() => {
-        updateEditingBorderDimensions(entryData.element);
-      }, 0);
+      const isDeadline = entryData.textHtml && entryData.textHtml.includes('deadline-table');
+      entryData.element.classList.add(isDeadline ? 'deadline-editing' : 'editing');
+      if (!isDeadline) {
+        setTimeout(() => updateEditingBorderDimensions(entryData.element), 0);
+      }
     }
   }
   
@@ -2761,7 +2759,7 @@ async function commitEditor(){
       console.log('[COMMIT] entryData.textHtml length:', trimmedHtml ? trimmedHtml.length : 0);
 
       // Remove editing class first so content is visible for melt animation
-      entryData.element.classList.remove('editing');
+      entryData.element.classList.remove('editing', 'deadline-editing');
 
       // LaTeX mode: convert and render
       if (latexModeEnabled) {
@@ -3055,7 +3053,7 @@ async function commitEditor(){
   if(editingEntryId && editingEntryId !== 'anchor'){
     const entryData = entries.get(editingEntryId);
     if(entryData && entryData.element){
-      entryData.element.classList.remove('editing');
+      entryData.element.classList.remove('editing', 'deadline-editing');
     }
   }
   
@@ -3989,13 +3987,16 @@ viewport.addEventListener('mousedown', (e) => {
     const isLinkCard = e.target.closest('.link-card, .link-card-placeholder');
     const isMediaCard = e.target.closest('.media-card');
 
-    // If clicking on interactive deadline table elements, don't start drag — let clicks through
-    const deadlineInteractive = e.target.closest('.deadline-dot, .status-badge, .status-option, .status-dropdown, .deadline-ghost-row');
     const deadlineTable = entryEl.querySelector('.deadline-table');
-    const deadlineEditable = deadlineTable && e.target.closest('[contenteditable="true"]') && deadlineTable.contains(e.target);
-    if (deadlineInteractive || deadlineEditable) {
-      isProcessingClick = false;
-      selectOnlyEntry(entryEl.id);
+    const onDeadlineHeader = deadlineTable && e.target.closest('.deadline-header');
+    if (deadlineTable && !onDeadlineHeader && !e.shiftKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      const dot = e.target.closest('.deadline-dot');
+      const row = dot ? dot.closest('.deadline-row') : null;
+      const allRows = deadlineTable ? Array.from(deadlineTable.querySelectorAll('.deadline-row')) : [];
+      const clickedDotRowIndex = dot && row ? allRows.indexOf(row) : -1;
+      clickStart = { x: e.clientX, y: e.clientY, t: performance.now(), entryEl, button: e.button, isDeadlineTable: true, clientX: e.clientX, clientY: e.clientY, target: e.target, clickedDotRowIndex };
       return;
     }
 
@@ -4276,12 +4277,17 @@ window.addEventListener('mouseup', async (e) => {
             if(isImageEntry(draggingEntry) || isFileEntry(draggingEntry)) {
               selectOnlyEntry(draggingEntry.id);
             } else if(draggingEntry.querySelector('.deadline-table')) {
-              if (editor && (editor.textContent.trim() || editingEntryId)) {
-                await commitEditor();
+              if (e.shiftKey) {
+                selectedEntries.add(draggingEntry.id);
+                draggingEntry.classList.add('selected');
+              } else {
+                if (editor && (editor.textContent.trim() || editingEntryId)) {
+                  await commitEditor();
+                }
+                const rect = draggingEntry.getBoundingClientRect();
+                const worldPos = screenToWorld(rect.left, rect.top);
+                placeEditorAtWorld(worldPos.x, worldPos.y, entryData.text, draggingEntry.id);
               }
-              const rect = draggingEntry.getBoundingClientRect();
-              const worldPos = screenToWorld(rect.left, rect.top);
-              placeEditorAtWorld(worldPos.x, worldPos.y, entryData.text, draggingEntry.id);
             } else {
               // If currently editing, commit first and wait for it to complete
               if (editor && (editor.textContent.trim() || editingEntryId)) {
@@ -4430,54 +4436,72 @@ window.addEventListener('mouseup', async (e) => {
     }
     clickStart = null;
   } else if(clickStart && clickStart.entryEl) {
-    // Handle click on entry (not dragging) - this happens when clicking on link/media cards
-    // Skip navigation if this was a right-click (button 2) - let contextmenu handle it
-    if(e.button !== 2 && clickStart.button !== 2) {
+    if (e.button !== 2 && clickStart.button !== 2) {
       const dist = Math.hypot(e.clientX - clickStart.x, e.clientY - clickStart.y);
       const dt = performance.now() - clickStart.t;
       const isClick = (dist < dragThreshold && dt < 350);
-      
-      if(isClick) {
+
+      if (isClick && clickStart.isDeadlineTable) {
         const entryEl = clickStart.entryEl;
-        if(isImageEntry(entryEl) || isFileEntry(entryEl)) {
+        const entryData = entries.get(entryEl.id);
+        if (entryData && entryEl.id && entryEl.id !== 'anchor') {
+          if (editor && (editor.textContent.trim() || editingEntryId)) {
+            await commitEditor();
+          }
+          const rect = entryEl.getBoundingClientRect();
+          const worldPos = screenToWorld(rect.left, rect.top);
+          placeEditorAtWorld(worldPos.x, worldPos.y, entryData.text, entryEl.id);
+          requestAnimationFrame(() => {
+            const table = editor.querySelector('.deadline-table');
+            if (table) {
+              if (clickStart.clickedDotRowIndex >= 0) {
+                const rows = table.querySelectorAll('.deadline-row');
+                const row = rows[clickStart.clickedDotRowIndex];
+                if (row) {
+                  const dot = row.querySelector('.deadline-dot');
+                  if (dot) dot.click();
+                }
+              } else {
+                focusNearestDeadlineCell(table, clickStart.clientX, clickStart.clientY);
+              }
+            }
+          });
+        }
+        clickStart = null;
+        return;
+      }
+
+      if (isClick) {
+        const entryEl = clickStart.entryEl;
+        if (isImageEntry(entryEl) || isFileEntry(entryEl)) {
           selectOnlyEntry(entryEl.id);
+          clickStart = null;
           return;
         }
-        if((e.metaKey || e.ctrlKey) && entryEl.id !== 'anchor' && entryEl.id) {
+        if ((e.metaKey || e.ctrlKey) && entryEl.id !== 'anchor' && entryEl.id) {
           const entryData = entries.get(entryEl.id);
-          if(entryData) {
+          if (entryData) {
             const urls = extractUrls(entryData.text);
-            if(urls.length > 0) {
-              window.open(urls[0], '_blank');
-            }
+            if (urls.length > 0) window.open(urls[0], '_blank');
           }
-        } else if(entryEl.id !== 'anchor' && entryEl.id && !editingEntryId) {
+        } else if (entryEl.id !== 'anchor' && entryEl.id && !editingEntryId && !entryEl.querySelector('.deadline-table')) {
           navigateToEntry(entryEl.id);
         }
       }
     }
-    
     clickStart = null;
   }
 });
 
-// Double click to navigate to entry (open subpage)
 viewport.addEventListener('dblclick', (e) => {
   if (isReadOnly) return;
-  
-  // Cancel any pending edit from single click
   if (pendingEditTimeout) {
     clearTimeout(pendingEditTimeout);
     pendingEditTimeout = null;
   }
-  
   const entryEl = findEntryElement(e.target);
-  
-  // Don't navigate if clicking on link card or media card (they handle their own clicks)
-  if (e.target.closest('.link-card, .link-card-placeholder, .media-card')) {
-    return;
-  }
-  
+  if (e.target.closest('.link-card, .link-card-placeholder, .media-card')) return;
+  if (entryEl && entryEl.querySelector('.deadline-table')) return;
   if (entryEl && entryEl.id !== 'anchor' && entryEl.id && !editingEntryId) {
     e.preventDefault();
     e.stopPropagation();
@@ -4820,7 +4844,7 @@ editor.addEventListener('keydown', (e) => {
     if(editingEntryId && editingEntryId !== 'anchor'){
       const entryData = entries.get(editingEntryId);
       if(entryData && entryData.element){
-        entryData.element.classList.remove('editing');
+        entryData.element.classList.remove('editing', 'deadline-editing');
       }
     }
 
@@ -6791,7 +6815,7 @@ function selectAutocompleteResult(result) {
       // Replace existing entry with media card
       // Remove existing content
       entryData.element.innerHTML = '';
-      entryData.element.classList.remove('editing');
+      entryData.element.classList.remove('editing', 'deadline-editing');
       
       // Update entry data
       entryData.text = ''; // Clear text - title is in mediaCardData
@@ -7669,8 +7693,7 @@ function setupDeadlineTableHandlers(table) {
       const cell = e.target.closest('[contenteditable="true"]');
       if (!cell && !e.target.closest('button')) {
         e.preventDefault();
-        const first = table.querySelector('[contenteditable="true"]');
-        if (first) first.focus();
+        focusNearestDeadlineCell(table, e.clientX, e.clientY);
       }
     }
   });
@@ -7758,16 +7781,14 @@ function setupDeadlineTableHandlers(table) {
       return;
     }
 
-    // Close any open dropdowns when clicking elsewhere; clear row-selected (except on triple-click)
+    // Close any open dropdowns when clicking elsewhere
     table.querySelectorAll('.status-dropdown.open').forEach(d => d.classList.remove('open'));
-    if (e.detail !== 3) table.querySelectorAll('.deadline-row-selected').forEach(r => r.classList.remove('deadline-row-selected'));
   });
 
   table.addEventListener('dblclick', (e) => {
     const cell = e.target.closest('[contenteditable="true"]');
     if (!cell) return;
     e.preventDefault();
-    table.querySelectorAll('.deadline-row-selected').forEach(r => r.classList.remove('deadline-row-selected'));
     const range = document.createRange();
     range.selectNodeContents(cell);
     const sel = window.getSelection();
@@ -7775,41 +7796,24 @@ function setupDeadlineTableHandlers(table) {
     sel.addRange(range);
   });
 
-  table.addEventListener('click', (e) => {
-    if (e.detail === 3) {
-      const cell = e.target.closest('[contenteditable="true"]');
-      if (!cell) return;
-      e.preventDefault();
-      const row = cell.closest('.deadline-row');
-      if (row) {
-        table.querySelectorAll('.deadline-row-selected').forEach(r => r.classList.remove('deadline-row-selected'));
-        row.classList.add('deadline-row-selected');
-        const range = document.createRange();
-        const cells = getDeadlineEditableCells(row);
-        const lastCell = cells[cells.length - 1];
-        range.setStart(cells[0], 0);
-        range.setEnd(lastCell, lastCell.childNodes.length);
-        const sel = window.getSelection();
-        sel.removeAllRanges();
-        sel.addRange(range);
-      }
-    }
-  }, true);
-
-  // When a user manually edits a deadline cell, parse, format, and re-sort
   table.addEventListener('focusout', (e) => {
     const cell = e.target.closest('.deadline-col-deadline');
-    if (!cell) return;
-    const text = cell.textContent.trim();
-    if (!text) { delete cell.dataset.rawDate; return; }
-    if (cell.dataset.rawDate && formatDeadlineDisplay(cell.dataset.rawDate) === text) return;
-    const parsed = parseRawDeadlineDate(text);
-    if (parsed) {
-      const raw = `${parsed.getMonth()+1}/${parsed.getDate()}/${parsed.getFullYear()}`;
-      cell.dataset.rawDate = raw;
-      cell.textContent = formatDeadlineDisplay(raw);
-      sortDeadlineRows(table);
+    if (cell) {
+      const text = cell.textContent.trim();
+      if (!text) { delete cell.dataset.rawDate; }
+      else if (!(cell.dataset.rawDate && formatDeadlineDisplay(cell.dataset.rawDate) === text)) {
+        const parsed = parseRawDeadlineDate(text);
+        if (parsed) {
+          const raw = `${parsed.getMonth()+1}/${parsed.getDate()}/${parsed.getFullYear()}`;
+          cell.dataset.rawDate = raw;
+          cell.textContent = formatDeadlineDisplay(raw);
+        }
+      }
     }
+    setTimeout(() => {
+      refreshDeadlineDates(table);
+      sortDeadlineRows(table);
+    }, 0);
   });
 
   // Drag and drop onto deadline table in editor to populate rows.
@@ -7964,6 +7968,35 @@ async function insertDeadlinesTemplate() {
   }
 }
 
+function focusNearestDeadlineCell(table, clientX, clientY) {
+  const cells = Array.from(table.querySelectorAll('.deadline-col-name, .deadline-col-deadline, .deadline-col-class, .deadline-col-notes'));
+  if (cells.length === 0) return;
+  let nearest = cells[0];
+  let minDist = Infinity;
+  for (const cell of cells) {
+    const r = cell.getBoundingClientRect();
+    const cx = r.left + r.width / 2;
+    const cy = r.top + r.height / 2;
+    const d = (clientX - cx) ** 2 + (clientY - cy) ** 2;
+    if (d < minDist) { minDist = d; nearest = cell; }
+  }
+  nearest.focus();
+  const range = document.createRange();
+  const sel = window.getSelection();
+  if (document.caretRangeFromPoint) {
+    const cr = document.caretRangeFromPoint(clientX, clientY);
+    if (cr && nearest.contains(cr.startContainer)) {
+      sel.removeAllRanges();
+      sel.addRange(cr);
+      return;
+    }
+  }
+  range.selectNodeContents(nearest);
+  range.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
 function getDeadlineEditableCells(row) {
   return Array.from(row.querySelectorAll('.deadline-col-name, .deadline-col-deadline, .deadline-col-class, .deadline-col-notes'));
 }
@@ -8041,7 +8074,6 @@ function handleDeadlineTableKeydown(e) {
   if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
     if (cell) {
       e.preventDefault();
-      deadlineTable.querySelectorAll('.deadline-row-selected').forEach(r => r.classList.remove('deadline-row-selected'));
       const range = document.createRange();
       range.selectNodeContents(cell);
       const sel = window.getSelection();
@@ -8051,29 +8083,8 @@ function handleDeadlineTableKeydown(e) {
     return;
   }
 
-  // Backspace/Delete: delete row if whole row is selected, else default or empty-cell behavior
+  // Backspace/Delete: empty cell or empty row
   if (e.key === 'Backspace' || e.key === 'Delete') {
-    if (currentRow && currentRow.classList.contains('deadline-row-selected')) {
-      e.preventDefault();
-      currentRow.classList.remove('deadline-row-selected');
-      const allRows = Array.from(deadlineTable.querySelectorAll('.deadline-row'));
-      if (allRows.length <= 1) {
-        editor.innerHTML = '';
-        setTimeout(() => commitEditor(), 0);
-      } else {
-        const idx = activeRows.indexOf(currentRow);
-        currentRow.remove();
-        const remaining = getDeadlineActiveRows(deadlineTable);
-        const focusRow = remaining[Math.min(idx, remaining.length - 1)] || remaining[0];
-        if (focusRow) {
-          const focusCell = getDeadlineEditableCells(focusRow)[0];
-          if (focusCell) focusCell.focus();
-        }
-      }
-      const entry = deadlineTable.closest('.entry');
-      if (entry) saveDeadlineTableState(deadlineTable);
-      return;
-    }
     if (cell && cell.textContent === '') {
       e.preventDefault();
       const row = cell.closest('.deadline-row');
@@ -8157,13 +8168,20 @@ function handleDeadlineTableKeydown(e) {
     } catch (e) { return []; }
   }
 
+  var DATA_URL_SIZE_LIMIT = 400000;
+
   function addSavedUpload(url) {
     const key = uploadsStorageKey();
     if (!key) return;
-    var uploads = getSavedUploads();
-    if (uploads.indexOf(url) === -1) {
-      uploads.push(url);
-      localStorage.setItem(key, JSON.stringify(uploads));
+    if (typeof url === 'string' && url.startsWith('data:') && url.length > DATA_URL_SIZE_LIMIT) return;
+    try {
+      var uploads = getSavedUploads();
+      if (uploads.indexOf(url) === -1) {
+        uploads.push(url);
+        localStorage.setItem(key, JSON.stringify(uploads));
+      }
+    } catch (e) {
+      if (e.name === 'QuotaExceededError') showBgError('Storage full. Background set for this session only.');
     }
   }
 
@@ -8176,6 +8194,7 @@ function handleDeadlineTableKeydown(e) {
 
   // Build a thumbnail option element for an uploaded image
   function createUploadedOption(url) {
+    if (!url || typeof url !== 'string' || (!url.startsWith('http') && !url.startsWith('data:'))) return null;
     var btn = document.createElement('button');
     btn.className = 'bg-picker-option bg-picker-preset bg-picker-uploaded';
     btn.setAttribute('data-bg', url);
@@ -8183,13 +8202,21 @@ function handleDeadlineTableKeydown(e) {
     var img = document.createElement('img');
     img.src = url;
     img.alt = 'uploaded bg';
+    img.onerror = function() {
+      removeSavedUpload(url);
+      if (document.body.style.getPropertyValue('--bg-url') === 'url(' + url + ')') {
+        removeBg();
+        saveBg('none', null);
+        markActive(null);
+      }
+      btn.remove();
+      renderSavedUploads();
+    };
     btn.appendChild(img);
-    // Remove button (x) on long-press / right-click
     btn.addEventListener('contextmenu', function(e) {
       e.preventDefault();
       removeSavedUpload(url);
       btn.remove();
-      // If this was the active bg, clear it
       if (document.body.style.getPropertyValue('--bg-url') === 'url(' + url + ')') {
         removeBg();
         saveBg('none', null);
@@ -8201,11 +8228,13 @@ function handleDeadlineTableKeydown(e) {
 
   // Render saved uploads into the dropdown (before the upload button)
   function renderSavedUploads() {
-    // Remove any existing uploaded options first
     bgDropdown.querySelectorAll('.bg-picker-uploaded').forEach(function(el) { el.remove(); });
-    var uploads = getSavedUploads();
+    var uploads = getSavedUploads().filter(function(u) {
+      return typeof u === 'string' && (u.startsWith('http') || (u.startsWith('data:') && u.length < DATA_URL_SIZE_LIMIT));
+    });
     uploads.forEach(function(url) {
-      bgDropdown.insertBefore(createUploadedOption(url), bgUploadBtn);
+      var opt = createUploadedOption(url);
+      if (opt) bgDropdown.insertBefore(opt, bgUploadBtn);
     });
   }
 
@@ -8228,7 +8257,12 @@ function handleDeadlineTableKeydown(e) {
   function saveBg(type, url) {
     const key = bgStorageKey();
     if (!key) return;
-    localStorage.setItem(key, JSON.stringify({ type: type, url: url || null }));
+    if (url && typeof url === 'string' && url.startsWith('data:') && url.length > DATA_URL_SIZE_LIMIT) return;
+    try {
+      localStorage.setItem(key, JSON.stringify({ type: type, url: url || null }));
+    } catch (e) {
+      if (e.name === 'QuotaExceededError') showBgError('Storage full. Background set for this session only.');
+    }
   }
 
   function applyBg(url) {
@@ -8351,6 +8385,7 @@ function handleDeadlineTableKeydown(e) {
         saveBg('upload', finalUrl);
         markActive(finalUrl);
         if (serverError) showBgError(serverError + ' Image is set on this device only.');
+        if (finalUrl.startsWith('data:') && finalUrl.length > DATA_URL_SIZE_LIMIT) showBgError('Image set for this session only (too large to save).');
       } else {
         showBgError(serverError);
       }

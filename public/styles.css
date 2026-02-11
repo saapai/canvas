@@ -1185,6 +1185,18 @@ body::before{
   display: block;
 }
 
+.bg-picker-uploaded-failed {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.5rem;
+}
+
+.bg-picker-uploaded-label {
+  font-size: 0.65rem;
+  color: var(--muted, #888);
+}
+
 /* Background image on body - cream overlay + image */
 body.has-bg-image {
   background:
@@ -2297,14 +2309,16 @@ body.has-bg-image::before {
 }
 
 /* Editing border should tightly wrap the table */
-.entry.editing:has(.deadline-table) {
+/* Deadline table: no blue border when editing; hide entry content only */
+.entry.editing:has(.deadline-table),
+.entry.deadline-editing:has(.deadline-table) {
   padding: 0;
-  border: 2px solid rgba(59, 130, 246, 0.3);
+  border: none;
   border-radius: 6px;
 }
 
-/* Aggressively hide entry content during editing to prevent silhouette/ghost */
-.entry.editing:has(.deadline-table) > * {
+.entry.editing:has(.deadline-table) > *,
+.entry.deadline-editing:has(.deadline-table) > * {
   opacity: 0 !important;
   visibility: hidden !important;
   pointer-events: none !important;
@@ -2349,10 +2363,6 @@ body.has-bg-image::before {
 
 .deadline-row:hover {
   background: rgba(0, 0, 0, 0.015);
-}
-
-.deadline-row.deadline-row-selected {
-  background: rgba(59, 130, 246, 0.12);
 }
 
 .deadline-col-check {
