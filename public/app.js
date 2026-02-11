@@ -7542,12 +7542,41 @@ function ensureCompletedSection(table) {
     const divider = document.createElement('div');
     divider.className = 'deadline-completed-divider';
     divider.textContent = 'Completed';
+    divider.addEventListener('click', () => {
+      divider.classList.toggle('expanded');
+      const sec = table.querySelector('.deadline-completed-section');
+      if (sec) sec.classList.toggle('expanded');
+    });
     const section = document.createElement('div');
     section.className = 'deadline-completed-section';
     table.appendChild(divider);
     table.appendChild(section);
   }
   return table.querySelector('.deadline-completed-section');
+}
+
+function hideOrShowCompletedSection(table) {
+  const section = table.querySelector('.deadline-completed-section');
+  const divider = table.querySelector('.deadline-completed-divider');
+  if (!section || !divider) return;
+  const empty = section.children.length === 0;
+  section.style.display = empty ? 'none' : '';
+  divider.style.display = empty ? 'none' : '';
+}
+
+function findSortedInsertPosition(table, row) {
+  const completedSection = table.querySelector('.deadline-completed-section');
+  const ghostRow = table.querySelector('.deadline-ghost-row');
+  const completedDivider = table.querySelector('.deadline-completed-divider');
+  const activeRows = Array.from(table.querySelectorAll('.deadline-row')).filter(r => !completedSection || !completedSection.contains(r));
+  const newCell = row.querySelector('.deadline-col-deadline');
+  const newTime = parseDeadlineDateForSort(newCell?.textContent, newCell);
+  for (const existing of activeRows) {
+    const cell = existing.querySelector('.deadline-col-deadline');
+    const t = parseDeadlineDateForSort(cell?.textContent, cell);
+    if (newTime < t) return existing;
+  }
+  return ghostRow || completedDivider || null;
 }
 
 function completeDeadlineRow(row, table) {
@@ -7559,10 +7588,7 @@ function completeDeadlineRow(row, table) {
     row.classList.remove('completing');
     row.classList.add('deadline-row-enter');
     section.appendChild(row);
-    // Hide divider+section if empty
-    const divider = table.querySelector('.deadline-completed-divider');
-    if (section.children.length === 0) { section.style.display = 'none'; if (divider) divider.style.display = 'none'; }
-    else { section.style.display = ''; if (divider) divider.style.display = ''; }
+    hideOrShowCompletedSection(table);
     saveDeadlineTableState(table);
   }, 350);
 }
@@ -7571,16 +7597,15 @@ function uncompleteDeadlineRow(row, table) {
   const dot = row.querySelector('.deadline-dot');
   if (dot) dot.classList.remove('checked');
   row.classList.add('uncompleting');
-  const ghostRow = table.querySelector('.deadline-ghost-row');
-  const completedDivider = table.querySelector('.deadline-completed-divider');
-  // Insert before ghost row or completed divider
-  const insertBefore = ghostRow || completedDivider || null;
+  const insertBefore = findSortedInsertPosition(table, row);
   if (insertBefore) table.insertBefore(row, insertBefore);
-  else table.appendChild(row);
+  else {
+    const ghost = table.querySelector('.deadline-ghost-row');
+    if (ghost) table.insertBefore(row, ghost);
+    else table.appendChild(row);
+  }
   setTimeout(() => row.classList.remove('uncompleting'), 300);
-  const section = table.querySelector('.deadline-completed-section');
-  const divider = table.querySelector('.deadline-completed-divider');
-  if (section && section.children.length === 0) { section.style.display = 'none'; if (divider) divider.style.display = 'none'; }
+  hideOrShowCompletedSection(table);
   saveDeadlineTableState(table);
 }
 
@@ -7618,13 +7643,16 @@ function setupDeadlineTableHandlers(table) {
     cb.replaceWith(dot);
   });
 
-  // Ensure completed section exists for rows that are already completed
-  const completedSection = table.querySelector('.deadline-completed-section');
-  const divider = table.querySelector('.deadline-completed-divider');
-  if (completedSection && completedSection.children.length === 0) {
-    if (completedSection) completedSection.style.display = 'none';
-    if (divider) divider.style.display = 'none';
+  // Wire up existing completed divider toggle if present in saved HTML
+  const existingDivider = table.querySelector('.deadline-completed-divider');
+  if (existingDivider) {
+    existingDivider.addEventListener('click', () => {
+      existingDivider.classList.toggle('expanded');
+      const sec = table.querySelector('.deadline-completed-section');
+      if (sec) sec.classList.toggle('expanded');
+    });
   }
+  hideOrShowCompletedSection(table);
 
   // Event delegation for clicks within the table
   table.addEventListener('click', (e) => {
@@ -7684,7 +7712,7 @@ function setupDeadlineTableHandlers(table) {
     table.querySelectorAll('.status-dropdown.open').forEach(d => d.classList.remove('open'));
   });
 
-  // When a user manually edits a deadline cell, parse and store raw date on blur
+  // When a user manually edits a deadline cell, parse, format, and re-sort
   table.addEventListener('focusout', (e) => {
     const cell = e.target.closest('.deadline-col-deadline');
     if (!cell) return;
@@ -7697,6 +7725,14 @@ function setupDeadlineTableHandlers(table) {
       const raw = `${parsed.getMonth()+1}/${parsed.getDate()}/${parsed.getFullYear()}`;
       cell.dataset.rawDate = raw;
       cell.textContent = formatDeadlineDisplay(raw);
+      // Re-sort the row into position
+      const row = cell.closest('.deadline-row');
+      if (row) {
+        const insertBefore = findSortedInsertPosition(table, row);
+        if (insertBefore && insertBefore !== row && insertBefore !== row.nextElementSibling) {
+          table.insertBefore(row, insertBefore);
+        }
+      }
     }
   });
 
@@ -7905,19 +7941,32 @@ function handleDeadlineTableKeydown(e) {
 
   e.preventDefault();
 
+  // Cmd/Ctrl+Enter: always commit
+  if (e.metaKey || e.ctrlKey) {
+    setTimeout(() => commitEditor(), 0);
+    return;
+  }
+
   const currentRow = target.closest('.deadline-row');
   if (!currentRow) return;
 
   const table = currentRow.closest('.deadline-table');
-  const allRows = Array.from(table.querySelectorAll('.deadline-row'));
-  const isLastRow = currentRow === allRows[allRows.length - 1];
+  const completedSection = table.querySelector('.deadline-completed-section');
+  const allRows = Array.from(table.querySelectorAll('.deadline-row')).filter(r => !completedSection || !completedSection.contains(r));
+  const currentIndex = allRows.indexOf(currentRow);
+  const rowsBelow = allRows.slice(currentIndex + 1);
 
-  if (isLastRow) {
-    addDeadlineRow(table);
-  } else {
-    // Commit the entry
-    setTimeout(() => commitEditor(), 0);
+  // Check if any row below has an empty editable cell
+  for (const row of rowsBelow) {
+    const emptyCell = row.querySelector('.deadline-col-name:empty, .deadline-col-deadline:empty, .deadline-col-class:empty');
+    if (emptyCell) {
+      emptyCell.focus();
+      return;
+    }
   }
+
+  // No filled row below or at the end — add a new row
+  addDeadlineRow(table);
 }
 
 bootstrap();
