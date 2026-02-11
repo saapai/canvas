@@ -8217,79 +8217,65 @@ function handleDeadlineTableKeydown(e) {
   const bgUploadInput = document.getElementById('bg-upload-input');
   if (!bgBtn || !bgDropdown) return;
 
-  function bgStorageKey() {
-    const u = currentUser && currentUser.username;
-    return u ? 'canvas-bg-' + u : null;
+  // Session state (loaded from API)
+  var _bgUrl = null;
+  var _bgUploads = [];
+  var _saveTimer = null;
+
+  // --- Image preload verification ---
+  function preloadImage(url) {
+    return new Promise(function(resolve, reject) {
+      var img = new Image();
+      img.onload = function() { resolve(url); };
+      img.onerror = function() { reject(new Error('Image failed to load')); };
+      img.src = url;
+    });
   }
 
-  function uploadsStorageKey() {
-    const u = currentUser && currentUser.username;
-    return u ? 'canvas-bg-uploads-' + u : null;
-  }
-
-  // --- Uploaded images list (persisted in localStorage) ---
-  function getSavedUploads() {
-    const key = uploadsStorageKey();
-    if (!key) return [];
-    try {
-      return JSON.parse(localStorage.getItem(key)) || [];
-    } catch (e) { return []; }
-  }
-
-  var DATA_URL_SIZE_LIMIT = 400000;
-
-  function addSavedUpload(url) {
-    const key = uploadsStorageKey();
-    if (!key) return;
-    if (typeof url === 'string' && url.startsWith('data:') && url.length > DATA_URL_SIZE_LIMIT) return;
-    try {
-      var uploads = getSavedUploads();
-      if (uploads.indexOf(url) === -1) {
-        uploads.push(url);
-        localStorage.setItem(key, JSON.stringify(uploads));
-      }
-    } catch (e) {
-      if (e.name === 'QuotaExceededError') showBgError('Storage full. Background set for this session only.');
-    }
-  }
-
-  function removeSavedUpload(url) {
-    const key = uploadsStorageKey();
-    if (!key) return;
-    var uploads = getSavedUploads().filter(function(u) { return u !== url; });
-    localStorage.setItem(key, JSON.stringify(uploads));
+  // --- API persistence ---
+  function saveBgToAPI() {
+    clearTimeout(_saveTimer);
+    _saveTimer = setTimeout(function() {
+      fetch('/api/user/background', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bgUrl: _bgUrl, bgUploads: _bgUploads })
+      }).catch(function(err) { console.warn('Failed to save background:', err); });
+    }, 200);
   }
 
   // Build a thumbnail option element for an uploaded image
   function createUploadedOption(url) {
-    if (!url || typeof url !== 'string' || (!url.startsWith('http') && !url.startsWith('data:'))) return null;
+    if (!url || typeof url !== 'string' || !url.startsWith('http')) return null;
     var btn = document.createElement('button');
     btn.className = 'bg-picker-option bg-picker-preset bg-picker-uploaded';
     btn.setAttribute('data-bg', url);
-    btn.title = 'Uploaded image';
+    btn.title = 'Uploaded image (right-click to remove)';
     var img = document.createElement('img');
     img.src = url;
     img.alt = 'uploaded bg';
     img.onerror = function() {
-      removeSavedUpload(url);
-      if (document.body.style.getPropertyValue('--bg-url') === 'url(' + url + ')') {
+      _bgUploads = _bgUploads.filter(function(u) { return u !== url; });
+      if (_bgUrl === url) {
+        _bgUrl = null;
         removeBg();
-        saveBg('none', null);
         markActive(null);
       }
       btn.remove();
-      renderSavedUploads();
+      saveBgToAPI();
     };
     btn.appendChild(img);
     btn.addEventListener('contextmenu', function(e) {
       e.preventDefault();
-      removeSavedUpload(url);
+      _bgUploads = _bgUploads.filter(function(u) { return u !== url; });
       btn.remove();
-      if (document.body.style.getPropertyValue('--bg-url') === 'url(' + url + ')') {
+      if (_bgUrl === url) {
+        _bgUrl = null;
         removeBg();
-        saveBg('none', null);
         markActive(null);
       }
+      saveBgToAPI();
     });
     return btn;
   }
@@ -8297,10 +8283,7 @@ function handleDeadlineTableKeydown(e) {
   // Render saved uploads into the dropdown (before the upload button)
   function renderSavedUploads() {
     bgDropdown.querySelectorAll('.bg-picker-uploaded').forEach(function(el) { el.remove(); });
-    var uploads = getSavedUploads().filter(function(u) {
-      return typeof u === 'string' && (u.startsWith('http') || (u.startsWith('data:') && u.length < DATA_URL_SIZE_LIMIT));
-    });
-    uploads.forEach(function(url) {
+    _bgUploads.forEach(function(url) {
       var opt = createUploadedOption(url);
       if (opt) bgDropdown.insertBefore(opt, bgUploadBtn);
     });
@@ -8308,33 +8291,29 @@ function handleDeadlineTableKeydown(e) {
 
   // --- Core functions ---
   function loadBg() {
-    renderSavedUploads();
-    const key = bgStorageKey();
-    if (!key) return;
-    try {
-      const raw = localStorage.getItem(key);
-      if (!raw) return;
-      const data = JSON.parse(raw);
-      if (data && data.type !== 'none' && data.url) {
-        applyBg(data.url);
-        markActive(data.url);
-      }
-    } catch (e) { /* ignore */ }
-  }
-
-  function saveBg(type, url) {
-    const key = bgStorageKey();
-    if (!key) return;
-    if (url && typeof url === 'string' && url.startsWith('data:') && url.length > DATA_URL_SIZE_LIMIT) return;
-    try {
-      localStorage.setItem(key, JSON.stringify({ type: type, url: url || null }));
-    } catch (e) {
-      if (e.name === 'QuotaExceededError') showBgError('Storage full. Background set for this session only.');
-    }
+    fetch('/api/user/background', { credentials: 'include' })
+      .then(function(res) { return res.ok ? res.json() : null; })
+      .then(function(data) {
+        if (!data) return;
+        _bgUrl = data.bgUrl || null;
+        _bgUploads = Array.isArray(data.bgUploads) ? data.bgUploads.filter(function(u) { return typeof u === 'string' && u.startsWith('http'); }) : [];
+        renderSavedUploads();
+        if (_bgUrl) {
+          preloadImage(_bgUrl).then(function() {
+            applyBg(_bgUrl);
+            markActive(_bgUrl);
+          }).catch(function() {
+            console.warn('Background image failed to load:', _bgUrl);
+            _bgUrl = null;
+            saveBgToAPI();
+          });
+        }
+      })
+      .catch(function(err) { console.warn('Failed to load background settings:', err); });
   }
 
   function applyBg(url) {
-    document.body.style.setProperty('--bg-url', 'url(' + url + ')');
+    document.body.style.setProperty('--bg-url', "url('" + url + "')");
     document.body.classList.add('has-bg-image');
   }
 
@@ -8347,34 +8326,6 @@ function handleDeadlineTableKeydown(e) {
     bgDropdown.querySelectorAll('.bg-picker-option').forEach(function(opt) {
       var bg = opt.getAttribute('data-bg');
       opt.classList.toggle('active', bg === (url || 'none'));
-    });
-  }
-
-  // Read file as a data URL (fallback when server upload fails)
-  function fileToDataURL(file) {
-    return new Promise(function(resolve, reject) {
-      var reader = new FileReader();
-      reader.onload = function() { resolve(reader.result); };
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  }
-
-  // Resize image client-side to keep data URLs reasonable
-  function resizeImage(dataUrl, maxWidth) {
-    return new Promise(function(resolve) {
-      var img = new Image();
-      img.onload = function() {
-        var w = img.width, h = img.height;
-        if (w <= maxWidth) { resolve(dataUrl); return; }
-        var ratio = maxWidth / w;
-        var canvas = document.createElement('canvas');
-        canvas.width = maxWidth;
-        canvas.height = Math.round(h * ratio);
-        canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-        resolve(canvas.toDataURL('image/jpeg', 0.75));
-      };
-      img.src = dataUrl;
     });
   }
 
@@ -8391,22 +8342,28 @@ function handleDeadlineTableKeydown(e) {
     var bg = opt.getAttribute('data-bg');
     if (bg === 'none') {
       removeBg();
-      saveBg('none', null);
+      _bgUrl = null;
+      saveBgToAPI();
       markActive(null);
     } else if (opt.id === 'bg-upload-btn') {
       bgUploadInput.click();
       return; // don't close dropdown yet
     } else {
-      applyBg(bg);
-      saveBg(opt.classList.contains('bg-picker-uploaded') ? 'upload' : 'preset', bg);
-      markActive(bg);
+      preloadImage(bg).then(function() {
+        applyBg(bg);
+        _bgUrl = bg;
+        saveBgToAPI();
+        markActive(bg);
+      }).catch(function() {
+        alert('Background image failed to load.');
+      });
     }
     bgDropdown.classList.add('hidden');
   });
 
   function showBgError(msg) {
     if (typeof msg === 'string' && msg) alert('Background upload: ' + msg);
-    else alert('Background upload failed. Try another image or check you’re signed in.');
+    else alert('Background upload failed. Try another image or check you\u2019re signed in.');
   }
 
   // Upload handler
@@ -8419,7 +8376,7 @@ function handleDeadlineTableKeydown(e) {
       var finalUrl = null;
       var serverError = null;
 
-      // 1. Try server upload first (same bucket, path tagged as backgrounds/)
+      // Try server upload
       try {
         var form = new FormData();
         form.append('file', file);
@@ -8436,27 +8393,30 @@ function handleDeadlineTableKeydown(e) {
         serverError = 'Network error';
       }
 
-      // 2. Fallback: read as resized data URL
       if (!finalUrl) {
-        try {
-          var raw = await fileToDataURL(file);
-          finalUrl = await resizeImage(raw, 1920);
-        } catch (err) {
-          console.error('Background image read failed:', err);
-        }
+        showBgError(serverError || 'Upload failed');
+        bgUploadInput.value = '';
+        return;
       }
 
-      if (finalUrl) {
-        addSavedUpload(finalUrl);
-        renderSavedUploads();
-        applyBg(finalUrl);
-        saveBg('upload', finalUrl);
-        markActive(finalUrl);
-        if (serverError) showBgError(serverError + ' Image is set on this device only.');
-        if (finalUrl.startsWith('data:') && finalUrl.length > DATA_URL_SIZE_LIMIT) showBgError('Image set for this session only (too large to save).');
-      } else {
-        showBgError(serverError);
+      // Verify the image actually loads before applying
+      try {
+        await preloadImage(finalUrl);
+      } catch (err) {
+        showBgError('Uploaded image could not be loaded. The storage bucket may not be publicly accessible.');
+        bgUploadInput.value = '';
+        return;
       }
+
+      // Add to uploads list and apply
+      if (_bgUploads.indexOf(finalUrl) === -1) {
+        _bgUploads.push(finalUrl);
+      }
+      _bgUrl = finalUrl;
+      renderSavedUploads();
+      applyBg(finalUrl);
+      markActive(finalUrl);
+      saveBgToAPI();
 
       bgUploadInput.value = '';
     });

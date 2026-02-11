@@ -28,7 +28,8 @@ import {
   isUsernameTaken,
   setUsername,
   getStats,
-  getPool
+  getPool,
+  setUserBackground
 } from './db.js';
 import jwt from 'jsonwebtoken';
 
@@ -510,6 +511,34 @@ app.get('/api/auth/me', async (req, res) => {
     phone: req.user.phone,
     username: req.user.username
   });
+});
+
+// Background settings endpoints
+app.get('/api/user/background', requireAuth, async (req, res) => {
+  try {
+    const user = await getUserById(req.user.id);
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({ bgUrl: user.bg_url || null, bgUploads: user.bg_uploads || [] });
+  } catch (error) {
+    console.error('Error fetching background:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put('/api/user/background', requireAuth, async (req, res) => {
+  try {
+    const { bgUrl, bgUploads } = req.body;
+    if (bgUploads !== undefined) {
+      if (!Array.isArray(bgUploads) || bgUploads.length > 20 || !bgUploads.every(u => typeof u === 'string')) {
+        return res.status(400).json({ error: 'bgUploads must be an array of up to 20 strings' });
+      }
+    }
+    await setUserBackground(req.user.id, bgUrl || null, bgUploads || []);
+    res.json({ ok: true });
+  } catch (error) {
+    console.error('Error saving background:', error);
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // Get all spaces/usernames for the current user

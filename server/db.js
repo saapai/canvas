@@ -188,6 +188,14 @@ export async function initDatabase() {
       console.log('Note: latex_data column check:', error.message);
     }
 
+    // Add background settings columns to users table
+    try {
+      await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS bg_url TEXT;`);
+      await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS bg_uploads JSONB DEFAULT '[]'::jsonb;`);
+    } catch (error) {
+      console.log('Note: bg columns migration:', error.message);
+    }
+
     dbInitialized = true;
     console.log('Database initialized successfully');
   } catch (error) {
@@ -451,7 +459,7 @@ export async function getUserById(id) {
   try {
     const db = getPool();
     const result = await db.query(
-      `SELECT id, phone, username
+      `SELECT id, phone, username, bg_url, bg_uploads
        FROM users
        WHERE id = $1`,
       [id]
@@ -460,6 +468,19 @@ export async function getUserById(id) {
     return result.rows[0];
   } catch (error) {
     console.error('Error fetching user by id:', error);
+    throw error;
+  }
+}
+
+export async function setUserBackground(userId, bgUrl, bgUploads) {
+  try {
+    const db = getPool();
+    await db.query(
+      `UPDATE users SET bg_url = $1, bg_uploads = $2 WHERE id = $3`,
+      [bgUrl, JSON.stringify(bgUploads), userId]
+    );
+  } catch (error) {
+    console.error('Error setting user background:', error);
     throw error;
   }
 }
