@@ -5179,12 +5179,20 @@ async function extractDeadlinesIntoEntry(entryEl, table, file) {
   try {
     const formData = new FormData();
     formData.append('file', file);
-    const res = await fetch('/api/extract-deadlines', { method: 'POST', body: formData });
+    const res = await fetch('/api/extract-deadlines', { method: 'POST', credentials: 'include', body: formData });
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error || 'Extraction failed');
     }
     const data = await res.json();
+    // Filter to today onwards
+    if (data.deadlines) {
+      const todayMs = getPacificToday(); todayMs.setHours(0,0,0,0);
+      data.deadlines = data.deadlines.filter(d => {
+        const parsed = parseRawDeadlineDate(d.deadline);
+        return !parsed || parsed.getTime() >= todayMs.getTime();
+      });
+    }
     if (!data.deadlines || data.deadlines.length === 0) {
       overlay.querySelector('.deadline-loading-text').textContent = 'No deadlines found';
       setTimeout(() => { overlay.classList.remove('active'); entryEl.classList.remove('deadline-extracting'); }, 1500);
@@ -7627,6 +7635,7 @@ function setupDeadlineTableHandlers(table) {
 
       const res = await fetch('/api/extract-deadlines', {
         method: 'POST',
+        credentials: 'include',
         body: formData
       });
 
@@ -7636,6 +7645,14 @@ function setupDeadlineTableHandlers(table) {
       }
 
       const data = await res.json();
+      // Filter to today onwards
+      if (data.deadlines) {
+        const todayMs = getPacificToday(); todayMs.setHours(0,0,0,0);
+        data.deadlines = data.deadlines.filter(d => {
+          const parsed = parseRawDeadlineDate(d.deadline);
+          return !parsed || parsed.getTime() >= todayMs.getTime();
+        });
+      }
       if (!data.deadlines || data.deadlines.length === 0) {
         overlay.querySelector('.deadline-loading-text').textContent = 'No deadlines found in file';
         setTimeout(() => overlay.classList.remove('active'), 1500);
@@ -7659,7 +7676,10 @@ function setupDeadlineTableHandlers(table) {
         const classCell = row.querySelector('.deadline-col-class');
         const notesCell = row.querySelector('.deadline-col-notes');
         if (nameCell) nameCell.textContent = d.assignment || '';
-        if (deadlineCell) deadlineCell.textContent = d.deadline || '';
+        if (deadlineCell) {
+          deadlineCell.dataset.rawDate = d.deadline || '';
+          deadlineCell.textContent = formatDeadlineDisplay(d.deadline);
+        }
         if (classCell) classCell.textContent = d.class || '';
         if (notesCell) notesCell.textContent = d.notes || '';
         // Stagger entrance animation
