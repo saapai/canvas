@@ -547,6 +547,8 @@ async function bootstrap() {
       await loadUserEntries(targetUsername, editable);
       // Ensure auth overlay stays hidden
       hideAuthOverlay();
+      // Load saved background image
+      if (window._loadBgAfterAuth) window._loadBgAfterAuth();
     } else {
       // On root page only - show auth if needed
       if (!isLoggedIn) {
@@ -3965,13 +3967,23 @@ viewport.addEventListener('mousedown', (e) => {
     // Allow dragging when clicking on link card or media card too
     const isLinkCard = e.target.closest('.link-card, .link-card-placeholder');
     const isMediaCard = e.target.closest('.media-card');
-    
+
+    // If clicking on interactive deadline table elements, don't start drag — let clicks through
+    const deadlineInteractive = e.target.closest('.deadline-dot, .status-badge, .status-option, .status-dropdown, .deadline-ghost-row');
+    const deadlineTable = entryEl.querySelector('.deadline-table');
+    const deadlineEditable = deadlineTable && e.target.closest('[contenteditable="true"]') && deadlineTable.contains(e.target);
+    if (deadlineInteractive || deadlineEditable) {
+      isProcessingClick = false;
+      selectOnlyEntry(entryEl.id);
+      return;
+    }
+
     // Cancel any pending edit timeout since we're starting to drag
     if (pendingEditTimeout) {
       clearTimeout(pendingEditTimeout);
       pendingEditTimeout = null;
     }
-    
+
     // Prepare for drag - always allow dragging entries (no shift needed)
     // This works for both regular entry clicks and card clicks
     const isEntrySelected = selectedEntries.has(entryEl.id);
@@ -4241,6 +4253,9 @@ window.addEventListener('mouseup', async (e) => {
           const entryData = entries.get(draggingEntry.id);
           if(entryData) {
             if(isImageEntry(draggingEntry) || isFileEntry(draggingEntry)) {
+              selectOnlyEntry(draggingEntry.id);
+            } else if(draggingEntry.querySelector('.deadline-table')) {
+              // Deadline tables handle their own clicks — don't enter edit mode
               selectOnlyEntry(draggingEntry.id);
             } else {
               // If currently editing, commit first and wait for it to complete
@@ -7626,10 +7641,11 @@ function setupDeadlineTableHandlers(table) {
     table.classList.add('table-active');
   });
 
-  // Deactivate when clicking outside
+  // Deactivate when clicking outside + close any open dropdowns
   const deactivateHandler = (e) => {
     if (!table.contains(e.target)) {
       table.classList.remove('table-active');
+      table.querySelectorAll('.status-dropdown.open').forEach(d => d.classList.remove('open'));
     }
   };
   document.addEventListener('mousedown', deactivateHandler);
@@ -7968,5 +7984,123 @@ function handleDeadlineTableKeydown(e) {
   // No filled row below or at the end — add a new row
   addDeadlineRow(table);
 }
+
+/* ── Background picker ─────────────────────────────────────────── */
+(function initBgPicker() {
+  const bgBtn = document.getElementById('bg-picker-button');
+  const bgDropdown = document.getElementById('bg-picker-dropdown');
+  const bgUploadBtn = document.getElementById('bg-upload-btn');
+  const bgUploadInput = document.getElementById('bg-upload-input');
+  if (!bgBtn || !bgDropdown) return;
+
+  function bgStorageKey() {
+    const u = currentUser && currentUser.username;
+    return u ? 'canvas-bg-' + u : null;
+  }
+
+  function loadBg() {
+    const key = bgStorageKey();
+    if (!key) return;
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      if (data && data.type !== 'none' && data.url) {
+        applyBg(data.url);
+        markActive(data.url);
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  function saveBg(type, url) {
+    const key = bgStorageKey();
+    if (!key) return;
+    localStorage.setItem(key, JSON.stringify({ type: type, url: url || null }));
+  }
+
+  function applyBg(url) {
+    document.body.style.setProperty('--bg-url', 'url(' + url + ')');
+    document.body.classList.add('has-bg-image');
+  }
+
+  function removeBg() {
+    document.body.classList.remove('has-bg-image');
+    document.body.style.removeProperty('--bg-url');
+  }
+
+  function markActive(url) {
+    bgDropdown.querySelectorAll('.bg-picker-option').forEach(function(opt) {
+      var bg = opt.getAttribute('data-bg');
+      opt.classList.toggle('active', bg === (url || 'none'));
+    });
+  }
+
+  // Toggle dropdown
+  bgBtn.addEventListener('click', function(e) {
+    e.stopPropagation();
+    bgDropdown.classList.toggle('hidden');
+  });
+
+  // Option clicks
+  bgDropdown.addEventListener('click', function(e) {
+    var opt = e.target.closest('.bg-picker-option');
+    if (!opt) return;
+    var bg = opt.getAttribute('data-bg');
+    if (bg === 'none') {
+      removeBg();
+      saveBg('none', null);
+      markActive(null);
+    } else if (opt.id === 'bg-upload-btn') {
+      bgUploadInput.click();
+      return; // don't close dropdown yet
+    } else {
+      applyBg(bg);
+      saveBg('preset', bg);
+      markActive(bg);
+    }
+    bgDropdown.classList.add('hidden');
+  });
+
+  // Upload handler
+  if (bgUploadInput) {
+    bgUploadInput.addEventListener('change', async function() {
+      var file = bgUploadInput.files[0];
+      if (!file) return;
+      try {
+        var form = new FormData();
+        form.append('file', file);
+        var res = await fetch('/api/upload-image', { method: 'POST', credentials: 'include', body: form });
+        if (!res.ok) throw new Error('Upload failed');
+        var data = await res.json();
+        if (data.url) {
+          applyBg(data.url);
+          saveBg('upload', data.url);
+          markActive(data.url);
+        }
+      } catch (err) {
+        console.error('Background upload failed:', err);
+      }
+      bgUploadInput.value = '';
+      bgDropdown.classList.add('hidden');
+    });
+  }
+
+  // Close on outside click
+  document.addEventListener('click', function(e) {
+    if (!bgDropdown.classList.contains('hidden') && !bgDropdown.contains(e.target) && e.target !== bgBtn) {
+      bgDropdown.classList.add('hidden');
+    }
+  });
+
+  // Close on Escape
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && !bgDropdown.classList.contains('hidden')) {
+      bgDropdown.classList.add('hidden');
+    }
+  });
+
+  // Expose loadBg so bootstrap can call it after auth
+  window._loadBgAfterAuth = loadBg;
+})();
 
 bootstrap();

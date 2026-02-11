@@ -1069,6 +1069,125 @@ body::before{
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
 
+/* Background picker button – top-right below topbar */
+.bg-picker-button {
+  position: fixed;
+  top: 72px;
+  right: 28px;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  z-index: 999;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  opacity: 0.6;
+  padding: 0;
+}
+
+.bg-picker-button:hover {
+  opacity: 1;
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border-color: rgba(0, 0, 0, 0.18);
+}
+
+/* Background picker dropdown */
+.bg-picker-dropdown {
+  position: fixed;
+  top: 112px;
+  right: 16px;
+  background: var(--paper);
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.12);
+  z-index: 999;
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  align-items: center;
+}
+
+.bg-picker-dropdown.hidden {
+  display: none;
+}
+
+.bg-picker-option {
+  width: 60px;
+  height: 40px;
+  border-radius: 6px;
+  border: 2px solid transparent;
+  cursor: pointer;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.04);
+  padding: 0;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.bg-picker-option:hover {
+  border-color: rgba(0, 0, 0, 0.25);
+  transform: scale(1.05);
+}
+
+.bg-picker-option.active {
+  border-color: rgba(59, 130, 246, 0.7);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.3);
+}
+
+.bg-picker-preset img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.bg-picker-none {
+  background: var(--paper);
+  border-color: rgba(0, 0, 0, 0.1);
+}
+
+.bg-picker-none-label {
+  font-size: 10px;
+  font-weight: 500;
+  color: rgba(0, 0, 0, 0.4);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.bg-picker-upload {
+  background: rgba(0, 0, 0, 0.03);
+  color: rgba(0, 0, 0, 0.35);
+}
+
+.bg-picker-upload:hover {
+  color: rgba(0, 0, 0, 0.6);
+}
+
+/* Background image on body - cream overlay + image */
+body.has-bg-image {
+  background:
+    linear-gradient(
+      rgba(247, 242, 232, 0.82),
+      rgba(247, 242, 232, 0.82)
+    ),
+    var(--bg-url) center / cover no-repeat fixed;
+}
+
+/* Reduce sketchbook pattern when background image is active */
+body.has-bg-image::before {
+  opacity: 0.4;
+}
+
 /* Chat panel – slide-out from left */
 .chat-panel {
   position: fixed;
@@ -2344,19 +2463,28 @@ body::before{
 .status-dropdown {
   display: none;
   position: absolute;
-  top: calc(100% - 4px);
-  left: 14px;
+  top: calc(100% + 2px);
+  left: 0;
   min-width: 128px;
   background: var(--paper);
-  border: 1px solid rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(0, 0, 0, 0.12);
   border-radius: 6px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
   padding: 3px;
-  z-index: 2000;
+  z-index: 9999;
 }
 
 .status-dropdown.open {
   display: block;
+}
+
+.deadline-col-status {
+  position: relative;
+  z-index: 1;
+}
+
+.deadline-col-status:has(.status-dropdown.open) {
+  z-index: 9999;
 }
 
 .status-option {

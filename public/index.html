@@ -72,6 +72,31 @@
     </div>
   </div>
   <button id="chat-button" class="chat-button" title="Canvas chat">◇</button>
+  <button id="bg-picker-button" class="bg-picker-button" title="Background image">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>
+    </svg>
+  </button>
+  <div id="bg-picker-dropdown" class="bg-picker-dropdown hidden">
+    <button class="bg-picker-option bg-picker-none" data-bg="none" title="No background">
+      <span class="bg-picker-none-label">None</span>
+    </button>
+    <button class="bg-picker-option bg-picker-preset" data-bg="/backgrounds/bg-1.jpg" title="Background 1">
+      <img src="/backgrounds/bg-1-thumb.jpg" alt="bg 1" />
+    </button>
+    <button class="bg-picker-option bg-picker-preset" data-bg="/backgrounds/bg-2.jpg" title="Background 2">
+      <img src="/backgrounds/bg-2-thumb.jpg" alt="bg 2" />
+    </button>
+    <button class="bg-picker-option bg-picker-preset" data-bg="/backgrounds/bg-3.jpg" title="Background 3">
+      <img src="/backgrounds/bg-3-thumb.jpg" alt="bg 3" />
+    </button>
+    <button class="bg-picker-option bg-picker-upload" id="bg-upload-btn" title="Upload image">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+      </svg>
+    </button>
+  </div>
+  <input type="file" id="bg-upload-input" accept="image/*" style="display:none" />
   <button id="help-button" class="help-button" title="Show help">?</button>
   <div id="help-modal" class="help-modal hidden">
     <div class="help-content">
