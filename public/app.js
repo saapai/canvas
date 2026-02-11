@@ -4124,6 +4124,7 @@ viewport.addEventListener('mousedown', (e) => {
     // Also store clickStart so mouseup won't place the cursor elsewhere.
     if (e.button === 2) {
       clickStart = { x: e.clientX, y: e.clientY, t: performance.now(), entryEl: entryEl, button: e.button };
+      isProcessingClick = false;
       return;
     }
 
