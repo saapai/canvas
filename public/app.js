@@ -2756,13 +2756,12 @@ async function commitEditor(){
       // Extract URLs and process text
       const { processedText, urls } = processTextWithLinks(trimmedRight);
 
-      // Remove existing cards and placeholders (INCLUDING media cards)
+      // Preserve existing media/link card data - don't clear it
+      // Only remove cards from DOM temporarily, we'll restore them after text update
       const existingCards = entryData.element.querySelectorAll('.link-card, .link-card-placeholder, .media-card');
       existingCards.forEach(card => card.remove());
       
-      // Clear media card data when editing entry
-      // The user is editing the text, so we remove any existing media card
-      entryData.mediaCardData = null;
+      // Don't clear mediaCardData or linkCardsData - preserve them
 
       // Update entry text FIRST before any DOM changes
       entryData.text = trimmedRight;
@@ -2818,10 +2817,29 @@ async function commitEditor(){
       }
       } // end else (non-latex)
 
-      // Generate and add cards for URLs
-      if(urls.length > 0){
+      // Restore media card if it exists
+      if (entryData.mediaCardData) {
+        const card = createMediaCard(entryData.mediaCardData);
+        entryData.element.appendChild(card);
+      }
+
+      // Restore existing link cards from linkCardsData
+      if (entryData.linkCardsData && Array.isArray(entryData.linkCardsData)) {
+        for (const cardData of entryData.linkCardsData) {
+          if (cardData && cardData.url) {
+            const card = createLinkCard(cardData);
+            entryData.element.appendChild(card);
+            updateEntryWidthForLinkCard(entryData.element, card);
+          }
+        }
+      }
+
+      // Generate and add cards for NEW URLs found in text (that aren't already in linkCardsData)
+      const existingUrls = entryData.linkCardsData ? entryData.linkCardsData.map(c => c.url).filter(Boolean) : [];
+      const newUrls = urls.filter(url => !existingUrls.includes(url));
+      if(newUrls.length > 0){
         const placeholders = [];
-        for(const url of urls){
+        for(const url of newUrls){
           const placeholder = createLinkCardPlaceholder(url);
           entryData.element.appendChild(placeholder);
           updateEntryWidthForLinkCard(entryData.element, placeholder);
@@ -2829,16 +2847,21 @@ async function commitEditor(){
         }
         
         // Replace placeholders with actual cards as they're generated
+        const newLinkCardsData = [];
         for(const { placeholder, url } of placeholders){
           const cardData = await generateLinkCard(url);
           if(cardData){
             const card = createLinkCard(cardData);
             placeholder.replaceWith(card);
             updateEntryWidthForLinkCard(entryData.element, card);
+            newLinkCardsData.push(cardData);
           } else {
             placeholder.remove();
           }
         }
+        // Update linkCardsData with new cards
+        if (!entryData.linkCardsData) entryData.linkCardsData = [];
+        entryData.linkCardsData.push(...newLinkCardsData);
       }
       
       // Update entry dimensions based on actual content
@@ -5061,14 +5084,22 @@ editor.addEventListener('focus', (e) => {
   editor.classList.remove('idle-cursor');
 });
 
+let isRightClickContext = false;
+
 editor.addEventListener('blur', (e) => {
   // Auto-save when editor loses focus (e.g., clicking elsewhere)
   // Only save if there's content and we're not in the middle of navigation
   // Note: We clear isNavigating when user clicks, so this should work
-  console.log('[BLUR] Editor blurred. isNavigating:', isNavigating, 'navigationJustCompleted:', navigationJustCompleted, 'editingEntryId:', editingEntryId);
+  console.log('[BLUR] Editor blurred. isNavigating:', isNavigating, 'navigationJustCompleted:', navigationJustCompleted, 'editingEntryId:', editingEntryId, 'isRightClickContext:', isRightClickContext);
   
   if (isNavigating || navigationJustCompleted) {
     console.log('[BLUR] Skipping commit due to navigation');
+    return;
+  }
+  
+  // Don't commit if this blur was caused by right-click context menu
+  if (isRightClickContext) {
+    isRightClickContext = false;
     return;
   }
   
@@ -5186,11 +5217,13 @@ viewport.addEventListener('contextmenu', (e) => {
     }
     e.preventDefault();
     e.stopPropagation();
+    isRightClickContext = true;
     const entryData = entries.get(entryEl.id);
     if(entryData){
       const rect = entryEl.getBoundingClientRect();
       const worldPos = screenToWorld(rect.left, rect.top);
       placeEditorAtWorld(worldPos.x, worldPos.y, entryData.text, entryEl.id);
+      setTimeout(() => { isRightClickContext = false; }, 100);
     }
   }
 });

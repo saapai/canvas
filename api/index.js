@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import twilio from 'twilio';
 import multer from 'multer';
 import sharp from 'sharp';
-import { convert } from 'heic-convert';
+import heicConvert from 'heic-convert';
 import { createClient } from '@supabase/supabase-js';
 import { readFileSync } from 'fs';
 import { fileURLToPath } from 'url';
@@ -848,7 +848,7 @@ app.post('/api/upload-image', requireAuth, upload.single('file'), async (req, re
     if (isHeic) {
       try {
         console.log('[upload-image] Converting HEIC to JPEG...');
-        buffer = await convert({
+        buffer = await heicConvert.convert({
           buffer: req.file.buffer,
           format: 'JPEG',
           quality: 0.9
@@ -906,7 +906,7 @@ app.post('/api/upload-background-image', requireAuth, upload.single('file'), asy
     if (isHeic) {
       try {
         console.log('[upload-background-image] Converting HEIC to JPEG...');
-        buffer = await convert({
+        buffer = await heicConvert.convert({
           buffer: req.file.buffer,
           format: 'JPEG',
           quality: 0.9
