@@ -309,25 +309,34 @@ export async function extractDeadlinesFromFile(buffer, mimetype, originalname) {
   const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
   const todayFull = `${dayNames[pacificNow.getDay()]}, ${monthNames[pacificNow.getMonth()]} ${pacificNow.getDate()}, ${pacificNow.getFullYear()}`;
 
-  const deadlinePrompt = `IMPORTANT: Today's date is ${todayFull}. You MUST use this exact date as your reference when resolving ALL dates. The current year is ${pacificNow.getFullYear()}.
+  const m = pacificNow.getMonth() + 1;
+  const d = pacificNow.getDate();
+  const y = pacificNow.getFullYear();
+  const todayNumeric = `${m}/${d}/${y}`;
 
-RULES:
-1. Extract EVERY deadline, assignment, due date, exam, quiz, midterm, final, paper, essay, reading response, homework, project, presentation, and task with a specific or inferrable date.
-2. For recurring assignments (e.g. "weekly reading responses due every Tuesday", or a schedule showing the same type of assignment multiple times), number them sequentially: "Reading Response 1", "Reading Response 2", etc. or "Homework 1", "Homework 2", etc.
-3. Convert ALL dates to M/D/YYYY format. For dates shown as "T 2/10" or "Th 2/12" or "W 2/4" or "F 3/20", these are weekday abbreviations + month/day — convert to M/D/${pacificNow.getFullYear()} format.
-4. If a course schedule shows topics/readings assigned on specific dates with due dates on the following Tuesday (or another pattern described in the syllabus), create a deadline entry for each one.
-5. Look for patterns like "responses due on the Tuesday after assigned" — if a reading is assigned on T 1/13, the response is due T 1/20 (the next Tuesday).
-6. Include exams with their specific date and time in the notes field.
-7. Use the course name/number (e.g. "PSYCH 85", "PIC 10B") as the "class" value.
-8. Only include items from today (${todayFull}) onwards.
+  const deadlinePrompt = `Today is ${todayFull} (${todayNumeric}).
 
-Return a JSON array of objects with these fields:
-- "assignment": name of the assignment (use numbered names for recurring items, e.g. "Reading Response 3", "Homework 2", "Quiz 4")
-- "deadline": due date in M/D/YYYY format (e.g. "2/11/2026"). Do NOT include day-of-week names.
-- "class": course name/number (empty string if not found)
-- "notes": additional details like weight/percentage, time, location, reading name (empty string if none)
+Extract EVERY upcoming deadline from the document. Be thorough — scan the ENTIRE document including course schedules, assignment lists, exam dates, and grading sections.
 
-If no deadlines are found, return an empty array.
+CRITICAL FORMAT RULE: The "deadline" field MUST be in M/D/YYYY numeric format (e.g. "2/17/2026"). NEVER use words like "today", "tomorrow", "next Tuesday", or day names. Always use numbers.
+
+Instructions:
+- For recurring assignments (weekly readings, homework sets, etc.), number them: "Reading Response 1", "Homework 2", "Quiz 3", etc. Start numbering from 1 for the first occurrence in the course, even if earlier ones are past.
+- Dates like "T 2/10", "Th 2/12", "W 2/4", "F 3/20" are weekday abbreviations + month/day — convert to M/D/${y}.
+- If the syllabus says responses are "due on the Tuesday after assigned", compute the actual due date for each one.
+- Dates with * (like "Th 1/15*") usually indicate quiz/discussion dates — include those too.
+- Include midterms, finals, quizzes, discussion sections with quizzes, project deadlines, extra credit deadlines.
+- Put exam times (e.g. "8am to 11am"), reading/paper names, and weight percentages in the "notes" field.
+- Use the course name/number (e.g. "PSYCH 85", "PIC 10B") as the "class" value.
+- Only include items from ${todayNumeric} onwards (today or future).
+
+Example output:
+{"deadlines":[
+  {"assignment":"Reading Response 5","deadline":"2/10/2026","class":"PSYCH 85","notes":"Murphy (2019), 40% of grade"},
+  {"assignment":"Midterm 2","deadline":"2/25/2026","class":"PIC 10B","notes":"In-class, 25%"},
+  {"assignment":"Final Exam","deadline":"3/20/2026","class":"PSYCH 85","notes":"8am to 11am, 60% of grade"}
+]}
+
 Respond ONLY with valid JSON: { "deadlines": [...] }`;
 
   try {
@@ -359,8 +368,8 @@ Respond ONLY with valid JSON: { "deadlines": [...] }`;
         return { deadlines: [] };
       }
 
-      // Truncate to ~12k chars to stay within token limits
-      const truncated = text.length > 12000 ? text.slice(0, 12000) + '\n...(truncated)' : text;
+      // Truncate to ~20k chars to stay within token limits
+      const truncated = text.length > 20000 ? text.slice(0, 20000) + '\n...(truncated)' : text;
 
       messages = [
         { role: 'system', content: 'You extract deadlines and assignments from documents. Respond ONLY with valid JSON, no other text.' },
@@ -369,7 +378,7 @@ Respond ONLY with valid JSON: { "deadlines": [...] }`;
     }
 
     const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-4o',
       messages,
       temperature: 0.1,
       max_tokens: 4000
