@@ -2351,6 +2351,10 @@ body.has-bg-image::before {
   background: rgba(0, 0, 0, 0.015);
 }
 
+.deadline-row.deadline-row-selected {
+  background: rgba(59, 130, 246, 0.12);
+}
+
 .deadline-col-check {
   display: flex;
   align-items: center;
@@ -2618,16 +2622,7 @@ body.has-bg-image::before {
   max-height: 2000px;
 }
 
-/* In editor or table-active, auto-expand completed section */
-#editor .deadline-completed-section,
-.deadline-table.table-active .deadline-completed-section {
-  max-height: 2000px;
-}
-
-#editor .deadline-completed-divider::before,
-.deadline-table.table-active .deadline-completed-divider::before {
-  transform: rotate(90deg);
-}
+/* Completed section stays collapsed unless user clicks divider (.expanded) */
 
 .deadline-completed-section .deadline-row {
   opacity: 0.45;

@@ -2596,25 +2596,46 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
     editor.classList.remove('has-content');
   }
   
-  editor.focus();
-  
-  // Update width based on content after rendering
+  const isDeadlineTable = entryId && (() => {
+    const ed = entries.get(entryId);
+    return ed && ed.textHtml && ed.textHtml.includes('deadline-table');
+  })();
+
+  if (isDeadlineTable) {
+    const firstCell = editor.querySelector('.deadline-table [contenteditable="true"]');
+    if (firstCell) {
+      firstCell.focus();
+      const range = document.createRange();
+      range.selectNodeContents(firstCell);
+      range.collapse(true);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(range);
+    } else {
+      editor.focus();
+    }
+  } else {
+    editor.focus();
+  }
+
   requestAnimationFrame(() => {
     const contentWidth = getWidestLineWidth(editor);
     editor.style.width = `${contentWidth}px`;
   });
 
-  const range = document.createRange();
-  const sel = window.getSelection();
-  if(text){
-    range.selectNodeContents(editor);
-    range.collapse(false);
-  } else {
-    range.setStart(editor, 0);
-    range.collapse(true);
+  if (!isDeadlineTable) {
+    const range = document.createRange();
+    const sel = window.getSelection();
+    if (text) {
+      range.selectNodeContents(editor);
+      range.collapse(false);
+    } else {
+      range.setStart(editor, 0);
+      range.collapse(true);
+    }
+    sel.removeAllRanges();
+    sel.addRange(range);
   }
-  sel.removeAllRanges();
-  sel.addRange(range);
 }
 
 // Hide cursor (but keep editor visible for smooth transitions)
@@ -4255,8 +4276,12 @@ window.addEventListener('mouseup', async (e) => {
             if(isImageEntry(draggingEntry) || isFileEntry(draggingEntry)) {
               selectOnlyEntry(draggingEntry.id);
             } else if(draggingEntry.querySelector('.deadline-table')) {
-              // Deadline tables handle their own clicks — don't enter edit mode
-              selectOnlyEntry(draggingEntry.id);
+              if (editor && (editor.textContent.trim() || editingEntryId)) {
+                await commitEditor();
+              }
+              const rect = draggingEntry.getBoundingClientRect();
+              const worldPos = screenToWorld(rect.left, rect.top);
+              placeEditorAtWorld(worldPos.x, worldPos.y, entryData.text, draggingEntry.id);
             } else {
               // If currently editing, commit first and wait for it to complete
               if (editor && (editor.textContent.trim() || editingEntryId)) {
@@ -7636,9 +7661,17 @@ function saveDeadlineTableState(table) {
 }
 
 function setupDeadlineTableHandlers(table) {
-  // Activate table on click (show ghost row)
-  table.addEventListener('mousedown', () => {
+  table.addEventListener('mousedown', (e) => {
     table.classList.add('table-active');
+    const inEditor = table.closest('#editor');
+    if (inEditor) {
+      const cell = e.target.closest('[contenteditable="true"]');
+      if (!cell && !e.target.closest('button')) {
+        e.preventDefault();
+        const first = table.querySelector('[contenteditable="true"]');
+        if (first) first.focus();
+      }
+    }
   });
 
   // Deactivate when clicking outside + close any open dropdowns
@@ -7724,9 +7757,43 @@ function setupDeadlineTableHandlers(table) {
       return;
     }
 
-    // Close any open dropdowns when clicking elsewhere
+    // Close any open dropdowns when clicking elsewhere; clear row-selected (except on triple-click)
     table.querySelectorAll('.status-dropdown.open').forEach(d => d.classList.remove('open'));
+    if (e.detail !== 3) table.querySelectorAll('.deadline-row-selected').forEach(r => r.classList.remove('deadline-row-selected'));
   });
+
+  table.addEventListener('dblclick', (e) => {
+    const cell = e.target.closest('[contenteditable="true"]');
+    if (!cell) return;
+    e.preventDefault();
+    table.querySelectorAll('.deadline-row-selected').forEach(r => r.classList.remove('deadline-row-selected'));
+    const range = document.createRange();
+    range.selectNodeContents(cell);
+    const sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+  });
+
+  table.addEventListener('click', (e) => {
+    if (e.detail === 3) {
+      const cell = e.target.closest('[contenteditable="true"]');
+      if (!cell) return;
+      e.preventDefault();
+      const row = cell.closest('.deadline-row');
+      if (row) {
+        table.querySelectorAll('.deadline-row-selected').forEach(r => r.classList.remove('deadline-row-selected'));
+        row.classList.add('deadline-row-selected');
+        const range = document.createRange();
+        const cells = getDeadlineEditableCells(row);
+        const lastCell = cells[cells.length - 1];
+        range.setStart(cells[0], 0);
+        range.setEnd(lastCell, lastCell.childNodes.length);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    }
+  }, true);
 
   // When a user manually edits a deadline cell, parse, format, and re-sort
   table.addEventListener('focusout', (e) => {
@@ -7904,16 +7971,84 @@ async function insertDeadlinesTemplate() {
   }
 }
 
+function getDeadlineEditableCells(row) {
+  return Array.from(row.querySelectorAll('.deadline-col-name, .deadline-col-deadline, .deadline-col-class, .deadline-col-notes'));
+}
+
+function getDeadlineActiveRows(table) {
+  const completedSection = table.querySelector('.deadline-completed-section');
+  return Array.from(table.querySelectorAll('.deadline-row')).filter(r => !completedSection || !completedSection.contains(r));
+}
+
 function handleDeadlineTableKeydown(e) {
   const target = e.target;
   const deadlineTable = target.closest('.deadline-table');
   if (!deadlineTable) return;
 
+  const cell = target.closest('[contenteditable="true"]');
+  const currentRow = cell ? cell.closest('.deadline-row') : null;
+  const activeRows = getDeadlineActiveRows(deadlineTable);
+
+  if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+    if (!cell || !currentRow) return;
+    const cells = getDeadlineEditableCells(currentRow);
+    const cellIndex = cells.indexOf(cell);
+    const rowIndex = activeRows.indexOf(currentRow);
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (rowIndex > 0) {
+        const prevRow = activeRows[rowIndex - 1];
+        const prevCells = getDeadlineEditableCells(prevRow);
+        if (prevCells[cellIndex]) prevCells[cellIndex].focus();
+      }
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (rowIndex >= 0 && rowIndex < activeRows.length - 1) {
+        const nextRow = activeRows[rowIndex + 1];
+        const nextCells = getDeadlineEditableCells(nextRow);
+        if (nextCells[cellIndex]) nextCells[cellIndex].focus();
+      }
+      return;
+    }
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      const sel = window.getSelection();
+      if (sel.rangeCount === 0) return;
+      const range = sel.getRangeAt(0);
+      const startInCell = cell.contains(range.startContainer);
+      const endInCell = cell.contains(range.endContainer);
+      const atStart = range.collapsed && startInCell && (range.startOffset === 0 || (range.startContainer.nodeType === Node.TEXT_NODE && range.startOffset === 0));
+      const atEnd = range.collapsed && endInCell && (range.endOffset === (range.endContainer.textContent || '').length);
+      if (e.key === 'ArrowLeft' && atStart && cellIndex > 0) {
+        e.preventDefault();
+        cells[cellIndex - 1].focus();
+        const r = document.createRange();
+        r.selectNodeContents(cells[cellIndex - 1]);
+        r.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(r);
+        return;
+      }
+      if (e.key === 'ArrowRight' && atEnd && cellIndex < cells.length - 1) {
+        e.preventDefault();
+        cells[cellIndex + 1].focus();
+        const r = document.createRange();
+        r.setStart(cells[cellIndex + 1], 0);
+        r.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(r);
+        return;
+      }
+      return;
+    }
+  }
+
   // Cmd/Ctrl+A: select all text within the current cell only
   if ((e.metaKey || e.ctrlKey) && e.key === 'a') {
-    const cell = target.closest('[contenteditable="true"]');
     if (cell) {
       e.preventDefault();
+      deadlineTable.querySelectorAll('.deadline-row-selected').forEach(r => r.classList.remove('deadline-row-selected'));
       const range = document.createRange();
       range.selectNodeContents(cell);
       const sel = window.getSelection();
@@ -7923,28 +8058,45 @@ function handleDeadlineTableKeydown(e) {
     return;
   }
 
-  // Backspace/Delete handling
+  // Backspace/Delete: delete row if whole row is selected, else default or empty-cell behavior
   if (e.key === 'Backspace' || e.key === 'Delete') {
-    const cell = target.closest('[contenteditable="true"]');
+    if (currentRow && currentRow.classList.contains('deadline-row-selected')) {
+      e.preventDefault();
+      currentRow.classList.remove('deadline-row-selected');
+      const allRows = Array.from(deadlineTable.querySelectorAll('.deadline-row'));
+      if (allRows.length <= 1) {
+        editor.innerHTML = '';
+        setTimeout(() => commitEditor(), 0);
+      } else {
+        const idx = activeRows.indexOf(currentRow);
+        currentRow.remove();
+        const remaining = getDeadlineActiveRows(deadlineTable);
+        const focusRow = remaining[Math.min(idx, remaining.length - 1)] || remaining[0];
+        if (focusRow) {
+          const focusCell = getDeadlineEditableCells(focusRow)[0];
+          if (focusCell) focusCell.focus();
+        }
+      }
+      const entry = deadlineTable.closest('.entry');
+      if (entry) saveDeadlineTableState(deadlineTable);
+      return;
+    }
     if (cell && cell.textContent === '') {
       e.preventDefault();
-      // Check if entire row is empty - if so, delete the row
       const row = cell.closest('.deadline-row');
       if (row && isDeadlineRowEmpty(row)) {
         const table = row.closest('.deadline-table');
         const allRows = Array.from(table.querySelectorAll('.deadline-row'));
         if (allRows.length <= 1) {
-          // Only row left - delete the whole deadline entry
           editor.innerHTML = '';
           setTimeout(() => commitEditor(), 0);
         } else {
-          const rowIndex = allRows.indexOf(row);
+          const rowIndex = activeRows.indexOf(row);
           row.remove();
-          // Focus the previous row, or next if first was deleted
-          const remaining = Array.from(table.querySelectorAll('.deadline-row'));
+          const remaining = getDeadlineActiveRows(table);
           const focusRow = remaining[Math.min(rowIndex, remaining.length - 1)] || remaining[0];
           if (focusRow) {
-            const focusCell = focusRow.querySelector('[contenteditable="true"]');
+            const focusCell = getDeadlineEditableCells(focusRow)[0];
             if (focusCell) focusCell.focus();
           }
         }
@@ -8205,6 +8357,7 @@ function handleDeadlineTableKeydown(e) {
         applyBg(finalUrl);
         saveBg('upload', finalUrl);
         markActive(finalUrl);
+        if (serverError) showBgError(serverError + ' Image is set on this device only.');
       } else {
         showBgError(serverError);
       }
