@@ -7644,6 +7644,7 @@ function uncompleteDeadlineRow(row, table) {
     if (ghost) table.insertBefore(row, ghost);
     else table.appendChild(row);
   }
+  sortDeadlineRows(table);
   setTimeout(() => row.classList.remove('uncompleting'), 300);
   hideOrShowCompletedSection(table);
   saveDeadlineTableState(table);
@@ -7801,21 +7802,13 @@ function setupDeadlineTableHandlers(table) {
     if (!cell) return;
     const text = cell.textContent.trim();
     if (!text) { delete cell.dataset.rawDate; return; }
-    // If the cell already has a raw date and display matches, skip
     if (cell.dataset.rawDate && formatDeadlineDisplay(cell.dataset.rawDate) === text) return;
     const parsed = parseRawDeadlineDate(text);
     if (parsed) {
       const raw = `${parsed.getMonth()+1}/${parsed.getDate()}/${parsed.getFullYear()}`;
       cell.dataset.rawDate = raw;
       cell.textContent = formatDeadlineDisplay(raw);
-      // Re-sort the row into position
-      const row = cell.closest('.deadline-row');
-      if (row) {
-        const insertBefore = findSortedInsertPosition(table, row);
-        if (insertBefore && insertBefore !== row && insertBefore !== row.nextElementSibling) {
-          table.insertBefore(row, insertBefore);
-        }
-      }
+      sortDeadlineRows(table);
     }
   });
 
@@ -8115,13 +8108,13 @@ function handleDeadlineTableKeydown(e) {
     return;
   }
 
-  const currentRow = target.closest('.deadline-row');
-  if (!currentRow) return;
+  const enterRow = target.closest('.deadline-row');
+  if (!enterRow) return;
 
-  const table = currentRow.closest('.deadline-table');
+  const table = enterRow.closest('.deadline-table');
   const completedSection = table.querySelector('.deadline-completed-section');
   const allRows = Array.from(table.querySelectorAll('.deadline-row')).filter(r => !completedSection || !completedSection.contains(r));
-  const currentIndex = allRows.indexOf(currentRow);
+  const currentIndex = allRows.indexOf(enterRow);
   const rowsBelow = allRows.slice(currentIndex + 1);
 
   // Check if any row below has an empty editable cell
