@@ -3967,8 +3967,59 @@ let dragThreshold = 5; // Pixels to move before starting drag
 let hasMoved = false;
 
 viewport.addEventListener('mousedown', (e) => {
-  // Let normal editor clicks through, but shift+click should start selection
-  if((e.target === editor || editor.contains(e.target)) && !e.shiftKey) return;
+  // Shift+drag to select: if in edit mode, save & close editor then start selection.
+  // We handle this inline instead of calling commitEditor() to avoid the
+  // delete-on-empty logic which can misfire when e.preventDefault() disrupts
+  // the editor DOM during mousedown.
+  if(e.shiftKey && editingEntryId) {
+    e.preventDefault();
+    const entryData = entries.get(editingEntryId);
+    const raw = editor.innerText;
+    const trimmedRight = raw.replace(/\s+$/g,'');
+    const htmlContent = editor.innerHTML;
+    if(entryData) {
+      entryData.element.classList.remove('editing', 'deadline-editing');
+      if(trimmedRight) {
+        const isDeadline = htmlContent.includes('deadline-table');
+        const hasFmt = isDeadline || /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(htmlContent);
+        entryData.text = trimmedRight;
+        entryData.textHtml = hasFmt ? htmlContent : null;
+        if(isDeadline) {
+          entryData.element.innerHTML = htmlContent;
+        } else {
+          const { processedText } = processTextWithLinks(trimmedRight);
+          entryData.element.innerHTML = hasFmt ? meltifyHtml(htmlContent) : meltify(processedText || '');
+        }
+        updateEntryDimensions(entryData.element);
+        updateEntryOnServer(entryData);
+      }
+      // If trimmedRight is empty, entry keeps its existing saved data — no delete
+    }
+    // Close editor
+    editingEntryId = null;
+    editor.removeEventListener('keydown', handleDeadlineTableKeydown);
+    editor.textContent = '';
+    editor.innerHTML = '';
+    editor.style.display = 'none';
+    if(formatBar) formatBar.classList.add('hidden');
+    // Start selection
+    isSelecting = true;
+    selectionStart = screenToWorld(e.clientX, e.clientY);
+    if(!selectionBox){
+      selectionBox = document.createElement('div');
+      selectionBox.className = 'selection-box';
+      viewport.appendChild(selectionBox);
+    }
+    selectionBox.style.display = 'block';
+    const startScreen = worldToScreen(selectionStart.x, selectionStart.y);
+    selectionBox.style.left = `${startScreen.x}px`;
+    selectionBox.style.top = `${startScreen.y}px`;
+    selectionBox.style.width = '0px';
+    selectionBox.style.height = '0px';
+    clearSelection();
+    return;
+  }
+  if(e.target === editor || editor.contains(e.target)) return;
   // Don't handle clicks on breadcrumb
   if(e.target.closest('#breadcrumb')) return;
   // Don't handle clicks on background picker
