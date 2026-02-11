@@ -3967,7 +3967,8 @@ let dragThreshold = 5; // Pixels to move before starting drag
 let hasMoved = false;
 
 viewport.addEventListener('mousedown', (e) => {
-  if(e.target === editor || editor.contains(e.target)) return;
+  // Let normal editor clicks through, but shift+click should start selection
+  if((e.target === editor || editor.contains(e.target)) && !e.shiftKey) return;
   // Don't handle clicks on breadcrumb
   if(e.target.closest('#breadcrumb')) return;
   // Don't handle clicks on background picker
@@ -3995,32 +3996,38 @@ viewport.addEventListener('mousedown', (e) => {
   
   // Normal mode: allow editing and dragging
   const entryEl = findEntryElement(e.target);
-  
-  // Shift+drag on empty space for selection box
-  if(e.shiftKey && !entryEl){
+
+  // Shift+drag for selection box (works from anywhere — empty space or on an entry)
+  if(e.shiftKey){
     e.preventDefault();
+
+    // If currently editing, commit and exit edit mode first
+    if(editingEntryId){
+      commitEditor();
+    }
+
     isSelecting = true;
     selectionStart = screenToWorld(e.clientX, e.clientY);
-    
+
     // Create selection box element
     if(!selectionBox){
       selectionBox = document.createElement('div');
       selectionBox.className = 'selection-box';
       viewport.appendChild(selectionBox);
     }
-    
+
     selectionBox.style.display = 'block';
     const startScreen = worldToScreen(selectionStart.x, selectionStart.y);
     selectionBox.style.left = `${startScreen.x}px`;
     selectionBox.style.top = `${startScreen.y}px`;
     selectionBox.style.width = '0px';
     selectionBox.style.height = '0px';
-    
+
     // Clear existing selection
     clearSelection();
     return;
   }
-  
+
   if(entryEl) {
     // Allow dragging when clicking on link card or media card too
     const isLinkCard = e.target.closest('.link-card, .link-card-placeholder');
