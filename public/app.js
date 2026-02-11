@@ -764,10 +764,13 @@ async function loadUserEntries(username, editable) {
         setTimeout(() => updateEntryDimensions(entry), 100);
       }
     });
-    
+
+    // Refresh deadline display dates (relative labels like "Today" / "Tomorrow")
+    refreshAllDeadlineDates();
+
     // Set read-only mode
     isReadOnly = !editable;
-    
+
     // Search button removed - using autocomplete instead
     
     // Check if we need to navigate to a specific path based on URL
@@ -1324,10 +1327,13 @@ async function loadEntriesFromServer() {
         });
       }
     });
-    
+
+    // Refresh deadline display dates (relative labels like "Today" / "Tomorrow")
+    refreshAllDeadlineDates();
+
     // Update visibility after loading
     updateEntryVisibility();
-    
+
     // Zoom to fit all entries on initial load only
     if (!hasZoomedToFit) {
       hasZoomedToFit = true;
@@ -5201,7 +5207,10 @@ async function extractDeadlinesIntoEntry(entryEl, table, file) {
       const classCell = row.querySelector('.deadline-col-class');
       const notesCell = row.querySelector('.deadline-col-notes');
       if (nameCell) nameCell.textContent = d.assignment || '';
-      if (deadlineCell) deadlineCell.textContent = d.deadline || '';
+      if (deadlineCell) {
+        deadlineCell.dataset.rawDate = d.deadline || '';
+        deadlineCell.textContent = formatDeadlineDisplay(d.deadline);
+      }
       if (classCell) classCell.textContent = d.class || '';
       if (notesCell) notesCell.textContent = d.notes || '';
       row.style.animationDelay = `${i * 50}ms`;
@@ -7083,9 +7092,10 @@ async function performUndo() {
         updateEntryDimensions(entry);
         await saveEntryToServer(storedEntryData);
       }
+      refreshAllDeadlineDates();
       updateEntryVisibility();
       break;
-      
+
     case 'move':
       // Restore previous positions
       for (const { entryId, oldPosition } of state.data.moves) {
@@ -7404,38 +7414,80 @@ function addDeadlineRow(table) {
   }
 }
 
-function parseDeadlineDateForSort(dateStr) {
-  if (!dateStr || !dateStr.trim()) return Infinity;
-  const s = dateStr.trim();
+function getPacificToday() {
+  return new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+}
+
+function parseRawDeadlineDate(raw) {
+  if (!raw || !raw.trim()) return null;
+  const s = raw.trim();
   const year = new Date().getFullYear();
   const months = {
     jan:0,january:0,feb:1,february:1,mar:2,march:2,apr:3,april:3,
     may:4,jun:5,june:5,jul:6,july:6,aug:7,august:7,sep:8,september:8,
     oct:9,october:9,nov:10,november:10,dec:11,december:11
   };
-  // Strip day-of-week names/abbreviations and trailing comma/space
-  const cleaned = s.replace(/^(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun|M|Tu|T|W|Th|F|Sa|Su)\s*,?\s*/i, '');
-  // "February 4th", "Mar 14", "March 18, 8am-11am"
-  const monthDay = cleaned.match(/^([a-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?\b/i);
+  const cleaned = s.replace(/^(?:monday|tuesday|wednesday|thursday|friday|saturday|sunday|mon|tue|wed|thu|fri|sat|sun)\s*,?\s*/i, '');
+  const monthDay = cleaned.match(/^([a-z]+)\s+(\d{1,2})(?:st|nd|rd|th)?\b(?:\s*,?\s*(\d{4}))?/i);
   if (monthDay && months[monthDay[1].toLowerCase()] !== undefined) {
-    return new Date(year, months[monthDay[1].toLowerCase()], parseInt(monthDay[2])).getTime();
+    const y = monthDay[3] ? parseInt(monthDay[3]) : year;
+    return new Date(y, months[monthDay[1].toLowerCase()], parseInt(monthDay[2]));
   }
-  // "1/13", "2/3", "1/15/2025"
   const slash = cleaned.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?/);
   if (slash) {
     const y = slash[3] ? (slash[3].length === 2 ? 2000 + parseInt(slash[3]) : parseInt(slash[3])) : year;
-    return new Date(y, parseInt(slash[1]) - 1, parseInt(slash[2])).getTime();
+    return new Date(y, parseInt(slash[1]) - 1, parseInt(slash[2]));
   }
-  // Unparseable — put at end
-  return Infinity;
+  return null;
+}
+
+function formatDeadlineDisplay(rawDate) {
+  const d = parseRawDeadlineDate(rawDate);
+  if (!d) return rawDate || '';
+  const today = getPacificToday();
+  today.setHours(0,0,0,0);
+  const target = new Date(d); target.setHours(0,0,0,0);
+  const diffDays = Math.round((target - today) / 86400000);
+  const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+
+  if (diffDays >= 0 && diffDays <= 13) {
+    if (diffDays === 0) return 'Today';
+    if (diffDays === 1) return 'Tomorrow';
+    if (diffDays <= 6) return dayNames[target.getDay()];
+    return 'Next ' + dayNames[target.getDay()];
+  }
+  return `${dayNames[target.getDay()]}, ${monthNames[target.getMonth()]} ${target.getDate()}, ${target.getFullYear()}`;
+}
+
+function refreshDeadlineDates(table) {
+  table.querySelectorAll('.deadline-col-deadline').forEach(cell => {
+    const raw = cell.dataset.rawDate;
+    if (raw) cell.textContent = formatDeadlineDisplay(raw);
+  });
+}
+
+function refreshAllDeadlineDates() {
+  document.querySelectorAll('.deadline-table').forEach(t => refreshDeadlineDates(t));
+}
+
+function parseDeadlineDateForSort(dateStr, cell) {
+  // Prefer raw date stored in data attribute
+  const raw = cell ? cell.dataset.rawDate : null;
+  const src = raw || dateStr;
+  if (!src || !src.trim()) return Infinity;
+  const d = parseRawDeadlineDate(src);
+  return d ? d.getTime() : Infinity;
 }
 
 function sortDeadlineRows(table) {
   const rows = Array.from(table.querySelectorAll('.deadline-row'));
   const ghostRow = table.querySelector('.deadline-ghost-row');
   rows.sort((a, b) => {
-    const aT = parseDeadlineDateForSort(a.querySelector('.deadline-col-deadline')?.textContent);
-    const bT = parseDeadlineDateForSort(b.querySelector('.deadline-col-deadline')?.textContent);
+    const aCel = a.querySelector('.deadline-col-deadline');
+    const bCel = b.querySelector('.deadline-col-deadline');
+    const aT = parseDeadlineDateForSort(aCel?.textContent, aCel);
+    const bT = parseDeadlineDateForSort(bCel?.textContent, bCel);
     return aT - bT;
   });
   rows.forEach((row, i) => {
@@ -7500,6 +7552,22 @@ function setupDeadlineTableHandlers(table) {
 
     // Close any open dropdowns when clicking elsewhere
     table.querySelectorAll('.status-dropdown.open').forEach(d => d.classList.remove('open'));
+  });
+
+  // When a user manually edits a deadline cell, parse and store raw date on blur
+  table.addEventListener('focusout', (e) => {
+    const cell = e.target.closest('.deadline-col-deadline');
+    if (!cell) return;
+    const text = cell.textContent.trim();
+    if (!text) { delete cell.dataset.rawDate; return; }
+    // If the cell already has a raw date and display matches, skip
+    if (cell.dataset.rawDate && formatDeadlineDisplay(cell.dataset.rawDate) === text) return;
+    const parsed = parseRawDeadlineDate(text);
+    if (parsed) {
+      const raw = `${parsed.getMonth()+1}/${parsed.getDate()}/${parsed.getFullYear()}`;
+      cell.dataset.rawDate = raw;
+      cell.textContent = formatDeadlineDisplay(raw);
+    }
   });
 
   // Drag and drop onto deadline table in editor to populate rows.

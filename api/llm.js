@@ -316,11 +316,19 @@ Where "isFullMath" is true if the entire content is mathematical, false if it's 
 }
 
 export async function extractDeadlinesFromFile(buffer, mimetype, originalname) {
-  const deadlinePrompt = `Extract ALL deadlines, assignments, due dates, exams, and tasks from the following content.
+  // Compute today's date in Pacific time so relative terms resolve correctly
+  const pacificNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+  const todayStr = `${pacificNow.getMonth() + 1}/${pacificNow.getDate()}/${pacificNow.getFullYear()}`;
+  const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const todayDay = dayNames[pacificNow.getDay()];
+
+  const deadlinePrompt = `Today is ${todayDay}, ${todayStr}. Use this as the reference date for ALL relative terms (e.g. "today", "tomorrow", "next Monday", "this Thursday", "in 2 weeks").
+
+Extract ALL deadlines, assignments, due dates, exams, and tasks from the following content.
 
 Return a JSON array of objects. Each object should have:
 - "assignment": the name/description of the assignment or task
-- "deadline": the due date in M/D format (e.g. "1/15", "2/3", "3/20"). Convert ALL dates to this numeric M/D format. If a year is given use M/D/YYYY. If only a relative reference like "Week 3" with no specific date, keep as-is. Do NOT include day-of-week names.
+- "deadline": the due date in M/D/YYYY format (e.g. "1/15/2026", "2/3/2026"). Convert ALL dates including relative ones to this numeric M/D/YYYY format using today's date above. If only a relative reference like "Week 3" with no specific date, keep as-is. Do NOT include day-of-week names.
 - "class": the course or class name if mentioned (empty string if not found)
 - "notes": any additional relevant details like weight/percentage, time, instructions, or location (empty string if none)
 
