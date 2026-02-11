@@ -2929,12 +2929,12 @@ body.has-bg-image::before {
   opacity: 0.85;
 }
 
-/* ——— Article View (Substack-like dark theme) ——— */
+/* ——— Article View (light, seamless flow with cards) ——— */
 .article-view {
   position: fixed;
   inset: 0;
   top: 65px;
-  background: #0d0d0d;
+  background: var(--paper);
   z-index: 500;
   overflow-y: auto;
 }
@@ -2958,14 +2958,14 @@ body.has-bg-image::before {
 .article-header-title {
   font-size: 36px;
   font-weight: 700;
-  color: #fff;
+  color: var(--ink);
   margin: 0 0 12px;
   line-height: 1.2;
   letter-spacing: -0.02em;
 }
 .article-header-meta {
   font-size: 14px;
-  color: rgba(255,255,255,0.5);
+  color: var(--muted);
   margin-bottom: 48px;
 }
 
@@ -2979,18 +2979,18 @@ body.has-bg-image::before {
   margin-top: 32px;
 }
 
-/* Note blocks (no borders) */
+/* Note blocks */
 .article-note-card {
   padding: 0;
   margin: 0;
   white-space: pre-wrap;
   font-size: 18px;
   line-height: 1.75;
-  color: rgba(255,255,255,0.92);
+  color: var(--ink);
   word-break: break-word;
 }
 .article-note-card a {
-  color: #fff;
+  color: var(--ink);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -3004,26 +3004,28 @@ body.has-bg-image::before {
 .article-note-children-hint {
   display: inline-block;
   font-size: 13px;
-  color: rgba(255,255,255,0.4);
+  color: var(--muted);
   margin-top: 12px;
 }
 
-/* Link cards (borderless, inline with flow) */
+/* Link cards (card styling) */
 .article-link-card {
   display: flex;
-  border-radius: 0;
+  border-radius: 10px;
   overflow: hidden;
   margin: 0;
   text-decoration: none;
-  color: #fff;
-  transition: opacity 0.15s;
+  color: var(--ink);
+  background: rgba(0,0,0,0.03);
+  transition: background 0.15s, box-shadow 0.15s;
 }
 .article-link-card:hover {
-  opacity: 0.9;
+  background: rgba(0,0,0,0.05);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
 }
 .article-link-thumb {
-  width: 180px;
-  min-height: 120px;
+  width: 160px;
+  min-height: 110px;
   background-size: cover;
   background-position: center;
   flex-shrink: 0;
@@ -3037,21 +3039,21 @@ body.has-bg-image::before {
 }
 .article-link-site {
   font-size: 11px;
-  color: rgba(255,255,255,0.45);
+  color: var(--muted);
   margin-bottom: 6px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 .article-link-title {
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 600;
   margin-bottom: 6px;
   line-height: 1.35;
-  color: #fff;
+  color: var(--ink);
 }
 .article-link-desc {
   font-size: 14px;
-  color: rgba(255,255,255,0.6);
+  color: var(--muted);
   line-height: 1.5;
   display: -webkit-box;
   -webkit-line-clamp: 2;
@@ -3060,7 +3062,7 @@ body.has-bg-image::before {
 }
 .article-link-open {
   font-size: 13px;
-  color: rgba(255,255,255,0.4);
+  color: var(--muted);
   margin-top: 8px;
 }
 
@@ -3068,18 +3070,20 @@ body.has-bg-image::before {
 .article-media-card {
   display: flex;
   align-items: center;
-  padding: 0;
+  padding: 14px 18px;
+  border-radius: 10px;
   margin: 0;
   gap: 16px;
-  transition: opacity 0.15s;
+  background: rgba(0,0,0,0.03);
+  transition: background 0.15s;
 }
 .article-media-card:hover {
-  opacity: 0.9;
+  background: rgba(0,0,0,0.05);
 }
 .article-media-image {
   width: 64px;
   height: 64px;
-  border-radius: 6px;
+  border-radius: 8px;
   background-size: cover;
   background-position: center;
   flex-shrink: 0;
@@ -3091,47 +3095,50 @@ body.has-bg-image::before {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: rgba(255,255,255,0.4);
+  color: var(--muted);
   margin-bottom: 4px;
 }
 .article-media-title {
   font-size: 16px;
   font-weight: 600;
   line-height: 1.35;
-  color: #fff;
+  color: var(--ink);
 }
 .article-media-subtitle {
   font-size: 14px;
-  color: rgba(255,255,255,0.55);
+  color: var(--muted);
   margin-top: 2px;
 }
 
-/* Full-width images in flow */
+/* Image cards */
 .article-image-card {
-  border-radius: 0;
+  border-radius: 10px;
   overflow: hidden;
   margin: 0;
   max-width: 100%;
+  background: rgba(0,0,0,0.02);
 }
 .article-image-card img {
   display: block;
   max-width: 100%;
   width: 100%;
   height: auto;
-  border-radius: 0;
+  border-radius: 10px;
 }
 
 /* File cards */
 .article-file-card {
   display: flex;
   align-items: center;
-  padding: 12px 0;
+  padding: 14px 18px;
+  border-radius: 10px;
   margin: 0;
   gap: 14px;
-  transition: opacity 0.15s;
+  background: rgba(0,0,0,0.03);
+  transition: background 0.15s;
 }
 .article-file-card:hover {
-  opacity: 0.9;
+  background: rgba(0,0,0,0.05);
 }
 .article-file-icon {
   font-size: 28px;
@@ -3141,11 +3148,11 @@ body.has-bg-image::before {
 .article-file-name {
   font-size: 15px;
   font-weight: 500;
-  color: #fff;
+  color: var(--ink);
 }
 .article-file-size {
   font-size: 13px;
-  color: rgba(255,255,255,0.45);
+  color: var(--muted);
   margin-top: 2px;
 }
 
@@ -3154,7 +3161,7 @@ body.has-bg-image::before {
   padding: 20px 0;
   margin: 0;
   overflow-x: auto;
-  color: rgba(255,255,255,0.9);
+  color: var(--ink);
 }
 .article-latex-card .katex,
 .article-latex-card .MathJax {
@@ -3166,7 +3173,7 @@ body.has-bg-image::before {
   padding: 20px 0;
   margin: 0;
   overflow-x: auto;
-  color: rgba(255,255,255,0.9);
+  color: var(--ink);
 }
 .article-deadline-card .deadline-table {
   position: relative;
@@ -3177,7 +3184,7 @@ body.has-bg-image::before {
 .article-related-section {
   margin-top: 64px;
   padding-top: 32px;
-  border-top: 1px solid rgba(255,255,255,0.08);
+  border-top: 1px solid rgba(0,0,0,0.08);
 }
 .article-related-section.hidden {
   display: none;
@@ -3187,24 +3194,24 @@ body.has-bg-image::before {
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  color: rgba(255,255,255,0.45);
+  color: var(--muted);
   margin: 0 0 20px;
 }
 .article-related-card {
   font-size: 15px;
   line-height: 1.7;
-  color: rgba(255,255,255,0.8);
+  color: var(--ink);
   white-space: pre-wrap;
   word-break: break-word;
 }
 .article-related-card a {
-  color: #fff;
+  color: var(--ink);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 .article-related-loading {
   font-size: 14px;
-  color: rgba(255,255,255,0.4);
+  color: var(--muted);
   padding: 16px 0;
 }
 
@@ -3212,7 +3219,7 @@ body.has-bg-image::before {
 .article-empty {
   text-align: center;
   padding: 80px 20px;
-  color: rgba(255,255,255,0.4);
+  color: var(--muted);
   font-size: 17px;
 }
 
