@@ -8757,18 +8757,46 @@ function renderArticleEntry(ed, category) {
   }
 }
 
+const RELATED_MEDIA_LABELS = {
+  notes: 'articles or essays',
+  links: 'websites or links',
+  songs: 'music',
+  movies: 'films',
+  images: 'images or art',
+  files: 'resources',
+  latex: 'math or concepts'
+};
+
 function fetchArticleRelated() {
   if (!currentUser) {
     articleAiSection.classList.add('hidden');
     return;
   }
   articleAiSection.classList.remove('hidden');
-  articleAiContent.innerHTML = '<div class="article-related-loading">Finding related content\u2026</div>';
+  articleAiContent.innerHTML = '<div class="article-related-loading">Finding related content…</div>';
+
+  const flattened = getFlattenedArticleEntries();
+  const mediaTypesPresent = [...new Set(flattened.map(({ category }) => category).filter(Boolean))];
+  const mediaLabels = mediaTypesPresent
+    .map(c => RELATED_MEDIA_LABELS[c] || c)
+    .filter(Boolean)
+    .join(', ');
+  const mediaInstruction = mediaLabels
+    ? `Media types on this page: ${mediaLabels}. Suggest at least one related resource for EACH of these types.`
+    : 'Suggest a variety of related resources.';
 
   const payload = buildTrenchesPayload();
   const body = {
     ...payload,
-    userMessage: 'Based on the content and aesthetic of this page, find 2-4 specific human-created resources (articles, sites, concepts, artists) that fit. For EACH item: give a brief title/description, then write "Search: [exact query]" on the same line. Example: "David Graeber\'s essay on bullshit jobs. Search: David Graeber bullshit jobs". NEVER invent or guess URLs—only use the Search: format so links are always valid. No suggestions for what to add—only concrete finds.'
+    userMessage: `RELATED CONTENT TASK: ${mediaInstruction}
+
+Find real, well-known human-created resources that fit the content and aesthetic: actual books, articles, artworks, films, music, or sites. Never invent or guess URLs.
+
+Format each item as: Brief title or description. Search: [exact search query]
+Example: David Graeber's essay on bullshit jobs. Search: David Graeber bullshit jobs
+Example: Vermeer's Girl with a Pearl Earring. Search: Vermeer Girl with a Pearl Earring
+
+Rules: Use ONLY the Search: format for links. No asterisks, no markdown. Plain text only. One line per suggestion.`
   };
   fetch('/api/chat', {
     method: 'POST',
@@ -8778,7 +8806,9 @@ function fetchArticleRelated() {
   })
     .then(r => { if (!r.ok) throw new Error('Failed'); return r.json(); })
     .then(data => {
-      const safe = escapeHtml(data.message || '');
+      let raw = (data.message || '').trim();
+      raw = raw.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1').replace(/_([^_]+)_/g, '$1').replace(/\*+/g, '').replace(/^#+\s*/gm, '');
+      const safe = escapeHtml(raw);
       let linked = safe.replace(/Search:\s*([^\n]+?)(?=\n|$)/g, (_, q) => {
         const trimmed = q.trim();
         const qEnc = encodeURIComponent(trimmed);
