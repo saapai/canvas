@@ -8157,6 +8157,11 @@ function handleDeadlineTableKeydown(e) {
     bgDropdown.classList.add('hidden');
   });
 
+  function showBgError(msg) {
+    if (typeof msg === 'string' && msg) alert('Background upload: ' + msg);
+    else alert('Background upload failed. Try another image or check you’re signed in.');
+  }
+
   // Upload handler
   if (bgUploadInput) {
     bgUploadInput.addEventListener('change', async function() {
@@ -8165,18 +8170,23 @@ function handleDeadlineTableKeydown(e) {
       bgDropdown.classList.add('hidden');
 
       var finalUrl = null;
+      var serverError = null;
 
-      // 1. Try server upload first
+      // 1. Try server upload first (same bucket, path tagged as backgrounds/)
       try {
         var form = new FormData();
         form.append('file', file);
-        var res = await fetch('/api/upload-image', { method: 'POST', credentials: 'include', body: form });
+        var res = await fetch('/api/upload-background-image', { method: 'POST', credentials: 'include', body: form });
         if (res.ok) {
           var data = await res.json();
           if (data.url) finalUrl = data.url;
+        } else {
+          var body = await res.json().catch(function() { return {}; });
+          serverError = body.error || res.statusText || 'Upload failed';
         }
       } catch (err) {
-        console.warn('Background server upload failed, using local image:', err);
+        console.warn('Background server upload failed:', err);
+        serverError = 'Network error';
       }
 
       // 2. Fallback: read as resized data URL
@@ -8195,6 +8205,8 @@ function handleDeadlineTableKeydown(e) {
         applyBg(finalUrl);
         saveBg('upload', finalUrl);
         markActive(finalUrl);
+      } else {
+        showBgError(serverError);
       }
 
       bgUploadInput.value = '';
