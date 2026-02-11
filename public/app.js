@@ -8757,16 +8757,6 @@ function renderArticleEntry(ed, category) {
   }
 }
 
-const RELATED_MEDIA_LABELS = {
-  notes: 'articles or essays',
-  links: 'websites or links',
-  songs: 'music',
-  movies: 'films',
-  images: 'images or art',
-  files: 'resources',
-  latex: 'math or concepts'
-};
-
 function fetchArticleRelated() {
   if (!currentUser) {
     articleAiSection.classList.add('hidden');
@@ -8775,28 +8765,16 @@ function fetchArticleRelated() {
   articleAiSection.classList.remove('hidden');
   articleAiContent.innerHTML = '<div class="article-related-loading">Finding related content…</div>';
 
-  const flattened = getFlattenedArticleEntries();
-  const mediaTypesPresent = [...new Set(flattened.map(({ category }) => category).filter(Boolean))];
-  const mediaLabels = mediaTypesPresent
-    .map(c => RELATED_MEDIA_LABELS[c] || c)
-    .filter(Boolean)
-    .join(', ');
-  const mediaInstruction = mediaLabels
-    ? `Media types on this page: ${mediaLabels}. Suggest at least one related resource for EACH of these types.`
-    : 'Suggest a variety of related resources.';
-
   const payload = buildTrenchesPayload();
   const body = {
     ...payload,
-    userMessage: `RELATED CONTENT TASK: ${mediaInstruction}
+    userMessage: `RELATED CONTENT TASK: Suggest 3–5 real articles and books that fit the content and aesthetic of this page.
 
-Find real, well-known human-created resources that fit the content and aesthetic: actual books, articles, artworks, films, music, or sites. Never invent or guess URLs.
+Only recommend actual, well-known works: real book titles with authors, real essay/article titles with publications or authors. Never invent or make up titles. Draw from your knowledge of classic and notable works.
 
-Format each item as: Brief title or description. Search: [exact search query]
-Example: David Graeber's essay on bullshit jobs. Search: David Graeber bullshit jobs
-Example: Vermeer's Girl with a Pearl Earring. Search: Vermeer Girl with a Pearl Earring
+Format: One line per item. "Title" by Author (or "Article Title" – Publication). No asterisks, no markdown, no links. Plain text only.
 
-Rules: Use ONLY the Search: format for links. No asterisks, no markdown. Plain text only. One line per suggestion.`
+Examples: "Bullshit Jobs" by David Graeber | "Consider the Lobster" – David Foster Wallace, The Atlantic`
   };
   fetch('/api/chat', {
     method: 'POST',
@@ -8808,14 +8786,7 @@ Rules: Use ONLY the Search: format for links. No asterisks, no markdown. Plain t
     .then(data => {
       let raw = (data.message || '').trim();
       raw = raw.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1').replace(/_([^_]+)_/g, '$1').replace(/\*+/g, '').replace(/^#+\s*/gm, '');
-      const safe = escapeHtml(raw);
-      let linked = safe.replace(/Search:\s*([^\n]+?)(?=\n|$)/g, (_, q) => {
-        const trimmed = q.trim();
-        const qEnc = encodeURIComponent(trimmed);
-        return `Search: <a href="https://www.google.com/search?q=${qEnc}" target="_blank" rel="noopener">${escapeHtml(trimmed)}</a>`;
-      });
-      linked = linked.replace(/(https?:\/\/[^\s<"']+)/g, (url) => `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${url}</a>`);
-      articleAiContent.innerHTML = `<div class="article-related-card">${linked}</div>`;
+      articleAiContent.innerHTML = `<div class="article-related-card">${escapeHtml(raw)}</div>`;
     })
     .catch(() => {
       articleAiContent.innerHTML = '<div class="article-related-loading">Could not load related content.</div>';

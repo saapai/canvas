@@ -2937,6 +2937,7 @@ body.has-bg-image::before {
   background: var(--paper);
   z-index: 500;
   overflow-y: auto;
+  user-select: text;
 }
 .article-view.hidden {
   display: none;
@@ -3224,6 +3225,9 @@ body.has-bg-image::before {
 }
 
 /* ——— Article mode body overrides ——— */
+body.article-mode {
+  user-select: text;
+}
 body.article-mode .bg-picker-button,
 body.article-mode #bg-picker-dropdown,
 body.article-mode .help-button,
