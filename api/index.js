@@ -59,7 +59,11 @@ const supabase = supabaseUrl && supabaseServiceKey
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
 app.use(cors());
-app.use(express.json());
+app.use(function (req, res, next) {
+  const ct = (req.headers['content-type'] || '');
+  if (ct.includes('multipart/form-data')) return next();
+  express.json()(req, res, next);
+});
 
 // Serve static files BEFORE any other routes
 // This ensures app.js, styles.css, etc. are served correctly
@@ -823,12 +827,21 @@ app.post('/api/upload-image', requireAuth, upload.single('file'), async (req, re
   }
 });
 
+function isImageMimeOrExtension(mimetype, originalname) {
+  if (!mimetype && !originalname) return false;
+  if (mimetype && (mimetype.startsWith('image/') || ['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp', 'image/x-png'].includes(mimetype))) return true;
+  const ext = (originalname || '').split('.').pop()?.toLowerCase();
+  return ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext);
+}
+
 app.post('/api/upload-background-image', requireAuth, upload.single('file'), async (req, res) => {
   try {
     if (!req.user) return res.status(401).json({ error: 'Authentication required' });
-    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-    const allowed = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-    if (!allowed.includes(req.file.mimetype)) {
+    if (!req.file) {
+      console.warn('[upload-background-image] No file in request. Content-Type:', req.headers['content-type']);
+      return res.status(400).json({ error: 'No file received. Try a smaller image or a different browser.' });
+    }
+    if (!isImageMimeOrExtension(req.file.mimetype, req.file.originalname)) {
       return res.status(400).json({ error: 'Invalid file type. Use JPEG, PNG, GIF, or WebP.' });
     }
     if (!supabase) {
