@@ -2695,8 +2695,21 @@ async function commitEditor(){
       return;
     }
     if(entryData){
-      // If editor text is empty, delete the entry
+      // If editor text is empty, check whether deletion is appropriate
       if(!trimmedRight){
+        // Safety: if entry has saved text but editor reads as empty, this is a
+        // DOM timing issue (blur/focus race, shift+drag, etc.) — not intentional
+        if(entryData.text && entryData.text.trim().length > 0) {
+          console.log('[COMMIT] Editor empty but entry has saved text — skipping delete');
+          entryData.element.classList.remove('editing', 'deadline-editing');
+          editingEntryId = null;
+          editor.removeEventListener('keydown', handleDeadlineTableKeydown);
+          editor.textContent = '';
+          editor.innerHTML = '';
+          showCursorInDefaultPosition();
+          isCommitting = false;
+          return;
+        }
         // User intentionally cleared text and committed - delete the entry
         const deletedEntryId = editingEntryId; // Store before deletion
         const deletedEntryData = entries.get(deletedEntryId);
@@ -4079,8 +4092,9 @@ viewport.addEventListener('mousedown', (e) => {
     return;
   }
 
-  if(entryEl) {
+  if(entryEl && e.button !== 2) {
     // Allow dragging when clicking on link card or media card too
+    // Right-click (button 2) is handled by contextmenu — skip drag setup
     const isLinkCard = e.target.closest('.link-card, .link-card-placeholder');
     const isMediaCard = e.target.closest('.media-card');
 
@@ -4355,7 +4369,8 @@ window.addEventListener('mouseup', async (e) => {
         isClick = (dist < dragThreshold && dt < 350);
         
         // Edit entry if it was a click (not a drag). Images: only select, no edit.
-        if(isClick && draggingEntry.id !== 'anchor' && draggingEntry.id && !isReadOnly) {
+        // Skip right-click (button 2) — the contextmenu handler handles that.
+        if(isClick && e.button !== 2 && draggingEntry.id !== 'anchor' && draggingEntry.id && !isReadOnly) {
           const entryData = entries.get(draggingEntry.id);
           if(entryData) {
             if(isImageEntry(draggingEntry) || isFileEntry(draggingEntry)) {
