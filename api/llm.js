@@ -275,14 +275,44 @@ export async function convertTextToLatex(text) {
       messages: [
         {
           role: 'system',
-          content: 'You are a LaTeX expert that converts plain text and math expressions into proper LaTeX notation. Respond ONLY with valid JSON, no other text.'
+          content: `You are a LaTeX expert that converts plain text and math expressions into proper LaTeX notation rendered by KaTeX. Respond ONLY with valid JSON, no other text.
+
+CRITICAL: Output must be KaTeX-compatible. Use only commands supported by KaTeX 0.16.
+
+Reference for correct notation:
+- Integrals: \\int_a^b, \\iint, \\iiint, \\oint, \\int_{-\\infty}^{\\infty}
+- Derivatives: \\frac{d}{dx}, \\frac{dy}{dx}, \\frac{d^2y}{dx^2}, \\frac{\\partial f}{\\partial x}, \\frac{\\partial^2 f}{\\partial x^2}, f'(x), f''(x)
+- Limits: \\lim_{x \\to \\infty}, \\lim_{n \\to 0}, \\lim_{h \\to 0}
+- Operator functions: \\sin, \\cos, \\tan, \\sec, \\csc, \\cot, \\arcsin, \\arccos, \\arctan, \\sinh, \\cosh, \\tanh, \\log, \\ln, \\exp, \\det, \\dim, \\ker, \\deg, \\gcd, \\hom, \\arg, \\max, \\min, \\sup, \\inf, \\Pr
+- Summation/products: \\sum_{i=0}^{n}, \\prod_{i=1}^{n}, \\coprod, \\bigcup, \\bigcap
+- Fractions: \\frac{a}{b}, \\dfrac{a}{b} (display-size), \\tfrac{a}{b} (text-size), \\binom{n}{k}
+- Roots: \\sqrt{x}, \\sqrt[n]{x}
+- Greek: \\alpha, \\beta, \\gamma, \\delta, \\epsilon, \\varepsilon, \\theta, \\vartheta, \\lambda, \\mu, \\pi, \\sigma, \\phi, \\varphi, \\omega, \\Gamma, \\Delta, \\Theta, \\Lambda, \\Pi, \\Sigma, \\Phi, \\Psi, \\Omega
+- Relations: \\leq, \\geq, \\neq, \\approx, \\equiv, \\sim, \\simeq, \\cong, \\propto, \\ll, \\gg, \\prec, \\succ, \\subset, \\supset, \\subseteq, \\supseteq, \\in, \\notin, \\ni
+- Arrows: \\to, \\rightarrow, \\leftarrow, \\Rightarrow, \\Leftarrow, \\Leftrightarrow, \\mapsto, \\implies, \\iff
+- Set theory: \\cup, \\cap, \\setminus, \\emptyset, \\varnothing, \\forall, \\exists, \\nexists, \\land, \\lor, \\neg, \\mathbb{R}, \\mathbb{Z}, \\mathbb{N}, \\mathbb{Q}, \\mathbb{C}
+- Matrices: \\begin{bmatrix} a & b \\\\ c & d \\end{bmatrix}, \\begin{pmatrix}...\\end{pmatrix}, \\begin{vmatrix}...\\end{vmatrix}
+- Vectors: \\vec{v}, \\mathbf{v}, \\hat{x}, \\dot{x}, \\ddot{x}, \\bar{x}, \\tilde{x}
+- Spacing: \\quad, \\qquad, \\, \\; \\: \\! for fine control
+- Text in math: \\text{...} for words inside math mode
+- Cases: \\begin{cases} ... \\end{cases} for piecewise functions
+- Aligned equations: \\begin{aligned} ... \\end{aligned} with & for alignment and \\\\ for line breaks
+
+IMPORTANT rules:
+- Always use \\operatorname{name} for non-standard function names not listed above
+- Use \\left( and \\right) for auto-sizing delimiters around tall expressions
+- Use \\, for thin space between differential dx and the integrand: \\int f(x)\\,dx
+- For multi-line equations, use \\begin{aligned}...\\end{aligned} inside $$ delimiters
+- Never use \\displaystyle inside display mode (it's redundant)
+- Use \\text{} for non-math words within equations`
         },
         {
           role: 'user',
-          content: `Convert the following text into LaTeX notation. Convert math expressions, equations, Greek letters, operations, fractions, integrals, summations, matrices, and any mathematical notation into proper LaTeX.
+          content: `Convert the following text into LaTeX notation. Convert math expressions, equations, Greek letters, operations, fractions, integrals, summations, matrices, and any mathematical notation into proper KaTeX-compatible LaTeX.
 
 If the text is primarily a math expression or equation, wrap it in display math mode ($$...$$).
 If the text contains inline math mixed with regular text, wrap math parts in inline math mode ($...$) and keep regular text as-is.
+For multiple equations or steps, use $$\\begin{aligned} ... \\end{aligned}$$ with & for alignment points and \\\\ for line breaks.
 
 Text to convert:
 "${text}"
@@ -297,7 +327,7 @@ Where "isFullMath" is true if the entire content is mathematical, false if it's 
         }
       ],
       temperature: 0.1,
-      max_tokens: 1000
+      max_tokens: 2000
     });
 
     const content = completion.choices[0].message.content.trim();

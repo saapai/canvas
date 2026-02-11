@@ -3398,6 +3398,35 @@ async function convertToLatex(text) {
 }
 
 // Render LaTeX source into an element using KaTeX
+// Common KaTeX options shared across all render calls
+const katexOptions = {
+  throwOnError: false,
+  trust: true,
+  strict: false,
+  macros: {
+    '\\R': '\\mathbb{R}',
+    '\\Z': '\\mathbb{Z}',
+    '\\N': '\\mathbb{N}',
+    '\\Q': '\\mathbb{Q}',
+    '\\C': '\\mathbb{C}',
+    '\\F': '\\mathbb{F}',
+    '\\dx': '\\,dx',
+    '\\dy': '\\,dy',
+    '\\dz': '\\,dz',
+    '\\dt': '\\,dt',
+    '\\du': '\\,du',
+    '\\dv': '\\,dv',
+    '\\dtheta': '\\,d\\theta',
+    '\\dphi': '\\,d\\phi',
+    '\\abs': '\\left|#1\\right|',
+    '\\norm': '\\left\\|#1\\right\\|',
+    '\\inner': '\\left\\langle #1, #2 \\right\\rangle',
+    '\\floor': '\\left\\lfloor #1 \\right\\rfloor',
+    '\\ceil': '\\left\\lceil #1 \\right\\rceil',
+    '\\eval': '\\left.#1\\right|'
+  }
+};
+
 function renderLatex(latexSource, element) {
   // Wrap in a latex-content container
   const container = document.createElement('div');
@@ -3406,8 +3435,8 @@ function renderLatex(latexSource, element) {
   element.innerHTML = '';
   element.appendChild(container);
 
-  // Check if source has math delimiters already
-  const hasDelimiters = /\$\$|(?<!\$)\$(?!\$)|\\\\?\[|\\\\?\(/.test(latexSource);
+  // Check if source has math delimiters ($...$, $$...$$, \[...\], \(...\))
+  const hasDelimiters = /\$\$[\s\S]+?\$\$|\$[^$]+?\$|\\[\[\]]|\\[()]/.test(latexSource);
 
   // Guard: wait for KaTeX to be loaded
   function doRender() {
@@ -3419,17 +3448,17 @@ function renderLatex(latexSource, element) {
           renderMathInElement(container, {
             delimiters: [
               { left: '$$', right: '$$', display: true },
-              { left: '$', right: '$', display: false },
               { left: '\\[', right: '\\]', display: true },
-              { left: '\\(', right: '\\)', display: false }
+              { left: '\\(', right: '\\)', display: false },
+              { left: '$', right: '$', display: false }
             ],
-            throwOnError: false
+            ...katexOptions
           });
         } else {
           // No delimiters - render directly as a single math expression
           katex.render(latexSource, container, {
             displayMode: true,
-            throwOnError: false
+            ...katexOptions
           });
         }
       } catch (e) {
@@ -3989,19 +4018,6 @@ viewport.addEventListener('mousedown', (e) => {
     const isLinkCard = e.target.closest('.link-card, .link-card-placeholder');
     const isMediaCard = e.target.closest('.media-card');
 
-    const deadlineTable = entryEl.querySelector('.deadline-table');
-    const onDeadlineHeader = deadlineTable && e.target.closest('.deadline-header');
-    if (deadlineTable && !onDeadlineHeader && !e.shiftKey) {
-      e.preventDefault();
-      e.stopPropagation();
-      const dot = e.target.closest('.deadline-dot');
-      const row = dot ? dot.closest('.deadline-row') : null;
-      const allRows = deadlineTable ? Array.from(deadlineTable.querySelectorAll('.deadline-row')) : [];
-      const clickedDotRowIndex = dot && row ? allRows.indexOf(row) : -1;
-      clickStart = { x: e.clientX, y: e.clientY, t: performance.now(), entryEl, button: e.button, isDeadlineTable: true, clientX: e.clientX, clientY: e.clientY, target: e.target, clickedDotRowIndex };
-      return;
-    }
-
     // Cancel any pending edit timeout since we're starting to drag
     if (pendingEditTimeout) {
       clearTimeout(pendingEditTimeout);
@@ -4279,10 +4295,8 @@ window.addEventListener('mouseup', async (e) => {
             if(isImageEntry(draggingEntry) || isFileEntry(draggingEntry)) {
               selectOnlyEntry(draggingEntry.id);
             } else if(draggingEntry.querySelector('.deadline-table')) {
-              if (e.shiftKey) {
-                selectedEntries.add(draggingEntry.id);
-                draggingEntry.classList.add('selected');
-              } else {
+              const alreadyEditing = editingEntryId === draggingEntry.id;
+              if (!alreadyEditing) {
                 if (editor && (editor.textContent.trim() || editingEntryId)) {
                   await commitEditor();
                 }
@@ -4290,6 +4304,25 @@ window.addEventListener('mouseup', async (e) => {
                 const worldPos = screenToWorld(rect.left, rect.top);
                 placeEditorAtWorld(worldPos.x, worldPos.y, entryData.text, draggingEntry.id);
               }
+              // Focus the nearest cell at the original click position
+              const cx = clickStart ? clickStart.x : e.clientX;
+              const cy = clickStart ? clickStart.y : e.clientY;
+              requestAnimationFrame(() => {
+                const table = editor.querySelector('.deadline-table');
+                if (table) {
+                  // Check if click was on an interactive element (dot, badge, ghost)
+                  const elAtPoint = document.elementFromPoint(cx, cy);
+                  if (elAtPoint) {
+                    const dot = elAtPoint.closest('.deadline-dot');
+                    const badge = elAtPoint.closest('.status-badge');
+                    const ghost = elAtPoint.closest('.deadline-ghost-row');
+                    if (dot) { dot.click(); return; }
+                    if (badge) { badge.click(); return; }
+                    if (ghost) { ghost.click(); return; }
+                  }
+                  focusNearestDeadlineCell(table, cx, cy);
+                }
+              });
             } else {
               // If currently editing, commit first and wait for it to complete
               if (editor && (editor.textContent.trim() || editingEntryId)) {
@@ -4442,36 +4475,6 @@ window.addEventListener('mouseup', async (e) => {
       const dist = Math.hypot(e.clientX - clickStart.x, e.clientY - clickStart.y);
       const dt = performance.now() - clickStart.t;
       const isClick = (dist < dragThreshold && dt < 350);
-
-      if (isClick && clickStart.isDeadlineTable) {
-        const entryEl = clickStart.entryEl;
-        const entryData = entries.get(entryEl.id);
-        if (entryData && entryEl.id && entryEl.id !== 'anchor') {
-          if (editor && (editor.textContent.trim() || editingEntryId)) {
-            await commitEditor();
-          }
-          const rect = entryEl.getBoundingClientRect();
-          const worldPos = screenToWorld(rect.left, rect.top);
-          placeEditorAtWorld(worldPos.x, worldPos.y, entryData.text, entryEl.id);
-          requestAnimationFrame(() => {
-            const table = editor.querySelector('.deadline-table');
-            if (table) {
-              if (clickStart.clickedDotRowIndex >= 0) {
-                const rows = table.querySelectorAll('.deadline-row');
-                const row = rows[clickStart.clickedDotRowIndex];
-                if (row) {
-                  const dot = row.querySelector('.deadline-dot');
-                  if (dot) dot.click();
-                }
-              } else {
-                focusNearestDeadlineCell(table, clickStart.clientX, clickStart.clientY);
-              }
-            }
-          });
-        }
-        clickStart = null;
-        return;
-      }
 
       if (isClick) {
         const entryEl = clickStart.entryEl;
@@ -5278,7 +5281,7 @@ async function extractDeadlinesIntoEntry(entryEl, table, file) {
     const ghostRow = table.querySelector('.deadline-ghost-row');
     data.deadlines.forEach((d, i) => {
       const row = document.createElement('div');
-      row.className = 'deadline-row deadline-row-enter';
+      row.className = 'deadline-row';
       row.innerHTML = getDeadlineRowHTML();
       const nameCell = row.querySelector('.deadline-col-name');
       const deadlineCell = row.querySelector('.deadline-col-deadline');
@@ -5291,7 +5294,8 @@ async function extractDeadlinesIntoEntry(entryEl, table, file) {
       }
       if (classCell) classCell.textContent = d.class || '';
       if (notesCell) notesCell.textContent = d.notes || '';
-      row.style.animationDelay = `${i * 50}ms`;
+
+
       if (ghostRow) table.insertBefore(row, ghostRow);
       else table.appendChild(row);
     });
@@ -7584,8 +7588,7 @@ function sortDeadlineRows(table) {
     const bT = parseDeadlineDateForSort(bCel?.textContent, bCel);
     return aT - bT;
   });
-  rows.forEach((row, i) => {
-    row.style.animationDelay = `${i * 50}ms`;
+  rows.forEach(row => {
     if (ghostRow) table.insertBefore(row, ghostRow);
     else table.appendChild(row);
   });
@@ -7652,7 +7655,6 @@ function completeDeadlineRow(row, table) {
   setTimeout(() => {
     const section = ensureCompletedSection(table);
     row.classList.remove('completing');
-    row.classList.add('deadline-row-enter');
     section.appendChild(row);
     hideOrShowCompletedSection(table);
     saveDeadlineTableState(table);
@@ -7897,7 +7899,7 @@ function setupDeadlineTableHandlers(table) {
       const ghostRow = table.querySelector('.deadline-ghost-row');
       data.deadlines.forEach((d, i) => {
         const row = document.createElement('div');
-        row.className = 'deadline-row deadline-row-enter';
+        row.className = 'deadline-row';
         row.innerHTML = getDeadlineRowHTML();
         const nameCell = row.querySelector('.deadline-col-name');
         const deadlineCell = row.querySelector('.deadline-col-deadline');
@@ -7910,8 +7912,9 @@ function setupDeadlineTableHandlers(table) {
         }
         if (classCell) classCell.textContent = d.class || '';
         if (notesCell) notesCell.textContent = d.notes || '';
-        // Stagger entrance animation
-        row.style.animationDelay = `${i * 50}ms`;
+
+  
+
         if (ghostRow) {
           table.insertBefore(row, ghostRow);
         } else {
