@@ -8768,7 +8768,7 @@ function fetchArticleRelated() {
   const payload = buildTrenchesPayload();
   const body = {
     ...payload,
-    userMessage: 'Based on the content and aesthetic of this page, find 2-4 specific human-created resources that fit: articles, websites, images, concepts, or links. Provide real URLs where possible. Format as a brief list with titles and links. No suggestions for what to add—only concrete finds the user can explore.'
+    userMessage: 'Based on the content and aesthetic of this page, find 2-4 specific human-created resources (articles, sites, concepts, artists) that fit. For EACH item: give a brief title/description, then write "Search: [exact query]" on the same line. Example: "David Graeber\'s essay on bullshit jobs. Search: David Graeber bullshit jobs". NEVER invent or guess URLs—only use the Search: format so links are always valid. No suggestions for what to add—only concrete finds.'
   };
   fetch('/api/chat', {
     method: 'POST',
@@ -8779,7 +8779,12 @@ function fetchArticleRelated() {
     .then(r => { if (!r.ok) throw new Error('Failed'); return r.json(); })
     .then(data => {
       const safe = escapeHtml(data.message || '');
-      const linked = safe.replace(/(https?:\/\/[^\s<]+)/g, (url) => `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${url}</a>`);
+      let linked = safe.replace(/Search:\s*([^\n]+?)(?=\n|$)/g, (_, q) => {
+        const trimmed = q.trim();
+        const qEnc = encodeURIComponent(trimmed);
+        return `Search: <a href="https://www.google.com/search?q=${qEnc}" target="_blank" rel="noopener">${escapeHtml(trimmed)}</a>`;
+      });
+      linked = linked.replace(/(https?:\/\/[^\s<"']+)/g, (url) => `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${url}</a>`);
       articleAiContent.innerHTML = `<div class="article-related-card">${linked}</div>`;
     })
     .catch(() => {
