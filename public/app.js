@@ -5126,45 +5126,56 @@ editor.addEventListener('blur', (e) => {
     }, 0);
   } else if (trimmed.length === 0 && editingEntryId && editingEntryId !== 'anchor') {
     // If editor is empty and editing existing entry, delete the entry
-    // This happens when user deletes all text and clicks away
+    // BUT: skip auto-delete for entries that are pure media/link cards (no text)
     setTimeout(async () => {
       const active = document.activeElement;
       const focusInFormatBar = formatBar && formatBar.contains(active);
       if (active !== editor && !editor.contains(active) && !focusInFormatBar) {
         const entryData = entries.get(editingEntryId);
-        if (entryData) {
-          // User deleted all text - delete the entry (with confirmation if has children)
-          // deleteEntryWithConfirmation already handles undo state
-            const deletedEntryId = editingEntryId; // Store before deletion
-            const deletedEntryData = entries.get(deletedEntryId);
-            let deletedEntryPos = null;
-            if (deletedEntryData && deletedEntryData.element) {
-              // Store position before deletion
-              const element = deletedEntryData.element;
-              const rect = element.getBoundingClientRect();
-              const worldX = parseFloat(element.style.left) || 0;
-              const worldY = parseFloat(element.style.top) || 0;
-              const worldWidth = rect.width;
-              const worldHeight = rect.height;
-              const padding = 40;
-              deletedEntryPos = {
-                x: worldX + worldWidth + padding,
-                y: worldY + worldHeight + padding
-              };
-            }
-            const deleted = await deleteEntryWithConfirmation(editingEntryId);
-            if (deleted) {
-              // Show cursor at bottom-right of deleted entry (use stored position)
-              if (deletedEntryPos) {
-                showCursorAtWorld(deletedEntryPos.x, deletedEntryPos.y);
-              } else {
-                showCursorInDefaultPosition();
-              }
-              editingEntryId = null;
+        if (!entryData) return;
+
+        const hasMediaOrLinks =
+          !!entryData.mediaCardData ||
+          (Array.isArray(entryData.linkCardsData) && entryData.linkCardsData.length > 0);
+
+        if (hasMediaOrLinks) {
+          // Just exit editing state without deleting the entry
+          entryData.element.classList.remove('editing', 'deadline-editing');
+          editingEntryId = null;
+          editor.removeEventListener('keydown', handleDeadlineTableKeydown);
+          editor.textContent = '';
+          editor.innerHTML = '';
+          showCursorInDefaultPosition();
+          return;
+        }
+
+        // No media/link cards: user really cleared text, delete entry
+        const deletedEntryId = editingEntryId; // Store before deletion
+        const deletedEntryData = entries.get(deletedEntryId);
+        let deletedEntryPos = null;
+        if (deletedEntryData && deletedEntryData.element) {
+          // Store position before deletion
+          const element = deletedEntryData.element;
+          const rect = element.getBoundingClientRect();
+          const worldX = parseFloat(element.style.left) || 0;
+          const worldY = parseFloat(element.style.top) || 0;
+          const worldWidth = rect.width;
+          const worldHeight = rect.height;
+          const padding = 40;
+          deletedEntryPos = {
+            x: worldX + worldWidth + padding,
+            y: worldY + worldHeight + padding
+          };
+        }
+        const deleted = await deleteEntryWithConfirmation(editingEntryId);
+        if (deleted) {
+          // Show cursor at bottom-right of deleted entry (use stored position)
+          if (deletedEntryPos) {
+            showCursorAtWorld(deletedEntryPos.x, deletedEntryPos.y);
           } else {
-            // User cancelled deletion - restore editing state
-            entryData.element.classList.add('editing');
+            showCursorInDefaultPosition();
           }
+          editingEntryId = null;
         }
       }
     }, 0);
@@ -5217,13 +5228,13 @@ viewport.addEventListener('contextmenu', (e) => {
     }
     e.preventDefault();
     e.stopPropagation();
+    // Mark that this focus/blur sequence came from a right-click edit
     isRightClickContext = true;
     const entryData = entries.get(entryEl.id);
     if(entryData){
       const rect = entryEl.getBoundingClientRect();
       const worldPos = screenToWorld(rect.left, rect.top);
       placeEditorAtWorld(worldPos.x, worldPos.y, entryData.text, entryEl.id);
-      setTimeout(() => { isRightClickContext = false; }, 100);
     }
   }
 });
