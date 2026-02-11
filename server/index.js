@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import rateLimit from 'express-rate-limit';
 import sharp from 'sharp';
+import { convert } from 'heic-convert';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -728,12 +729,20 @@ app.post('/api/upload-image', requireAuth, upload.single('file'), async (req, re
     const isHeic = mime === 'image/heic' || mime === 'image/heif' || ext === 'heic' || ext === 'heif';
     if (isHeic) {
       try {
-        buffer = await sharp(req.file.buffer).jpeg({ quality: 90 }).toBuffer();
+        console.log('[upload-image] Converting HEIC to JPEG...');
+        buffer = await convert({
+          buffer: req.file.buffer,
+          format: 'JPEG',
+          quality: 0.9
+        });
         mime = 'image/jpeg';
         ext = 'jpg';
+        console.log('[upload-image] HEIC conversion successful');
       } catch (err) {
-        console.error('[upload-image] HEIC conversion failed:', err);
-        return res.status(500).json({ error: 'Failed to convert HEIC image. Try a JPEG or PNG instead.' });
+        console.error('[upload-image] HEIC conversion failed:', err.message, err.stack);
+        return res.status(500).json({ 
+          error: `Failed to convert HEIC image: ${err.message || 'HEIC conversion not supported'}. Please convert to JPEG or PNG first.` 
+        });
       }
     }
 
@@ -773,12 +782,20 @@ app.post('/api/upload-background-image', requireAuth, upload.single('file'), asy
     const isHeic = mime === 'image/heic' || mime === 'image/heif' || ext === 'heic' || ext === 'heif';
     if (isHeic) {
       try {
-        buffer = await sharp(req.file.buffer).jpeg({ quality: 90 }).toBuffer();
+        console.log('[upload-background-image] Converting HEIC to JPEG...');
+        buffer = await convert({
+          buffer: req.file.buffer,
+          format: 'JPEG',
+          quality: 0.9
+        });
         mime = 'image/jpeg';
         ext = 'jpg';
+        console.log('[upload-background-image] HEIC conversion successful');
       } catch (err) {
-        console.error('[upload-background-image] HEIC conversion failed:', err);
-        return res.status(500).json({ error: 'Failed to convert HEIC image. Try a JPEG or PNG instead.' });
+        console.error('[upload-background-image] HEIC conversion failed:', err.message, err.stack);
+        return res.status(500).json({ 
+          error: `Failed to convert HEIC image: ${err.message || 'HEIC conversion not supported'}. Please convert to JPEG or PNG first.` 
+        });
       }
     }
 
