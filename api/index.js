@@ -848,7 +848,7 @@ app.post('/api/upload-image', requireAuth, upload.single('file'), async (req, re
     if (isHeic) {
       try {
         console.log('[upload-image] Converting HEIC to JPEG...');
-        buffer = await heicConvert.convert({
+        buffer = await heicConvert({
           buffer: req.file.buffer,
           format: 'JPEG',
           quality: 0.9
@@ -906,7 +906,7 @@ app.post('/api/upload-background-image', requireAuth, upload.single('file'), asy
     if (isHeic) {
       try {
         console.log('[upload-background-image] Converting HEIC to JPEG...');
-        buffer = await heicConvert.convert({
+        buffer = await heicConvert({
           buffer: req.file.buffer,
           format: 'JPEG',
           quality: 0.9
