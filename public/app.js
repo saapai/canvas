@@ -8510,4 +8510,315 @@ function handleDeadlineTableKeydown(e) {
   window._loadBgAfterAuth = loadBg;
 })();
 
+// ——— Article View Mode ———
+let currentViewMode = 'canvas';
+const articleView = document.getElementById('article-view');
+const articleHeader = document.getElementById('article-header');
+const articleContent = document.getElementById('article-content');
+const articleSidebarNav = document.getElementById('article-sidebar-nav');
+const articleAiSection = document.getElementById('article-ai-section');
+const articleAiContent = document.getElementById('article-ai-content');
+const viewToggleCanvas = document.getElementById('view-toggle-canvas');
+const viewToggleArticle = document.getElementById('view-toggle-article');
+
+function setViewMode(mode) {
+  if (mode === currentViewMode) return;
+  currentViewMode = mode;
+
+  viewToggleCanvas.classList.toggle('active', mode === 'canvas');
+  viewToggleArticle.classList.toggle('active', mode === 'article');
+  document.body.classList.toggle('article-mode', mode === 'article');
+
+  if (mode === 'article') {
+    viewport.style.display = 'none';
+    if (editingEntryId) {
+      editor.blur();
+      hideCursor();
+    }
+    articleView.classList.remove('hidden');
+    renderArticleView();
+  } else {
+    articleView.classList.add('hidden');
+    viewport.style.display = '';
+    // Recalculate entry dimensions when switching back
+    setTimeout(() => {
+      entries.forEach((ed, id) => {
+        if (id === 'anchor') return;
+        if (ed.element && ed.element.style.display !== 'none') {
+          updateEntryDimensions(ed.element);
+        }
+      });
+    }, 50);
+  }
+}
+
+function categorizeCurrentEntries() {
+  const cats = { notes: [], links: [], songs: [], movies: [], images: [], files: [], latex: [], deadlines: [] };
+  entries.forEach((ed) => {
+    if (ed.id === 'anchor') return;
+    if (ed.parentEntryId !== currentViewEntryId) return;
+    const mcd = ed.mediaCardData;
+    if (mcd && mcd.type === 'image') { cats.images.push(ed); return; }
+    if (mcd && mcd.type === 'file') { cats.files.push(ed); return; }
+    if (mcd && mcd.type === 'song') { cats.songs.push(ed); return; }
+    if (mcd && mcd.type === 'movie') { cats.movies.push(ed); return; }
+    if (ed.latexData && ed.latexData.enabled) { cats.latex.push(ed); return; }
+    if (ed.textHtml && ed.textHtml.includes('deadline-table')) { cats.deadlines.push(ed); return; }
+    if (ed.linkCardsData && ed.linkCardsData.length > 0 && ed.linkCardsData.some(c => c && c.url)) { cats.links.push(ed); return; }
+    cats.notes.push(ed);
+  });
+  return cats;
+}
+
+function renderArticleView() {
+  const cats = categorizeCurrentEntries();
+  const totalCount = Object.values(cats).reduce((s, a) => s + a.length, 0);
+
+  // Header
+  let titleText = 'Home';
+  if (currentViewEntryId) {
+    const parent = entries.get(currentViewEntryId);
+    if (parent) titleText = entryTitle(parent);
+  }
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  articleHeader.innerHTML = `<h1 class="article-header-title">${escapeHtml(titleText)}</h1><div class="article-header-meta">${totalCount} item${totalCount !== 1 ? 's' : ''} &middot; ${dateStr}</div>`;
+
+  // Sidebar
+  const categoryLabels = { notes: 'Notes', links: 'Links', songs: 'Songs', movies: 'Movies', images: 'Images', files: 'Files', latex: 'LaTeX', deadlines: 'Deadlines' };
+  articleSidebarNav.innerHTML = '';
+  for (const [key, label] of Object.entries(categoryLabels)) {
+    if (cats[key].length === 0) continue;
+    const item = document.createElement('div');
+    item.className = 'article-sidebar-item';
+    item.innerHTML = `<span>${label}</span><span class="article-sidebar-count">${cats[key].length}</span>`;
+    item.addEventListener('click', () => {
+      const section = document.getElementById('article-section-' + key);
+      if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      articleSidebarNav.querySelectorAll('.article-sidebar-item').forEach(i => i.classList.remove('active'));
+      item.classList.add('active');
+    });
+    articleSidebarNav.appendChild(item);
+  }
+
+  // Content sections
+  articleContent.innerHTML = '';
+  if (totalCount === 0) {
+    articleContent.innerHTML = '<div class="article-empty">No entries on this page yet.</div>';
+    articleAiSection.classList.add('hidden');
+    return;
+  }
+
+  for (const [key, label] of Object.entries(categoryLabels)) {
+    if (cats[key].length === 0) continue;
+    const section = document.createElement('div');
+    section.id = 'article-section-' + key;
+    const heading = document.createElement('h2');
+    heading.className = 'article-section-heading';
+    heading.textContent = label;
+    section.appendChild(heading);
+    cats[key].forEach(ed => {
+      const el = renderArticleEntry(ed, key);
+      if (el) section.appendChild(el);
+    });
+    articleContent.appendChild(section);
+  }
+
+  fetchArticleAiSuggestions();
+}
+
+function renderArticleEntry(ed, category) {
+  switch (category) {
+    case 'notes': {
+      const card = document.createElement('div');
+      card.className = 'article-note-card';
+      if (ed.textHtml) {
+        card.innerHTML = ed.textHtml;
+      } else {
+        card.textContent = ed.text || '';
+      }
+      // Check if this entry has children
+      const hasChildren = Array.from(entries.values()).some(e => e.parentEntryId === ed.id);
+      if (hasChildren) {
+        card.classList.add('clickable');
+        const hint = document.createElement('div');
+        hint.className = 'article-note-children-hint';
+        hint.textContent = 'Open subpage \u2192';
+        card.appendChild(hint);
+        card.addEventListener('click', () => navigateToEntry(ed.id));
+      }
+      return card;
+    }
+    case 'links': {
+      const frag = document.createDocumentFragment();
+      (ed.linkCardsData || []).forEach(lc => {
+        if (!lc || !lc.url) return;
+        const a = document.createElement('a');
+        a.className = 'article-link-card';
+        a.href = lc.url;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.innerHTML = `${lc.image ? `<div class="article-link-thumb" style="background-image:url('${lc.image}')"></div>` : ''}
+          <div class="article-link-body">
+            <div class="article-link-site">${escapeHtml(lc.siteName || '')}</div>
+            <div class="article-link-title">${escapeHtml(lc.title || '')}</div>
+            ${lc.description ? `<div class="article-link-desc">${escapeHtml(lc.description)}</div>` : ''}
+            <div class="article-link-open">Open link \u2192</div>
+          </div>`;
+        frag.appendChild(a);
+      });
+      // Also show the text if any (above the link cards)
+      if (ed.text && ed.text.trim()) {
+        const wrapper = document.createElement('div');
+        const textDiv = document.createElement('div');
+        textDiv.className = 'article-note-card';
+        textDiv.style.marginBottom = '8px';
+        textDiv.textContent = ed.text;
+        wrapper.appendChild(textDiv);
+        wrapper.appendChild(frag);
+        return wrapper;
+      }
+      return frag.childNodes.length > 0 ? (() => { const d = document.createElement('div'); d.appendChild(frag); return d; })() : null;
+    }
+    case 'songs':
+    case 'movies': {
+      const mcd = ed.mediaCardData;
+      if (!mcd) return null;
+      const card = document.createElement('div');
+      card.className = 'article-media-card';
+      const imageUrl = mcd.image || mcd.poster || '';
+      const typeLabel = mcd.type === 'song' ? 'Song' : 'Movie';
+      const subtitle = mcd.type === 'song' ? (mcd.artist || '') : (mcd.year ? String(mcd.year) : '');
+      card.innerHTML = `${imageUrl ? `<div class="article-media-image" style="background-image:url('${imageUrl}')"></div>` : ''}
+        <div class="article-media-info">
+          <div class="article-media-type">${typeLabel}</div>
+          <div class="article-media-title">${escapeHtml(mcd.title || '')}</div>
+          ${subtitle ? `<div class="article-media-subtitle">${escapeHtml(subtitle)}</div>` : ''}
+        </div>`;
+      return card;
+    }
+    case 'images': {
+      const mcd = ed.mediaCardData;
+      if (!mcd || !mcd.url) return null;
+      const card = document.createElement('div');
+      card.className = 'article-image-card';
+      const img = document.createElement('img');
+      img.src = mcd.url;
+      img.alt = 'Image';
+      img.loading = 'lazy';
+      card.appendChild(img);
+      return card;
+    }
+    case 'files': {
+      const mcd = ed.mediaCardData;
+      if (!mcd) return null;
+      const card = document.createElement('div');
+      card.className = 'article-file-card';
+      card.innerHTML = `<span class="article-file-icon">${getFileIcon(mcd.mimetype || '')}</span>
+        <div>
+          <div class="article-file-name">${escapeHtml(mcd.name || 'File')}</div>
+          <div class="article-file-size">${formatFileSize(mcd.size || 0)}</div>
+        </div>`;
+      if (mcd.url) {
+        card.style.cursor = 'pointer';
+        card.addEventListener('click', () => window.open(mcd.url, '_blank'));
+      }
+      return card;
+    }
+    case 'latex': {
+      const card = document.createElement('div');
+      card.className = 'article-latex-card';
+      if (ed.latexData && ed.latexData.source) {
+        const container = document.createElement('div');
+        card.appendChild(container);
+        setTimeout(() => {
+          if (typeof renderMathInElement !== 'undefined') {
+            container.innerHTML = ed.latexData.source;
+            renderMathInElement(container, { delimiters: [
+              { left: '$$', right: '$$', display: true },
+              { left: '$', right: '$', display: false },
+              { left: '\\[', right: '\\]', display: true },
+              { left: '\\(', right: '\\)', display: false }
+            ], throwOnError: false });
+          } else if (typeof katex !== 'undefined') {
+            try { katex.render(ed.latexData.source, container, { displayMode: true, throwOnError: false }); }
+            catch(e) { container.textContent = ed.latexData.source; }
+          } else {
+            container.textContent = ed.latexData.source;
+          }
+        }, 100);
+      }
+      return card;
+    }
+    case 'deadlines': {
+      const card = document.createElement('div');
+      card.className = 'article-deadline-card';
+      if (ed.element) {
+        const dt = ed.element.querySelector('.deadline-table');
+        if (dt) {
+          card.appendChild(dt.cloneNode(true));
+        } else if (ed.textHtml) {
+          card.innerHTML = ed.textHtml;
+        }
+      } else if (ed.textHtml) {
+        card.innerHTML = ed.textHtml;
+      }
+      return card;
+    }
+    default:
+      return null;
+  }
+}
+
+function fetchArticleAiSuggestions() {
+  if (!currentUser) {
+    articleAiSection.classList.add('hidden');
+    return;
+  }
+  articleAiSection.classList.remove('hidden');
+  articleAiContent.innerHTML = '<div class="article-ai-loading">Generating suggestions\u2026</div>';
+
+  const payload = buildTrenchesPayload();
+  const body = {
+    ...payload,
+    userMessage: 'Based on the content in this canvas, give 2-3 brief suggestions for content to add or ways to better organize what is here. Be concise and specific. Use plain text, no markdown headers.'
+  };
+  fetch('/api/chat', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  })
+    .then(r => { if (!r.ok) throw new Error('Failed'); return r.json(); })
+    .then(data => {
+      articleAiContent.innerHTML = `<div class="article-ai-content-card">${escapeHtml(data.message || '')}</div>`;
+    })
+    .catch(() => {
+      articleAiContent.innerHTML = '<div class="article-ai-loading">Could not load suggestions.</div>';
+    });
+}
+
+// Toggle event listeners
+if (viewToggleCanvas) viewToggleCanvas.addEventListener('click', () => setViewMode('canvas'));
+if (viewToggleArticle) viewToggleArticle.addEventListener('click', () => setViewMode('article'));
+
+// Patch navigation functions to re-render article view
+const _origNavigateToEntry = navigateToEntry;
+navigateToEntry = function(entryId) {
+  _origNavigateToEntry(entryId);
+  if (currentViewMode === 'article') setTimeout(() => renderArticleView(), 300);
+};
+
+const _origNavigateBack = navigateBack;
+navigateBack = function(level) {
+  _origNavigateBack(level);
+  if (currentViewMode === 'article') setTimeout(() => renderArticleView(), 300);
+};
+
+const _origNavigateToRoot = navigateToRoot;
+navigateToRoot = function() {
+  _origNavigateToRoot();
+  if (currentViewMode === 'article') setTimeout(() => renderArticleView(), 300);
+};
+
 bootstrap();

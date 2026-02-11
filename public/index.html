@@ -59,6 +59,10 @@
       </div>
     </div>
     <div class="topbar-right">
+      <div id="view-toggle" class="view-toggle">
+        <button id="view-toggle-canvas" class="view-toggle-option active">Canvas</button>
+        <button id="view-toggle-article" class="view-toggle-option">Article</button>
+      </div>
       <div id="user-menu" class="user-menu">
         <button id="user-menu-button" class="user-menu-button" title="User menu">
           <span id="user-menu-label" class="user-name"></span>
@@ -266,6 +270,21 @@
       <div id="anchor">Hello</div>
     </div>
     <div id="autocomplete" class="autocomplete hidden"></div>
+  </div>
+  <div id="article-view" class="article-view hidden">
+    <div class="article-layout">
+      <aside class="article-sidebar">
+        <nav id="article-sidebar-nav"></nav>
+      </aside>
+      <main class="article-main">
+        <header id="article-header"></header>
+        <div id="article-content"></div>
+        <section id="article-ai-section" class="article-ai-section hidden">
+          <h2 class="article-section-heading">AI Suggestions</h2>
+          <div id="article-ai-content"></div>
+        </section>
+      </main>
+    </div>
   </div>
 
   <script src="app.js"></script>
