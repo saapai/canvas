@@ -8020,59 +8020,103 @@ function handleDeadlineTableKeydown(e) {
   const currentRow = cell ? cell.closest('.deadline-row') : null;
   const activeRows = getDeadlineActiveRows(deadlineTable);
 
+  // Tab / Shift+Tab: traverse cells like a spreadsheet
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    if (!cell || !currentRow) return;
+    const cells = getDeadlineEditableCells(currentRow);
+    const cellIndex = cells.indexOf(cell);
+    const rowIndex = activeRows.indexOf(currentRow);
+    if (e.shiftKey) {
+      if (cellIndex > 0) {
+        cells[cellIndex - 1].focus();
+      } else if (rowIndex > 0) {
+        const prevCells = getDeadlineEditableCells(activeRows[rowIndex - 1]);
+        if (prevCells.length > 0) prevCells[prevCells.length - 1].focus();
+      }
+    } else {
+      if (cellIndex < cells.length - 1) {
+        cells[cellIndex + 1].focus();
+      } else if (rowIndex < activeRows.length - 1) {
+        const nextCells = getDeadlineEditableCells(activeRows[rowIndex + 1]);
+        if (nextCells.length > 0) nextCells[0].focus();
+      }
+    }
+    return;
+  }
+
+  // Arrow keys: spreadsheet-style navigation
   if (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
     if (!cell || !currentRow) return;
     const cells = getDeadlineEditableCells(currentRow);
     const cellIndex = cells.indexOf(cell);
     const rowIndex = activeRows.indexOf(currentRow);
+    const sel = window.getSelection();
+
     if (e.key === 'ArrowUp') {
       e.preventDefault();
       if (rowIndex > 0) {
-        const prevRow = activeRows[rowIndex - 1];
-        const prevCells = getDeadlineEditableCells(prevRow);
+        const prevCells = getDeadlineEditableCells(activeRows[rowIndex - 1]);
         if (prevCells[cellIndex]) prevCells[cellIndex].focus();
       }
       return;
     }
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      if (rowIndex >= 0 && rowIndex < activeRows.length - 1) {
-        const nextRow = activeRows[rowIndex + 1];
-        const nextCells = getDeadlineEditableCells(nextRow);
+      if (rowIndex < activeRows.length - 1) {
+        const nextCells = getDeadlineEditableCells(activeRows[rowIndex + 1]);
         if (nextCells[cellIndex]) nextCells[cellIndex].focus();
       }
       return;
     }
-    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-      const sel = window.getSelection();
-      if (sel.rangeCount === 0) return;
-      const range = sel.getRangeAt(0);
-      const startInCell = cell.contains(range.startContainer);
-      const endInCell = cell.contains(range.endContainer);
-      const atStart = range.collapsed && startInCell && (range.startOffset === 0 || (range.startContainer.nodeType === Node.TEXT_NODE && range.startOffset === 0));
-      const atEnd = range.collapsed && endInCell && (range.endOffset === (range.endContainer.textContent || '').length);
-      if (e.key === 'ArrowLeft' && atStart && cellIndex > 0) {
-        e.preventDefault();
-        cells[cellIndex - 1].focus();
+
+    // ArrowLeft / ArrowRight: move within cell text, wrap to adjacent rows at edges
+    if (sel.rangeCount === 0) return;
+    const range = sel.getRangeAt(0);
+    const atStart = range.collapsed && cell.contains(range.startContainer) &&
+      (range.startOffset === 0 || (range.startContainer.nodeType === Node.TEXT_NODE && range.startOffset === 0));
+    const atEnd = range.collapsed && cell.contains(range.endContainer) &&
+      (range.endOffset === (range.endContainer.textContent || '').length);
+
+    if (e.key === 'ArrowLeft' && atStart) {
+      e.preventDefault();
+      let target;
+      if (cellIndex > 0) {
+        target = cells[cellIndex - 1];
+      } else if (rowIndex > 0) {
+        const prevCells = getDeadlineEditableCells(activeRows[rowIndex - 1]);
+        target = prevCells.length > 0 ? prevCells[prevCells.length - 1] : null;
+      }
+      if (target) {
+        target.focus();
         const r = document.createRange();
-        r.selectNodeContents(cells[cellIndex - 1]);
+        r.selectNodeContents(target);
         r.collapse(false);
         sel.removeAllRanges();
         sel.addRange(r);
-        return;
-      }
-      if (e.key === 'ArrowRight' && atEnd && cellIndex < cells.length - 1) {
-        e.preventDefault();
-        cells[cellIndex + 1].focus();
-        const r = document.createRange();
-        r.setStart(cells[cellIndex + 1], 0);
-        r.collapse(true);
-        sel.removeAllRanges();
-        sel.addRange(r);
-        return;
       }
       return;
     }
+    if (e.key === 'ArrowRight' && atEnd) {
+      e.preventDefault();
+      let target;
+      if (cellIndex < cells.length - 1) {
+        target = cells[cellIndex + 1];
+      } else if (rowIndex < activeRows.length - 1) {
+        const nextCells = getDeadlineEditableCells(activeRows[rowIndex + 1]);
+        target = nextCells.length > 0 ? nextCells[0] : null;
+      }
+      if (target) {
+        target.focus();
+        const r = document.createRange();
+        r.setStart(target, 0);
+        r.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(r);
+      }
+      return;
+    }
+    return;
   }
 
   // Cmd/Ctrl+A: select all text within the current cell only

@@ -2822,11 +2822,7 @@ body.has-bg-image::before {
   color: rgba(0, 0, 0, 0.5);
 }
 
-/* Row entrance animation */
-.deadline-row-enter {
-  animation: dl-row-in 0.25s ease-out both;
-}
-
+/* Keep keyframes for uncomplete animation only */
 @keyframes dl-row-in {
   from {
     opacity: 0;
