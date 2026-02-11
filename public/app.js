@@ -8552,29 +8552,39 @@ function setViewMode(mode) {
   }
 }
 
-function categorizeCurrentEntries() {
-  const cats = { notes: [], links: [], songs: [], movies: [], images: [], files: [], latex: [], deadlines: [] };
+function getArticleCategory(ed) {
+  const mcd = ed.mediaCardData;
+  if (mcd && mcd.type === 'image') return 'images';
+  if (mcd && mcd.type === 'file') return 'files';
+  if (mcd && mcd.type === 'song') return 'songs';
+  if (mcd && mcd.type === 'movie') return 'movies';
+  if (ed.latexData && ed.latexData.enabled) return 'latex';
+  if (ed.textHtml && ed.textHtml.includes('deadline-table')) return 'deadlines';
+  if (ed.linkCardsData && ed.linkCardsData.length > 0 && ed.linkCardsData.some(c => c && c.url)) return 'links';
+  return 'notes';
+}
+
+function getFlattenedArticleEntries() {
+  const list = [];
   entries.forEach((ed) => {
     if (ed.id === 'anchor') return;
     if (ed.parentEntryId !== currentViewEntryId) return;
-    const mcd = ed.mediaCardData;
-    if (mcd && mcd.type === 'image') { cats.images.push(ed); return; }
-    if (mcd && mcd.type === 'file') { cats.files.push(ed); return; }
-    if (mcd && mcd.type === 'song') { cats.songs.push(ed); return; }
-    if (mcd && mcd.type === 'movie') { cats.movies.push(ed); return; }
-    if (ed.latexData && ed.latexData.enabled) { cats.latex.push(ed); return; }
-    if (ed.textHtml && ed.textHtml.includes('deadline-table')) { cats.deadlines.push(ed); return; }
-    if (ed.linkCardsData && ed.linkCardsData.length > 0 && ed.linkCardsData.some(c => c && c.url)) { cats.links.push(ed); return; }
-    cats.notes.push(ed);
+    const cat = getArticleCategory(ed);
+    list.push({ ed, category: cat });
   });
-  return cats;
+  list.sort((a, b) => {
+    const ay = a.ed.position?.y ?? 0;
+    const by = b.ed.position?.y ?? 0;
+    if (ay !== by) return ay - by;
+    return (a.ed.position?.x ?? 0) - (b.ed.position?.x ?? 0);
+  });
+  return list;
 }
 
 function renderArticleView() {
-  const cats = categorizeCurrentEntries();
-  const totalCount = Object.values(cats).reduce((s, a) => s + a.length, 0);
+  const flattened = getFlattenedArticleEntries();
+  const totalCount = flattened.length;
 
-  // Header
   let titleText = 'Home';
   if (currentViewEntryId) {
     const parent = entries.get(currentViewEntryId);
@@ -8584,24 +8594,8 @@ function renderArticleView() {
   const dateStr = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
   articleHeader.innerHTML = `<h1 class="article-header-title">${escapeHtml(titleText)}</h1><div class="article-header-meta">${totalCount} item${totalCount !== 1 ? 's' : ''} &middot; ${dateStr}</div>`;
 
-  // Sidebar
-  const categoryLabels = { notes: 'Notes', links: 'Links', songs: 'Songs', movies: 'Movies', images: 'Images', files: 'Files', latex: 'LaTeX', deadlines: 'Deadlines' };
-  articleSidebarNav.innerHTML = '';
-  for (const [key, label] of Object.entries(categoryLabels)) {
-    if (cats[key].length === 0) continue;
-    const item = document.createElement('div');
-    item.className = 'article-sidebar-item';
-    item.innerHTML = `<span>${label}</span><span class="article-sidebar-count">${cats[key].length}</span>`;
-    item.addEventListener('click', () => {
-      const section = document.getElementById('article-section-' + key);
-      if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      articleSidebarNav.querySelectorAll('.article-sidebar-item').forEach(i => i.classList.remove('active'));
-      item.classList.add('active');
-    });
-    articleSidebarNav.appendChild(item);
-  }
+  if (articleSidebarNav) articleSidebarNav.innerHTML = '';
 
-  // Content sections
   articleContent.innerHTML = '';
   if (totalCount === 0) {
     articleContent.innerHTML = '<div class="article-empty">No entries on this page yet.</div>';
@@ -8609,22 +8603,15 @@ function renderArticleView() {
     return;
   }
 
-  for (const [key, label] of Object.entries(categoryLabels)) {
-    if (cats[key].length === 0) continue;
-    const section = document.createElement('div');
-    section.id = 'article-section-' + key;
-    const heading = document.createElement('h2');
-    heading.className = 'article-section-heading';
-    heading.textContent = label;
-    section.appendChild(heading);
-    cats[key].forEach(ed => {
-      const el = renderArticleEntry(ed, key);
-      if (el) section.appendChild(el);
-    });
-    articleContent.appendChild(section);
-  }
+  const stream = document.createElement('div');
+  stream.className = 'article-stream';
+  flattened.forEach(({ ed, category }) => {
+    const el = renderArticleEntry(ed, category);
+    if (el) stream.appendChild(el);
+  });
+  articleContent.appendChild(stream);
 
-  fetchArticleAiSuggestions();
+  fetchArticleRelated();
 }
 
 function renderArticleEntry(ed, category) {
@@ -8770,18 +8757,18 @@ function renderArticleEntry(ed, category) {
   }
 }
 
-function fetchArticleAiSuggestions() {
+function fetchArticleRelated() {
   if (!currentUser) {
     articleAiSection.classList.add('hidden');
     return;
   }
   articleAiSection.classList.remove('hidden');
-  articleAiContent.innerHTML = '<div class="article-ai-loading">Generating suggestions\u2026</div>';
+  articleAiContent.innerHTML = '<div class="article-related-loading">Finding related content\u2026</div>';
 
   const payload = buildTrenchesPayload();
   const body = {
     ...payload,
-    userMessage: 'Based on the content in this canvas, give 2-3 brief suggestions for content to add or ways to better organize what is here. Be concise and specific. Use plain text, no markdown headers.'
+    userMessage: 'Based on the content and aesthetic of this page, find 2-4 specific human-created resources that fit: articles, websites, images, concepts, or links. Provide real URLs where possible. Format as a brief list with titles and links. No suggestions for what to add—only concrete finds the user can explore.'
   };
   fetch('/api/chat', {
     method: 'POST',
@@ -8791,10 +8778,12 @@ function fetchArticleAiSuggestions() {
   })
     .then(r => { if (!r.ok) throw new Error('Failed'); return r.json(); })
     .then(data => {
-      articleAiContent.innerHTML = `<div class="article-ai-content-card">${escapeHtml(data.message || '')}</div>`;
+      const safe = escapeHtml(data.message || '');
+      const linked = safe.replace(/(https?:\/\/[^\s<]+)/g, (url) => `<a href="${escapeHtml(url)}" target="_blank" rel="noopener">${url}</a>`);
+      articleAiContent.innerHTML = `<div class="article-related-card">${linked}</div>`;
     })
     .catch(() => {
-      articleAiContent.innerHTML = '<div class="article-ai-loading">Could not load suggestions.</div>';
+      articleAiContent.innerHTML = '<div class="article-related-loading">Could not load related content.</div>';
     });
 }
 
