@@ -4115,9 +4115,15 @@ viewport.addEventListener('mousedown', (e) => {
     return;
   }
 
-  if(entryEl && e.button !== 2) {
+  if (entryEl) {
+    // Right-click (button 2) is handled by contextmenu — DO NOT treat as empty-space drag.
+    // Also store clickStart so mouseup won't place the cursor elsewhere.
+    if (e.button === 2) {
+      clickStart = { x: e.clientX, y: e.clientY, t: performance.now(), entryEl: entryEl, button: e.button };
+      return;
+    }
+
     // Allow dragging when clicking on link card or media card too
-    // Right-click (button 2) is handled by contextmenu — skip drag setup
     const isLinkCard = e.target.closest('.link-card, .link-card-placeholder');
     const isMediaCard = e.target.closest('.media-card');
 
