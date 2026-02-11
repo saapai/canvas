@@ -7462,8 +7462,20 @@ function formatDeadlineDisplay(rawDate) {
 
 function refreshDeadlineDates(table) {
   table.querySelectorAll('.deadline-col-deadline').forEach(cell => {
-    const raw = cell.dataset.rawDate;
-    if (raw) cell.textContent = formatDeadlineDisplay(raw);
+    let raw = cell.dataset.rawDate;
+    // If no raw date stored yet, try to parse the text content and set it
+    if (!raw) {
+      const text = cell.textContent.trim();
+      if (!text) return;
+      const parsed = parseRawDeadlineDate(text);
+      if (parsed) {
+        raw = `${parsed.getMonth()+1}/${parsed.getDate()}/${parsed.getFullYear()}`;
+        cell.dataset.rawDate = raw;
+      } else {
+        return; // unparseable, leave as-is
+      }
+    }
+    cell.textContent = formatDeadlineDisplay(raw);
   });
 }
 

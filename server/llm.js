@@ -305,17 +305,23 @@ Where "isFullMath" is true if the entire content is mathematical, false if it's 
 export async function extractDeadlinesFromFile(buffer, mimetype, originalname) {
   // Compute today's date in Pacific time so relative terms resolve correctly
   const pacificNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
-  const todayStr = `${pacificNow.getMonth() + 1}/${pacificNow.getDate()}/${pacificNow.getFullYear()}`;
+  const monthNames = ['January','February','March','April','May','June','July','August','September','October','November','December'];
   const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-  const todayDay = dayNames[pacificNow.getDay()];
+  const todayFull = `${dayNames[pacificNow.getDay()]}, ${monthNames[pacificNow.getMonth()]} ${pacificNow.getDate()}, ${pacificNow.getFullYear()}`;
 
-  const deadlinePrompt = `Today is ${todayDay}, ${todayStr}. Use this as the reference date for ALL relative terms (e.g. "today", "tomorrow", "next Monday", "this Thursday", "in 2 weeks").
+  const deadlinePrompt = `IMPORTANT: Today's date is ${todayFull}. You MUST use this exact date as your reference when resolving relative terms like "today", "tomorrow", "next Monday", "this Thursday", "in 2 weeks", etc.
+
+For example, if today is Tuesday, February 10, 2026:
+- "today" = 2/10/2026
+- "tomorrow" = 2/11/2026
+- "Thursday" (this week) = 2/12/2026
+- "next Monday" = 2/16/2026
 
 Extract ALL deadlines, assignments, due dates, exams, and tasks from the following content.
 
 Return a JSON array of objects. Each object should have:
 - "assignment": the name/description of the assignment or task
-- "deadline": the due date in M/D/YYYY format (e.g. "1/15/2026", "2/3/2026"). Convert ALL dates including relative ones to this numeric M/D/YYYY format using today's date above. If only a relative reference like "Week 3" with no specific date, keep as-is. Do NOT include day-of-week names.
+- "deadline": the due date in M/D/YYYY format (e.g. "2/11/2026", "3/15/2026"). Convert ALL dates including relative ones to this numeric M/D/YYYY format. If only a vague reference like "Week 3" with no specific date, keep as-is. Do NOT include day-of-week names.
 - "class": the course or class name if mentioned (empty string if not found)
 - "notes": any additional relevant details like weight/percentage, time, instructions, or location (empty string if none)
 
