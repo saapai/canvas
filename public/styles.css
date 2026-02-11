@@ -88,7 +88,7 @@ body::before{
 }
 
 /* Make entry text italic on hover to indicate it's clickable */
-.entry:hover:not(.editing) > span {
+.entry:hover:not(.editing):not(.deadline-editing) > span {
   font-style: italic;
 }
 
@@ -133,7 +133,7 @@ body::before{
 
 /* Hover effect for clickable entries (blue highlight animation) */
 /* Works in both normal and read-only (view) mode */
-.entry:hover:not(.editing)::before {
+.entry:hover:not(.editing):not(.deadline-editing)::before {
   content: '';
   position: absolute;
   top: -0.125em;
@@ -344,7 +344,7 @@ body::before{
 }
 
 /* Ensure entry highlight shows when hovering over link cards */
-.entry.has-link-card-hover:not(.editing)::before {
+.entry.has-link-card-hover:not(.editing):not(.deadline-editing)::before {
   content: '';
   position: absolute;
   inset: -0.125em;
@@ -2119,7 +2119,7 @@ body.has-bg-image::before {
 }
 
 /* Media card hover highlighting - manual class like link cards */
-.entry.has-media-card-hover:not(.editing)::before {
+.entry.has-media-card-hover:not(.editing):not(.deadline-editing)::before {
   content: '';
   position: absolute;
   top: -0.125em;
@@ -2308,13 +2308,17 @@ body.has-bg-image::before {
   overflow: visible;
 }
 
-/* Editing border should tightly wrap the table */
-/* Deadline table: no blue border when editing; hide entry content only */
+/* Deadline table: no view/edit mode visually - no border, no highlight */
 .entry.editing:has(.deadline-table),
 .entry.deadline-editing:has(.deadline-table) {
   padding: 0;
-  border: none;
+  border: none !important;
   border-radius: 6px;
+  box-shadow: none !important;
+  outline: none !important;
+}
+.entry.deadline-editing:has(.deadline-table)::before {
+  display: none !important;
 }
 
 .entry.editing:has(.deadline-table) > *,
