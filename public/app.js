@@ -693,6 +693,8 @@ async function loadUserEntries(username, editable) {
         const { processedText, urls } = processTextWithLinks(entryData.text);
         if (entryData.textHtml && entryData.textHtml.includes('deadline-table')) {
           entry.innerHTML = entryData.textHtml;
+          const dt = entry.querySelector('.deadline-table');
+          if (dt) setupDeadlineTableHandlers(dt);
         } else if (processedText) {
           if (entryData.textHtml && /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(entryData.textHtml)) {
             entry.innerHTML = meltifyHtml(entryData.textHtml);
@@ -1286,6 +1288,8 @@ async function loadEntriesFromServer() {
         renderLatex(entryData.latexData.source, entry);
       } else if (entryData.textHtml && entryData.textHtml.includes('deadline-table')) {
         entry.innerHTML = entryData.textHtml;
+        const dt = entry.querySelector('.deadline-table');
+        if (dt) setupDeadlineTableHandlers(dt);
       } else if (processedText) {
         if (entryData.textHtml && /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(entryData.textHtml)) {
           // Has formatting, use HTML version
@@ -7058,6 +7062,8 @@ async function performUndo() {
           const { processedText, urls } = processTextWithLinks(entryData.text);
           if (entryData.textHtml && entryData.textHtml.includes('deadline-table')) {
             entry.innerHTML = entryData.textHtml;
+            const dt = entry.querySelector('.deadline-table');
+            if (dt) setupDeadlineTableHandlers(dt);
           } else if (processedText) {
             entry.innerHTML = meltify(processedText);
           } else {
@@ -7398,7 +7404,7 @@ async function insertTemplate(templateType) {
 }
 
 function getDeadlineRowHTML() {
-  return `<div class="deadline-col-check"><input type="checkbox"></div>
+  return `<div class="deadline-col-check"><button class="deadline-dot" type="button"></button></div>
     <div class="deadline-col-name" contenteditable="true"></div>
     <div class="deadline-col-deadline" contenteditable="true"></div>
     <div class="deadline-col-class" contenteditable="true"></div>
@@ -7501,7 +7507,9 @@ function parseDeadlineDateForSort(dateStr, cell) {
 }
 
 function sortDeadlineRows(table) {
-  const rows = Array.from(table.querySelectorAll('.deadline-row'));
+  // Only sort active rows (not in completed section)
+  const completedSection = table.querySelector('.deadline-completed-section');
+  const rows = Array.from(table.querySelectorAll('.deadline-row')).filter(r => !completedSection || !completedSection.contains(r));
   const ghostRow = table.querySelector('.deadline-ghost-row');
   rows.sort((a, b) => {
     const aCel = a.querySelector('.deadline-col-deadline');
@@ -7524,20 +7532,122 @@ function isDeadlineRowEmpty(row) {
   }
   const badge = row.querySelector('.status-badge');
   if (badge && badge.dataset.status !== 'not-started') return false;
-  const checkbox = row.querySelector('input[type="checkbox"]');
-  if (checkbox && checkbox.checked) return false;
+  const dot = row.querySelector('.deadline-dot');
+  if (dot && dot.classList.contains('checked')) return false;
   return true;
 }
 
+function ensureCompletedSection(table) {
+  if (!table.querySelector('.deadline-completed-section')) {
+    const divider = document.createElement('div');
+    divider.className = 'deadline-completed-divider';
+    divider.textContent = 'Completed';
+    const section = document.createElement('div');
+    section.className = 'deadline-completed-section';
+    table.appendChild(divider);
+    table.appendChild(section);
+  }
+  return table.querySelector('.deadline-completed-section');
+}
+
+function completeDeadlineRow(row, table) {
+  row.classList.add('completing');
+  const dot = row.querySelector('.deadline-dot');
+  if (dot) dot.classList.add('checked');
+  setTimeout(() => {
+    const section = ensureCompletedSection(table);
+    row.classList.remove('completing');
+    row.classList.add('deadline-row-enter');
+    section.appendChild(row);
+    // Hide divider+section if empty
+    const divider = table.querySelector('.deadline-completed-divider');
+    if (section.children.length === 0) { section.style.display = 'none'; if (divider) divider.style.display = 'none'; }
+    else { section.style.display = ''; if (divider) divider.style.display = ''; }
+    saveDeadlineTableState(table);
+  }, 350);
+}
+
+function uncompleteDeadlineRow(row, table) {
+  const dot = row.querySelector('.deadline-dot');
+  if (dot) dot.classList.remove('checked');
+  row.classList.add('uncompleting');
+  const ghostRow = table.querySelector('.deadline-ghost-row');
+  const completedDivider = table.querySelector('.deadline-completed-divider');
+  // Insert before ghost row or completed divider
+  const insertBefore = ghostRow || completedDivider || null;
+  if (insertBefore) table.insertBefore(row, insertBefore);
+  else table.appendChild(row);
+  setTimeout(() => row.classList.remove('uncompleting'), 300);
+  const section = table.querySelector('.deadline-completed-section');
+  const divider = table.querySelector('.deadline-completed-divider');
+  if (section && section.children.length === 0) { section.style.display = 'none'; if (divider) divider.style.display = 'none'; }
+  saveDeadlineTableState(table);
+}
+
+function saveDeadlineTableState(table) {
+  const entry = table.closest('.entry');
+  if (!entry) return;
+  const entryData = entries.get(entry.id);
+  if (entryData) {
+    entryData.text = entry.innerText;
+    entryData.textHtml = entry.innerHTML;
+    updateEntryOnServer(entryData);
+  }
+}
+
 function setupDeadlineTableHandlers(table) {
+  // Activate table on click (show ghost row)
+  table.addEventListener('mousedown', () => {
+    table.classList.add('table-active');
+  });
+
+  // Deactivate when clicking outside
+  const deactivateHandler = (e) => {
+    if (!table.contains(e.target)) {
+      table.classList.remove('table-active');
+    }
+  };
+  document.addEventListener('mousedown', deactivateHandler);
+
+  // Migrate old checkboxes to dots
+  table.querySelectorAll('.deadline-col-check input[type="checkbox"]').forEach(cb => {
+    const dot = document.createElement('button');
+    dot.className = 'deadline-dot';
+    dot.type = 'button';
+    if (cb.checked) dot.classList.add('checked');
+    cb.replaceWith(dot);
+  });
+
+  // Ensure completed section exists for rows that are already completed
+  const completedSection = table.querySelector('.deadline-completed-section');
+  const divider = table.querySelector('.deadline-completed-divider');
+  if (completedSection && completedSection.children.length === 0) {
+    if (completedSection) completedSection.style.display = 'none';
+    if (divider) divider.style.display = 'none';
+  }
+
   // Event delegation for clicks within the table
   table.addEventListener('click', (e) => {
+    // Dot click - toggle completion
+    const dot = e.target.closest('.deadline-dot');
+    if (dot) {
+      e.preventDefault();
+      e.stopPropagation();
+      const row = dot.closest('.deadline-row');
+      if (!row) return;
+      if (dot.classList.contains('checked')) {
+        uncompleteDeadlineRow(row, table);
+      } else {
+        completeDeadlineRow(row, table);
+      }
+      return;
+    }
+
     // Status badge click - toggle dropdown
     const badge = e.target.closest('.status-badge');
     if (badge) {
       e.preventDefault();
       e.stopPropagation();
-      // Close any other open dropdowns
       table.querySelectorAll('.status-dropdown.open').forEach(d => d.classList.remove('open'));
       const dropdown = badge.closest('.deadline-col-status').querySelector('.status-dropdown');
       if (dropdown) dropdown.classList.toggle('open');

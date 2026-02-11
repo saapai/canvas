@@ -2187,7 +2187,7 @@ body::before{
 
 .deadline-header {
   display: grid;
-  grid-template-columns: 32px 2fr 1fr 0.9fr 1fr 1fr;
+  grid-template-columns: 32px 2fr 1fr 0.9fr 1fr 1.4fr;
   padding: 0;
   border-bottom: 1px solid rgba(0, 0, 0, 0.07);
   font-weight: 600;
@@ -2204,12 +2204,12 @@ body::before{
 
 .deadline-row {
   display: grid;
-  grid-template-columns: 32px 2fr 1fr 0.9fr 1fr 1fr;
+  grid-template-columns: 32px 2fr 1fr 0.9fr 1fr 1.4fr;
   padding: 0;
   border-bottom: 1px solid rgba(0, 0, 0, 0.045);
-  align-items: stretch;
+  align-items: center;
   min-height: 38px;
-  transition: background 0.15s ease;
+  transition: background 0.15s ease, opacity 0.3s ease, max-height 0.3s ease;
 }
 
 .deadline-row:last-child {
@@ -2227,12 +2227,26 @@ body::before{
   padding: 0;
 }
 
-.deadline-col-check input[type="checkbox"] {
-  width: 13px;
-  height: 13px;
+.deadline-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(0, 0, 0, 0.25);
+  background: transparent;
   cursor: pointer;
-  accent-color: var(--ink);
-  opacity: 0.7;
+  transition: border-color 0.15s ease, background 0.15s ease, transform 0.15s ease;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.deadline-dot:hover {
+  border-color: rgba(0, 0, 0, 0.45);
+  transform: scale(1.15);
+}
+
+.deadline-dot.checked {
+  border-color: rgba(45, 140, 80, 0.7);
+  background: rgba(45, 140, 80, 0.7);
 }
 
 .deadline-col-name,
@@ -2374,25 +2388,27 @@ body::before{
 .status-option[data-status="overdue"]::before { background: rgba(185, 55, 55, 0.7); }
 .status-option[data-status="done"]::before { background: rgba(45, 140, 80, 0.7); }
 
-/* Ghost row - translucent preview of a new row, only visible in editor */
+/* Ghost row - translucent add-row prompt */
 .deadline-ghost-row {
   display: none;
-  grid-template-columns: 32px 2fr 1fr 0.9fr 1fr 1fr;
+  grid-template-columns: 32px 2fr 1fr 0.9fr 1fr 1.4fr;
   padding: 0;
   min-height: 38px;
-  align-items: stretch;
+  align-items: center;
   cursor: pointer;
   color: rgba(0, 0, 0, 0.15);
   font-size: 13px;
-  opacity: 0.6;
+  opacity: 0;
   border-top: 1px dashed rgba(0, 0, 0, 0.06);
-  transition: opacity 0.15s ease, background 0.15s ease;
+  transition: opacity 0.2s ease, background 0.15s ease;
   user-select: none;
 }
 
-/* Only show ghost row inside the editor (edit mode) */
+/* Show ghost row when table is focused/active */
+.deadline-table.table-active .deadline-ghost-row,
 #editor .deadline-ghost-row {
   display: grid;
+  opacity: 0.6;
 }
 
 .deadline-ghost-row:hover {
@@ -2412,6 +2428,51 @@ body::before{
   font-size: 14px;
   font-weight: 400;
   opacity: 0.7;
+}
+
+/* Completed section at bottom of table */
+.deadline-completed-divider {
+  padding: 6px 14px 4px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(0, 0, 0, 0.25);
+  font-weight: 600;
+  user-select: none;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+  background: rgba(0, 0, 0, 0.018);
+}
+
+.deadline-completed-section {
+  background: rgba(0, 0, 0, 0.018);
+  border-radius: 0 0 6px 6px;
+}
+
+.deadline-completed-section .deadline-row {
+  opacity: 0.45;
+}
+
+.deadline-completed-section .deadline-row:hover {
+  opacity: 0.7;
+}
+
+.deadline-completed-section .deadline-col-name {
+  text-decoration: line-through;
+}
+
+/* Row completion animation */
+.deadline-row.completing {
+  opacity: 0;
+  max-height: 0;
+  min-height: 0;
+  overflow: hidden;
+  border-bottom: none;
+  transition: opacity 0.25s ease, max-height 0.3s ease 0.1s, min-height 0.3s ease 0.1s;
+}
+
+/* Row uncomplete animation */
+.deadline-row.uncompleting {
+  animation: dl-row-in 0.25s ease-out both;
 }
 
 .deadline-col-deadline {
