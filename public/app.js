@@ -3933,6 +3933,8 @@ viewport.addEventListener('mousedown', (e) => {
   if(e.target === editor || editor.contains(e.target)) return;
   // Don't handle clicks on breadcrumb
   if(e.target.closest('#breadcrumb')) return;
+  // Don't handle clicks on background picker
+  if(e.target.closest('#bg-picker-button, #bg-picker-dropdown, #bg-upload-input')) return;
   
   // Set flag to prevent cursor updates during click handling
   // This prevents cursor from appearing in random spot when clicking
