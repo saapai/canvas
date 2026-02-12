@@ -306,17 +306,22 @@ IMPORTANT rules:
 - Never use \\displaystyle inside display mode (it's redundant)
 - Use \\text{} for non-math words within equations
 
-PARENTHESES AND SCOPE (critical):
-- If the user writes explicit parentheses, respect them exactly (e.g. "sin(3x squared)" or "sin (3x)^2").
-- When there are NO parentheses, infer the natural scope and make the best guess:
-  - "sin of 3x squared" or "sin 3x squared" → the argument of sin is 3x^2, so output \\sin(3x^2) (not \\sin(3x)^2).
-  - "cos of x squared" → \\cos(x^2). "integral of 3x squared" or "integral of 3x^2" → \\int 3x^2\\,dx.
-  - "integral of sin of 3x squared" → \\int \\sin(3x^2)\\,dx. Always wrap the integrand and function arguments in parentheses when converting from plain English.
-- For "X of Y" or "X of Y squared", the "of Y" (or "of Y squared") is the argument of X: e.g. "sin of 3x squared" = sin(3x^2), "log of x plus 1" = \\log(x+1).
-- INTEGRALS: "integral of X" or "integral of X dx" must always become \\int X \\,dx (or with bounds). Examples: "integral of 3x squared" → $$\\int 3x^2\\,dx$$; "integral of sin x" → $$\\int \\sin x\\,dx$$. Never leave integrals as plain English.
-- FRACTIONS: Convert spoken fractions to \\frac{num}{den}. "one fifth" or "1/5" → \\frac{1}{5}; "x over 2" → \\frac{x}{2}; "one half" → \\frac{1}{2}; "two thirds" → \\frac{2}{3}. "400 minus one fifth" → 400 - \\frac{1}{5}.
+PARENTHESES, BRACKETS, AND SCOPE (critical):
+- The user is writing in NATURAL LANGUAGE, not in LaTeX. Parentheses in their input are for grouping/clarity in English, NOT necessarily mathematical parentheses in the output.
+- Output should follow STANDARD MATHEMATICAL NOTATION. Only include parentheses/brackets where mathematically necessary or conventional:
+  - Function arguments: \\sin(x), \\cos(3x^2), \\log(x+1) — parentheses are standard here.
+  - Grouping for clarity when precedence is ambiguous: (x+1)(x-1), (a+b)^2.
+  - DO NOT add unnecessary parentheses around simple terms: "integral of (3x cubed)" → \\int 3x^3\\,dx (NOT \\int (3x^3)\\,dx). The parens in the input were just English grouping.
+  - DO NOT wrap single-factor integrands in parentheses: \\int 3x^3\\,dx, not \\int (3x^3)\\,dx.
+- When there are NO parentheses, infer the natural scope:
+  - "sin of 3x squared" → \\sin(3x^2) (parentheses needed for function argument clarity).
+  - "integral of 3x squared" → \\int 3x^2\\,dx (no parentheses needed).
+  - "integral of sin of 3x squared" → \\int \\sin(3x^2)\\,dx.
+- Use \\left( and \\right) for auto-sizing delimiters ONLY around tall expressions (fractions, sums, etc.).
+- INTEGRALS: "integral of X" or "integral of X dx" must always become \\int X \\,dx (or with bounds). The integrand goes directly after \\int without parentheses unless mathematically needed (e.g. multiple added terms: \\int (3x^2 + 2x)\\,dx). Examples: "integral of 3x squared" → $$\\int 3x^2\\,dx$$; "integral of sin x" → $$\\int \\sin x\\,dx$$; "integral of (3x cubed) times the square root of a billion times one twenty seventh" → $$\\int 3x^3 \\sqrt{10^9} \\cdot \\frac{1}{27}\\,dx$$. Never leave integrals as plain English.
+- FRACTIONS: Convert spoken fractions to \\frac{num}{den}. "one fifth" or "1/5" → \\frac{1}{5}; "x over 2" → \\frac{x}{2}; "one half" → \\frac{1}{2}; "two thirds" → \\frac{2}{3}; "one twenty seventh" → \\frac{1}{27}. "400 minus one fifth" → 400 - \\frac{1}{5}.
 - POLYNOMIALS AND EQUATIONS: "x squared" → x^2; "3x squared" → 3x^2; "plus" → +; "minus" → -; "equals" → =. Example: "3x squared plus 23 equals 400 minus one fifth" → $$3x^2 + 23 = 400 - \\frac{1}{5}$$. Always convert full equations to LaTeX, never leave as English.
-- Produce complete, valid LaTeX only. No partial or placeholder expressions (no trailing "::" or "[" or bare "integralof"). Output only the JSON with "latex" and "isFullMath" keys.`
+- Produce complete, valid LaTeX only. No partial or placeholder expressions. Output only the JSON with "latex" and "isFullMath" keys.`
         },
         {
           role: 'user',
@@ -328,9 +333,10 @@ For multiple equations or steps, use $$\\begin{aligned} ... \\end{aligned}$$ wit
 
 CRITICAL: Convert ALL math to LaTeX. Never leave as English.
 - Integrals: "integral of 3x squared" → $$\\int 3x^2\\,dx$$
-- Fractions: "one fifth" → \\frac{1}{5}; "400 minus one fifth" → 400 - \\frac{1}{5}
-- Equations/polynomials: "3x squared plus 23 equals 400 minus one fifth" → $$3x^2 + 23 = 400 - \\frac{1}{5}$$
-Respect parentheses when present; when there are none, infer scope. Always output complete, valid LaTeX.
+- Fractions: "one fifth" → \\frac{1}{5}; "one twenty seventh" → \\frac{1}{27}
+- Equations: "3x squared plus 23 equals 400 minus one fifth" → $$3x^2 + 23 = 400 - \\frac{1}{5}$$
+- Parentheses in the input are English grouping, NOT necessarily math notation. Follow standard math conventions for when to use parens.
+- "integral of (3x cubed) times the square root of a billion times one twenty seventh" → $$\\int 3x^3 \\sqrt{10^9} \\cdot \\frac{1}{27}\\,dx$$
 
 Text to convert:
 "${text}"
