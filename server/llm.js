@@ -306,11 +306,20 @@ Where "isFullMath" is true if the entire content is mathematical, false if it's 
       jsonStr = jsonMatch[1];
     }
 
-    // LaTeX strings contain backslashes (\sin, \int); in JSON only \" \\ \/ \b \f \n \r \t \uXXXX are valid.
-    // Fix invalid escape sequences by doubling the backslash so JSON.parse succeeds.
-    jsonStr = jsonStr.replace(/\\(?!(?:["\\\/bfnrtu]|u[0-9a-fA-F]{4}))(.)/g, '\\\\$1');
+    // LaTeX contains backslashes (\sin, \int). JSON only allows \" \\ \/ \b \f \n \r \t \uXXXX.
+    // Double any invalid escape so JSON.parse succeeds. Don't touch \uXXXX (unicode).
+    function fixJsonLatexEscapes(str) {
+      return str.replace(/\\(?!["\\\/bfnrt])(?!u[0-9a-fA-F]{4})(.)/g, '\\\\$1');
+    }
 
-    return JSON.parse(jsonStr);
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonStr);
+    } catch (_) {
+      jsonStr = fixJsonLatexEscapes(jsonStr);
+      parsed = JSON.parse(jsonStr);
+    }
+    return parsed;
   } catch (error) {
     console.error('Error converting text to LaTeX:', error);
     return { latex: text, isFullMath: false, error: error.message };
