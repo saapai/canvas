@@ -154,6 +154,24 @@ export async function initDatabase() {
       console.log('Note: bg columns migration:', error.message);
     }
 
+    // Google OAuth tokens table
+    try {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS google_tokens (
+          user_id TEXT PRIMARY KEY REFERENCES users(id),
+          access_token TEXT NOT NULL,
+          refresh_token TEXT,
+          token_expiry TIMESTAMP,
+          scopes TEXT,
+          calendar_settings JSONB DEFAULT '{}'::jsonb,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+    } catch (error) {
+      console.log('Note: google_tokens table check:', error.message);
+    }
+
     // Remove UNIQUE constraint from phone column if it exists (migration for multi-username support)
     try {
       // First, check if the constraint exists
@@ -792,4 +810,42 @@ export async function verifyPhoneCode(phone, code) {
     console.error('Error verifying phone code:', error);
     throw error;
   }
+}
+
+// ——— Google OAuth token storage ———
+
+export async function getGoogleTokens(userId) {
+  const db = getPool();
+  const result = await db.query(
+    `SELECT access_token, refresh_token, token_expiry, scopes, calendar_settings FROM google_tokens WHERE user_id = $1`,
+    [userId]
+  );
+  return result.rows[0] || null;
+}
+
+export async function saveGoogleTokens(userId, tokens) {
+  const db = getPool();
+  await db.query(`
+    INSERT INTO google_tokens (user_id, access_token, refresh_token, token_expiry, scopes, updated_at)
+    VALUES ($1, $2, $3, $4, $5, NOW())
+    ON CONFLICT (user_id) DO UPDATE SET
+      access_token = EXCLUDED.access_token,
+      refresh_token = COALESCE(EXCLUDED.refresh_token, google_tokens.refresh_token),
+      token_expiry = EXCLUDED.token_expiry,
+      scopes = EXCLUDED.scopes,
+      updated_at = NOW()
+  `, [userId, tokens.access_token, tokens.refresh_token || null, tokens.expiry_date ? new Date(tokens.expiry_date) : null, tokens.scope || null]);
+}
+
+export async function deleteGoogleTokens(userId) {
+  const db = getPool();
+  await db.query(`DELETE FROM google_tokens WHERE user_id = $1`, [userId]);
+}
+
+export async function saveGoogleCalendarSettings(userId, settings) {
+  const db = getPool();
+  await db.query(
+    `UPDATE google_tokens SET calendar_settings = $2, updated_at = NOW() WHERE user_id = $1`,
+    [userId, JSON.stringify(settings)]
+  );
 }
