@@ -2950,10 +2950,10 @@ body.has-bg-image::before {
 }
 .gcal-card-today-btn:hover { background: rgba(0,0,0,0.08); }
 
-/* Day header row */
+/* Day header row — equal columns that don't grow with content */
 .gcal-card-day-headers {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   text-align: center;
   font-size: 11px;
   font-weight: 600;
@@ -2962,23 +2962,29 @@ body.has-bg-image::before {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   padding: 6px 2px 8px;
+  min-width: 0;
 }
 .gcal-card-day-headers span {
   display: block;
+  min-width: 0;
+  overflow: hidden;
 }
 
-/* Day grid */
+/* Day grid — equal columns; cells cannot expand column width */
 .gcal-card-grid {
   display: grid;
-  grid-template-columns: repeat(7, 1fr);
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 1px;
   background: rgba(0,0,0,0.06);
   border-radius: 0 0 10px 10px;
   padding: 0 1px 1px;
+  min-width: 0;
 }
 .gcal-card-day {
   background: rgba(255,255,255,0.7);
   min-height: 88px;
+  min-width: 0;
+  overflow: hidden;
   padding: 6px 6px;
   display: flex;
   flex-direction: column;
@@ -3006,7 +3012,7 @@ body.has-bg-image::before {
   color: var(--paper);
 }
 
-/* Event chips */
+/* Event chips — must not expand cell; truncate long text */
 .gcal-card-chip {
   display: flex;
   align-items: center;
@@ -3022,10 +3028,12 @@ body.has-bg-image::before {
   background: rgba(0,0,0,0.035);
   border-left: 3px solid #4285f4;
   cursor: default;
+  min-width: 0;
 }
 .gcal-card-chip-title {
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
 }
 .gcal-card-more {
   font-size: 10px;
