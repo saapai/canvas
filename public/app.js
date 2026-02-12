@@ -8254,20 +8254,28 @@ function saveCalendarCardState(card) {
   updateEntryOnServer(entryData);
 }
 
-async function setupCalendarCardHandlers(card) {
+function setupCalendarCardHandlers(card) {
   const monthStr = card.dataset.gcalMonth || formatMonthKey(new Date());
   card.dataset.gcalMonth = monthStr;
   const viewDate = parseGcalMonth(monthStr);
   card._gcalState = { viewDate: viewDate.getTime(), calendars: [], events: [] };
 
   const loading = card.querySelector('.gcal-card-loading');
-  if (loading) loading.classList.remove('hidden');
+  if (loading) loading.classList.add('hidden');
 
-  const calendars = await fetchGcalCalendars();
-  const events = await fetchGcalEventsForMonth(viewDate);
-  card._gcalState.calendars = calendars;
-  card._gcalState.events = events;
   renderCalendarCard(card);
+
+  (async () => {
+    const [calendars, events] = await Promise.all([
+      fetchGcalCalendars(),
+      fetchGcalEventsForMonth(viewDate)
+    ]);
+    if (!card._gcalState) return;
+    card._gcalState.calendars = calendars;
+    card._gcalState.events = events;
+    renderCalendarCard(card);
+    saveCalendarCardState(card);
+  })();
 
   card.addEventListener('mousedown', (e) => e.stopPropagation());
 
@@ -8276,7 +8284,7 @@ async function setupCalendarCardHandlers(card) {
   const todayBtn = card.querySelector('.gcal-card-today-btn');
 
   if (prevBtn) {
-    prevBtn.addEventListener('click', async (e) => {
+    prevBtn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
       const state = card._gcalState || {};
@@ -8284,13 +8292,18 @@ async function setupCalendarCardHandlers(card) {
       d.setMonth(d.getMonth() - 1);
       card._gcalState.viewDate = d.getTime();
       card.dataset.gcalMonth = formatMonthKey(d);
-      card._gcalState.events = await fetchGcalEventsForMonth(d);
+      card._gcalState.events = [];
       renderCalendarCard(card);
-      saveCalendarCardState(card);
+      fetchGcalEventsForMonth(d).then(events => {
+        if (!card._gcalState) return;
+        card._gcalState.events = events;
+        renderCalendarCard(card);
+        saveCalendarCardState(card);
+      });
     });
   }
   if (nextBtn) {
-    nextBtn.addEventListener('click', async (e) => {
+    nextBtn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
       const state = card._gcalState || {};
@@ -8298,21 +8311,31 @@ async function setupCalendarCardHandlers(card) {
       d.setMonth(d.getMonth() + 1);
       card._gcalState.viewDate = d.getTime();
       card.dataset.gcalMonth = formatMonthKey(d);
-      card._gcalState.events = await fetchGcalEventsForMonth(d);
+      card._gcalState.events = [];
       renderCalendarCard(card);
-      saveCalendarCardState(card);
+      fetchGcalEventsForMonth(d).then(events => {
+        if (!card._gcalState) return;
+        card._gcalState.events = events;
+        renderCalendarCard(card);
+        saveCalendarCardState(card);
+      });
     });
   }
   if (todayBtn) {
-    todayBtn.addEventListener('click', async (e) => {
+    todayBtn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
       const d = new Date();
       card._gcalState.viewDate = d.getTime();
       card.dataset.gcalMonth = formatMonthKey(d);
-      card._gcalState.events = await fetchGcalEventsForMonth(d);
+      card._gcalState.events = [];
       renderCalendarCard(card);
-      saveCalendarCardState(card);
+      fetchGcalEventsForMonth(d).then(events => {
+        if (!card._gcalState) return;
+        card._gcalState.events = events;
+        renderCalendarCard(card);
+        saveCalendarCardState(card);
+      });
     });
   }
 }
@@ -8337,7 +8360,7 @@ async function insertCalendarTemplate() {
     <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
   </div>
   <div class="gcal-card-grid"></div>
-  <div class="gcal-card-loading">Loading calendar…</div>
+  <div class="gcal-card-loading hidden" aria-hidden="true">Loading calendar…</div>
 </div>`;
   editor.innerHTML = cardHTML;
   editor.classList.add('has-content');
