@@ -3047,27 +3047,10 @@ body.has-bg-image::before {
   display: none !important;
 }
 
-/* Entry-level overrides for calendar cards */
+/* Entry-level overrides for calendar cards (view only, no edit mode) */
 .entry:has(.gcal-card) {
   white-space: normal;
   overflow: visible;
-}
-.entry.editing:has(.gcal-card),
-.entry.deadline-editing:has(.gcal-card) {
-  padding: 0;
-  border: none !important;
-  border-radius: 6px;
-  box-shadow: none !important;
-  outline: none !important;
-}
-.entry.deadline-editing:has(.gcal-card)::before {
-  display: none !important;
-}
-.entry.editing:has(.gcal-card) > *,
-.entry.deadline-editing:has(.gcal-card) > * {
-  opacity: 0 !important;
-  visibility: hidden !important;
-  pointer-events: none !important;
 }
 #editor:has(.gcal-card) {
   white-space: normal;

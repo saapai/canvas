@@ -2983,7 +2983,7 @@ async function commitEditor(){
 
   const entryId = generateEntryId();
   const entry = document.createElement('div');
-  entry.className = isDeadlineTable ? 'entry' : 'entry melt';
+  entry.className = (isDeadlineTable || isCalendarCard) ? 'entry' : 'entry melt';
   entry.id = entryId;
 
   entry.style.left = `${editorWorldPos.x}px`;
@@ -2992,7 +2992,7 @@ async function commitEditor(){
   let newEntryLatexData = null;
 
   // LaTeX mode for new entries
-  if (latexModeEnabled && !isDeadlineTable) {
+  if (latexModeEnabled && !isDeadlineTable && !isCalendarCard) {
     entry.classList.remove('melt');
     entry.classList.add('latex-converting');
     world.appendChild(entry);
@@ -3012,6 +3012,11 @@ async function commitEditor(){
   // Only render text if there is any
   if (isDeadlineTable) {
     entry.innerHTML = trimmedHtml;
+  } else if (isCalendarCard) {
+    entry.innerHTML = trimmedHtml;
+    world.appendChild(entry);
+    const card = entry.querySelector('.gcal-card');
+    if (card) setupCalendarCardHandlers(card);
   } else if(processedText){
     if (trimmedHtml) {
       // Has formatting, process HTML with formatting preserved
@@ -3023,7 +3028,7 @@ async function commitEditor(){
   } else {
     entry.innerHTML = '';
   }
-  world.appendChild(entry);
+  if (!isCalendarCard) world.appendChild(entry);
   }
 
   // Update entry dimensions based on actual content after rendering
@@ -4449,6 +4454,8 @@ window.addEventListener('mouseup', async (e) => {
           if(entryData) {
             if(isImageEntry(draggingEntry) || isFileEntry(draggingEntry)) {
               selectOnlyEntry(draggingEntry.id);
+            } else if(draggingEntry.querySelector('.gcal-card')) {
+              // Calendar card: no edit mode, do nothing on click
             } else if(draggingEntry.querySelector('.deadline-table')) {
               const alreadyEditing = editingEntryId === draggingEntry.id;
               if (!alreadyEditing) {
@@ -5276,6 +5283,11 @@ viewport.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       e.stopPropagation();
       selectOnlyEntry(entryEl.id);
+      return;
+    }
+    if(entryEl.querySelector('.gcal-card')){
+      e.preventDefault();
+      e.stopPropagation();
       return;
     }
     e.preventDefault();
@@ -8248,7 +8260,7 @@ function saveCalendarCardState(card) {
   const grid = clone.querySelector('.gcal-card-grid');
   if (grid) grid.innerHTML = '';
   const loading = clone.querySelector('.gcal-card-loading');
-  if (loading) loading.classList.remove('hidden');
+  if (loading) loading.classList.add('hidden');
   entryData.text = entry.innerText;
   entryData.textHtml = clone.outerHTML;
   updateEntryOnServer(entryData);
@@ -8277,7 +8289,9 @@ function setupCalendarCardHandlers(card) {
     saveCalendarCardState(card);
   })();
 
-  card.addEventListener('mousedown', (e) => e.stopPropagation());
+  card.addEventListener('mousedown', (e) => {
+    if (e.target.closest('.gcal-card-nav-btn, .gcal-card-today-btn')) e.stopPropagation();
+  });
 
   const prevBtn = card.querySelector('.gcal-card-prev');
   const nextBtn = card.querySelector('.gcal-card-next');
