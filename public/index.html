@@ -55,6 +55,10 @@
             <span class="template-menu-item-title">Deadlines</span>
             <span class="template-menu-item-desc">Assignments with deadline, class, and status</span>
           </button>
+          <button class="template-menu-item" id="google-connect-btn" data-template="google">
+            <span class="template-menu-item-title" id="google-connect-label">Google Connection</span>
+            <span class="template-menu-item-desc" id="google-connect-desc">GCal, Sheets, Docs</span>
+          </button>
         </div>
       </div>
     </div>
@@ -258,6 +262,29 @@
     <div class="chat-input-wrap">
       <input id="chat-input" class="chat-input" type="text" placeholder="Reply…" autocomplete="off" />
       <button id="chat-send" class="chat-send" title="Send">→</button>
+    </div>
+  </div>
+  <div id="gcal-panel" class="gcal-panel hidden">
+    <div class="gcal-panel-header">
+      <span class="gcal-panel-title">Google Calendar</span>
+      <div class="gcal-header-actions">
+        <button id="gcal-cals-toggle" class="gcal-cals-toggle" title="Toggle calendars">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.32 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        </button>
+        <button id="gcal-close" class="gcal-close" title="Close">&times;</button>
+      </div>
+    </div>
+    <div id="gcal-calendars-list" class="gcal-calendars-list hidden"></div>
+    <div class="gcal-nav">
+      <button id="gcal-prev" class="gcal-nav-btn" title="Previous">&lsaquo;</button>
+      <span id="gcal-month-label" class="gcal-month-label"></span>
+      <button id="gcal-next" class="gcal-nav-btn" title="Next">&rsaquo;</button>
+      <button id="gcal-today" class="gcal-today-btn">Today</button>
+    </div>
+    <div id="gcal-grid" class="gcal-grid"></div>
+    <div id="gcal-day-events" class="gcal-day-events hidden">
+      <div id="gcal-day-events-header" class="gcal-day-events-header"></div>
+      <div id="gcal-day-events-list" class="gcal-day-events-list"></div>
     </div>
   </div>
   <div id="viewport">
