@@ -697,6 +697,10 @@ async function loadUserEntries(username, editable) {
           entry.innerHTML = entryData.textHtml;
           const dt = entry.querySelector('.deadline-table');
           if (dt) setupDeadlineTableHandlers(dt);
+        } else if (entryData.textHtml && entryData.textHtml.includes('gcal-card')) {
+          entry.innerHTML = entryData.textHtml;
+          const card = entry.querySelector('.gcal-card');
+          if (card) setupCalendarCardHandlers(card);
         } else if (processedText) {
           if (entryData.textHtml && /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(entryData.textHtml)) {
             entry.innerHTML = meltifyHtml(entryData.textHtml);
@@ -1292,6 +1296,10 @@ async function loadEntriesFromServer() {
         entry.innerHTML = entryData.textHtml;
         const dt = entry.querySelector('.deadline-table');
         if (dt) setupDeadlineTableHandlers(dt);
+      } else if (entryData.textHtml && entryData.textHtml.includes('gcal-card')) {
+        entry.innerHTML = entryData.textHtml;
+        const card = entry.querySelector('.gcal-card');
+        if (card) setupCalendarCardHandlers(card);
       } else if (processedText) {
         if (entryData.textHtml && /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(entryData.textHtml)) {
           // Has formatting, use HTML version
@@ -2535,6 +2543,10 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
         const table = editor.querySelector('.deadline-table');
         if (table) setupDeadlineTableHandlers(table);
       }
+      if (entryData.textHtml.includes('gcal-card')) {
+        const card = editor.querySelector('.gcal-card');
+        if (card) setupCalendarCardHandlers(card);
+      }
     } else {
       editor.textContent = text;
     }
@@ -2598,6 +2610,10 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
     const ed = entries.get(entryId);
     return ed && ed.textHtml && ed.textHtml.includes('deadline-table');
   })();
+  const isCalendarCard = entryId && (() => {
+    const ed = entries.get(entryId);
+    return ed && ed.textHtml && ed.textHtml.includes('gcal-card');
+  })();
 
   if (isDeadlineTable) {
     const firstCell = editor.querySelector('.deadline-table [contenteditable="true"]');
@@ -2612,6 +2628,10 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
     } else {
       editor.focus();
     }
+  } else if (isCalendarCard) {
+    const card = editor.querySelector('.gcal-card');
+    if (card) setupCalendarCardHandlers(card);
+    editor.focus();
   } else {
     editor.focus();
   }
@@ -2621,7 +2641,7 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
     editor.style.width = `${contentWidth}px`;
   });
 
-  if (!isDeadlineTable) {
+  if (!isDeadlineTable && !isCalendarCard) {
     const range = document.createRange();
     const sel = window.getSelection();
     if (text) {
@@ -2670,9 +2690,10 @@ async function commitEditor(){
   const raw = editor.innerText;
   const trimmedRight = raw.replace(/\s+$/g,'');
   
-  // Check if content is a deadline table or has formatting tags
+  // Check if content is a deadline table, calendar card, or has formatting tags
   const isDeadlineTable = htmlContent.includes('deadline-table');
-  const hasFormatting = isDeadlineTable || /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(htmlContent);
+  const isCalendarCard = htmlContent.includes('gcal-card');
+  const hasFormatting = isDeadlineTable || isCalendarCard || /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(htmlContent);
   const trimmedHtml = hasFormatting ? htmlContent : null;
   
   console.log('[COMMIT] HTML content length:', htmlContent.length, 'hasFormatting:', hasFormatting);
@@ -2795,9 +2816,13 @@ async function commitEditor(){
         // Clear latex data when latex mode is off
         entryData.latexData = null;
 
-      if (isDeadlineTable) {
-        // Deadline tables: use raw HTML directly, no melt animation
+      if (isDeadlineTable || isCalendarCard) {
+        // Deadline tables / calendar cards: use raw HTML directly, no melt animation
         entryData.element.innerHTML = trimmedHtml;
+        if (isCalendarCard) {
+          const card = entryData.element.querySelector('.gcal-card');
+          if (card) setupCalendarCardHandlers(card);
+        }
       } else {
         // Add melt class for animation
         entryData.element.classList.add('melt');
@@ -3110,6 +3135,16 @@ function updateEntryDimensions(entry) {
         const tableHeight = Math.max(deadlineTable.scrollHeight, deadlineTable.offsetHeight);
         entry.style.setProperty('width', `${tableWidth}px`, 'important');
         entry.style.setProperty('height', `${tableHeight}px`, 'important');
+        entry.style.setProperty('min-height', 'auto', 'important');
+        entry.style.setProperty('min-width', 'auto', 'important');
+        return;
+      }
+      const gcalCard = entry.querySelector('.gcal-card');
+      if (gcalCard) {
+        const w = Math.max(gcalCard.scrollWidth, gcalCard.offsetWidth);
+        const h = Math.max(gcalCard.scrollHeight, gcalCard.offsetHeight);
+        entry.style.setProperty('width', `${w}px`, 'important');
+        entry.style.setProperty('height', `${h}px`, 'important');
         entry.style.setProperty('min-height', 'auto', 'important');
         entry.style.setProperty('min-width', 'auto', 'important');
         return;
@@ -4021,11 +4056,16 @@ viewport.addEventListener('mousedown', (e) => {
       entryData.element.classList.remove('editing', 'deadline-editing');
       if(trimmedRight) {
         const isDeadline = htmlContent.includes('deadline-table');
-        const hasFmt = isDeadline || /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(htmlContent);
+        const isCalendarCard = htmlContent.includes('gcal-card');
+        const hasFmt = isDeadline || isCalendarCard || /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(htmlContent);
         entryData.text = trimmedRight;
         entryData.textHtml = hasFmt ? htmlContent : null;
-        if(isDeadline) {
+        if (isDeadline) {
           entryData.element.innerHTML = htmlContent;
+        } else if (isCalendarCard) {
+          entryData.element.innerHTML = htmlContent;
+          const card = entryData.element.querySelector('.gcal-card');
+          if (card) setupCalendarCardHandlers(card);
         } else if (!hasCards) {
           const { processedText } = processTextWithLinks(trimmedRight);
           entryData.element.innerHTML = hasFmt ? meltifyHtml(htmlContent) : meltify(processedText || '');
@@ -4604,7 +4644,7 @@ window.addEventListener('mouseup', async (e) => {
             const urls = extractUrls(entryData.text);
             if (urls.length > 0) window.open(urls[0], '_blank');
           }
-        } else if (entryEl.id !== 'anchor' && entryEl.id && !editingEntryId && !entryEl.querySelector('.deadline-table')) {
+        } else if (entryEl.id !== 'anchor' && entryEl.id && !editingEntryId && !entryEl.querySelector('.deadline-table') && !entryEl.querySelector('.gcal-card')) {
           navigateToEntry(entryEl.id);
         }
       }
@@ -4621,7 +4661,7 @@ viewport.addEventListener('dblclick', (e) => {
   }
   const entryEl = findEntryElement(e.target);
   if (e.target.closest('.link-card, .link-card-placeholder, .media-card')) return;
-  if (entryEl && entryEl.querySelector('.deadline-table')) return;
+  if (entryEl && (entryEl.querySelector('.deadline-table') || entryEl.querySelector('.gcal-card'))) return;
   if (entryEl && entryEl.id !== 'anchor' && entryEl.id && !editingEntryId) {
     e.preventDefault();
     e.stopPropagation();
@@ -4944,8 +4984,8 @@ editor.addEventListener('keydown', (e) => {
       }
     }
     
-    // Deadline tables handle Enter themselves via handleDeadlineTableKeydown
-    if (editor.querySelector('.deadline-table')) {
+    // Deadline tables handle Enter themselves; calendar cards don't commit on Enter
+    if (editor.querySelector('.deadline-table') || editor.querySelector('.gcal-card')) {
       return;
     }
 
@@ -4985,9 +5025,10 @@ editor.addEventListener('keydown', (e) => {
 function updateEditingBorderDimensions(entry) {
   if (!entry || !entry.classList.contains('editing')) return;
 
-  // Deadline tables: size border to match table dimensions
+  // Deadline tables / calendar cards: size border to match content dimensions
   const deadlineTable = entry.querySelector('.deadline-table');
-  if (deadlineTable) {
+  const gcalCard = entry.querySelector('.gcal-card');
+  if (deadlineTable || gcalCard) {
     entry.style.removeProperty('width');
     entry.style.removeProperty('height');
     return;
@@ -7210,6 +7251,10 @@ async function performUndo() {
             entry.innerHTML = entryData.textHtml;
             const dt = entry.querySelector('.deadline-table');
             if (dt) setupDeadlineTableHandlers(dt);
+          } else if (entryData.textHtml && entryData.textHtml.includes('gcal-card')) {
+            entry.innerHTML = entryData.textHtml;
+            const card = entry.querySelector('.gcal-card');
+            if (card) setupCalendarCardHandlers(card);
           } else if (processedText) {
             entry.innerHTML = meltify(processedText);
           } else {
@@ -7299,6 +7344,10 @@ async function performUndo() {
         const { processedText, urls } = processTextWithLinks(state.data.oldText);
         if (editEntryData.textHtml && editEntryData.textHtml.includes('deadline-table')) {
           editEntryData.element.innerHTML = editEntryData.textHtml;
+        } else if (editEntryData.textHtml && editEntryData.textHtml.includes('gcal-card')) {
+          editEntryData.element.innerHTML = editEntryData.textHtml;
+          const card = editEntryData.element.querySelector('.gcal-card');
+          if (card) setupCalendarCardHandlers(card);
         } else if (processedText) {
           editEntryData.element.innerHTML = meltify(processedText);
         } else {
@@ -7546,6 +7595,8 @@ if (templateMenuButton && templateMenuDropdown) {
 async function insertTemplate(templateType) {
   if (templateType === 'deadlines') {
     await insertDeadlinesTemplate();
+  } else if (templateType === 'gcal-card') {
+    await insertCalendarTemplate();
   } else if (templateType === 'google') {
     handleGoogleConnection();
   }
@@ -8064,6 +8115,236 @@ async function insertDeadlinesTemplate() {
   }
 }
 
+function formatMonthKey(date) {
+  return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0');
+}
+
+function parseGcalMonth(monthStr) {
+  if (!monthStr || !/^\d{4}-\d{2}$/.test(monthStr)) return new Date();
+  return new Date(monthStr + '-01T12:00:00');
+}
+
+async function fetchGcalCalendars() {
+  try {
+    const res = await fetch('/api/google/calendars', { credentials: 'include' });
+    if (!res.ok) {
+      if (res.status === 401) { gcalConnected = false; updateGoogleConnectButton(); }
+      return [];
+    }
+    const data = await res.json();
+    return data.calendars || [];
+  } catch (e) {
+    console.error('Fetch calendars error:', e);
+    return [];
+  }
+}
+
+async function fetchGcalEventsForMonth(viewDate) {
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+  const timeMin = new Date(year, month, 1).toISOString();
+  const timeMax = new Date(year, month + 2, 0).toISOString();
+  try {
+    const res = await fetch(`/api/google/calendar/events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}`, { credentials: 'include' });
+    if (!res.ok) {
+      if (res.status === 401) { gcalConnected = false; updateGoogleConnectButton(); }
+      return [];
+    }
+    const data = await res.json();
+    return data.events || [];
+  } catch (e) {
+    console.error('Fetch events error:', e);
+    return [];
+  }
+}
+
+function getEventsForDateFromList(dateStr, eventsList) {
+  return eventsList.filter(evt => {
+    const start = evt.start;
+    if (!start) return false;
+    const evtDate = start.length === 10 ? start : start.substring(0, 10);
+    if (evtDate === dateStr) return true;
+    if (evt.allDay && evt.end) {
+      const endDate = evt.end.length === 10 ? evt.end : evt.end.substring(0, 10);
+      return dateStr >= evtDate && dateStr < endDate;
+    }
+    return false;
+  });
+}
+
+function renderCalendarDayCell(day, dateStr, otherMonth, isToday, state) {
+  const events = getEventsForDateFromList(dateStr, state.events || []);
+  const maxChips = 3;
+  const shown = events.slice(0, maxChips);
+  const moreCount = events.length - maxChips;
+  let chipsHtml = '';
+  shown.forEach(evt => {
+    const cal = (state.calendars || []).find(c => c.id === evt.calendarId);
+    const color = cal?.backgroundColor || '#4285f4';
+    const title = (evt.summary || 'Event').substring(0, 30);
+    chipsHtml += `<div class="gcal-card-chip" style="border-left-color:${color}"><span class="gcal-card-chip-title">${escapeHtml(title)}</span></div>`;
+  });
+  if (moreCount > 0) {
+    chipsHtml += `<div class="gcal-card-more">+${moreCount} more</div>`;
+  }
+  const classes = ['gcal-card-day'];
+  if (otherMonth) classes.push('other-month');
+  if (isToday) classes.push('today');
+  return `<div class="${classes.join(' ')}" data-date="${escapeHtml(dateStr)}"><div class="gcal-card-day-num">${day}</div>${chipsHtml}</div>`;
+}
+
+function renderCalendarCard(card) {
+  const state = card._gcalState || {};
+  const viewDate = state.viewDate ? new Date(state.viewDate) : parseGcalMonth(card.dataset.gcalMonth || '');
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+  const today = new Date();
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  const startDow = firstDay.getDay();
+
+  const monthLabel = card.querySelector('.gcal-card-month-label');
+  if (monthLabel) monthLabel.textContent = firstDay.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+  const dayHeaders = card.querySelector('.gcal-card-day-headers');
+  if (dayHeaders) {
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    dayHeaders.innerHTML = days.map(d => `<span>${d}</span>`).join('');
+  }
+
+  const grid = card.querySelector('.gcal-card-grid');
+  if (!grid) return;
+
+  let html = '';
+  const prevLastDay = new Date(year, month, 0).getDate();
+  for (let i = startDow - 1; i >= 0; i--) {
+    const d = prevLastDay - i;
+    const dateStr = formatDateKey(new Date(year, month - 1, d));
+    html += renderCalendarDayCell(d, dateStr, true, false, state);
+  }
+  for (let d = 1; d <= lastDay.getDate(); d++) {
+    const dateStr = formatDateKey(new Date(year, month, d));
+    const isToday = today.getFullYear() === year && today.getMonth() === month && today.getDate() === d;
+    html += renderCalendarDayCell(d, dateStr, false, isToday, state);
+  }
+  const totalCells = startDow + lastDay.getDate();
+  const remaining = totalCells % 7 === 0 ? 0 : 7 - (totalCells % 7);
+  for (let d = 1; d <= remaining; d++) {
+    const dateStr = formatDateKey(new Date(year, month + 1, d));
+    html += renderCalendarDayCell(d, dateStr, true, false, state);
+  }
+  grid.innerHTML = html;
+
+  const loading = card.querySelector('.gcal-card-loading');
+  if (loading) loading.classList.add('hidden');
+}
+
+function saveCalendarCardState(card) {
+  const entry = card.closest('.entry');
+  if (!entry) return;
+  const entryData = entries.get(entry.id);
+  if (!entryData) return;
+  const clone = card.cloneNode(true);
+  const grid = clone.querySelector('.gcal-card-grid');
+  if (grid) grid.innerHTML = '';
+  const loading = clone.querySelector('.gcal-card-loading');
+  if (loading) loading.classList.remove('hidden');
+  entryData.text = entry.innerText;
+  entryData.textHtml = clone.outerHTML;
+  updateEntryOnServer(entryData);
+}
+
+async function setupCalendarCardHandlers(card) {
+  const monthStr = card.dataset.gcalMonth || formatMonthKey(new Date());
+  card.dataset.gcalMonth = monthStr;
+  const viewDate = parseGcalMonth(monthStr);
+  card._gcalState = { viewDate: viewDate.getTime(), calendars: [], events: [] };
+
+  const loading = card.querySelector('.gcal-card-loading');
+  if (loading) loading.classList.remove('hidden');
+
+  const calendars = await fetchGcalCalendars();
+  const events = await fetchGcalEventsForMonth(viewDate);
+  card._gcalState.calendars = calendars;
+  card._gcalState.events = events;
+  renderCalendarCard(card);
+
+  card.addEventListener('mousedown', (e) => e.stopPropagation());
+
+  const prevBtn = card.querySelector('.gcal-card-prev');
+  const nextBtn = card.querySelector('.gcal-card-next');
+  const todayBtn = card.querySelector('.gcal-card-today-btn');
+
+  if (prevBtn) {
+    prevBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const state = card._gcalState || {};
+      const d = new Date(state.viewDate || Date.now());
+      d.setMonth(d.getMonth() - 1);
+      card._gcalState.viewDate = d.getTime();
+      card.dataset.gcalMonth = formatMonthKey(d);
+      card._gcalState.events = await fetchGcalEventsForMonth(d);
+      renderCalendarCard(card);
+      saveCalendarCardState(card);
+    });
+  }
+  if (nextBtn) {
+    nextBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const state = card._gcalState || {};
+      const d = new Date(state.viewDate || Date.now());
+      d.setMonth(d.getMonth() + 1);
+      card._gcalState.viewDate = d.getTime();
+      card.dataset.gcalMonth = formatMonthKey(d);
+      card._gcalState.events = await fetchGcalEventsForMonth(d);
+      renderCalendarCard(card);
+      saveCalendarCardState(card);
+    });
+  }
+  if (todayBtn) {
+    todayBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const d = new Date();
+      card._gcalState.viewDate = d.getTime();
+      card.dataset.gcalMonth = formatMonthKey(d);
+      card._gcalState.events = await fetchGcalEventsForMonth(d);
+      renderCalendarCard(card);
+      saveCalendarCardState(card);
+    });
+  }
+}
+
+async function insertCalendarTemplate() {
+  if (!gcalConnected) {
+    handleGoogleConnection();
+    return;
+  }
+  const now = new Date();
+  const monthStr = formatMonthKey(now);
+  const monthLabel = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const cardHTML = `
+<div class="gcal-card" contenteditable="false" data-gcal-card="true" data-gcal-month="${escapeHtml(monthStr)}">
+  <div class="gcal-card-header">
+    <button type="button" class="gcal-card-nav-btn gcal-card-prev" aria-label="Previous month">‹</button>
+    <button type="button" class="gcal-card-nav-btn gcal-card-next" aria-label="Next month">›</button>
+    <span class="gcal-card-month-label">${escapeHtml(monthLabel)}</span>
+    <button type="button" class="gcal-card-today-btn">Today</button>
+  </div>
+  <div class="gcal-card-day-headers">
+    <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+  </div>
+  <div class="gcal-card-grid"></div>
+  <div class="gcal-card-loading">Loading calendar…</div>
+</div>`;
+  editor.innerHTML = cardHTML;
+  editor.classList.add('has-content');
+  const card = editor.querySelector('.gcal-card');
+  if (card) setupCalendarCardHandlers(card);
+}
+
 function focusNearestDeadlineCell(table, clientX, clientY) {
   const cells = Array.from(table.querySelectorAll('.deadline-col-name, .deadline-col-deadline, .deadline-col-class, .deadline-col-notes'));
   if (cells.length === 0) return;
@@ -8513,27 +8794,11 @@ function handleDeadlineTableKeydown(e) {
 })();
 
 // ——— Google Calendar Integration ———
-const gcalPanel = document.getElementById('gcal-panel');
-const gcalGrid = document.getElementById('gcal-grid');
-const gcalMonthLabel = document.getElementById('gcal-month-label');
-const gcalDayEvents = document.getElementById('gcal-day-events');
-const gcalDayEventsList = document.getElementById('gcal-day-events-list');
-const gcalDayEventsHeader = document.getElementById('gcal-day-events-header');
-const gcalCalendarsList = document.getElementById('gcal-calendars-list');
-const gcalClose = document.getElementById('gcal-close');
-const gcalPrev = document.getElementById('gcal-prev');
-const gcalNext = document.getElementById('gcal-next');
-const gcalToday = document.getElementById('gcal-today');
-const gcalCalsToggle = document.getElementById('gcal-cals-toggle');
 const googleConnectBtn = document.getElementById('google-connect-btn');
 const googleConnectLabel = document.getElementById('google-connect-label');
 const googleConnectDesc = document.getElementById('google-connect-desc');
 
 let gcalConnected = false;
-let gcalCalendars = [];
-let gcalEvents = [];
-let gcalViewDate = new Date();
-let gcalSelectedDay = null;
 let gcalCalendarSettings = {};
 
 // Check Google connection on load
@@ -8550,294 +8815,41 @@ async function checkGoogleStatus() {
 
 function updateGoogleConnectButton() {
   if (!googleConnectLabel) return;
+  const gcalCardBtn = document.querySelector('.gcal-card-btn');
   if (gcalConnected) {
     googleConnectLabel.innerHTML = 'Google Connected <span class="google-connected-badge"></span>';
-    if (googleConnectDesc) googleConnectDesc.textContent = 'Open Calendar';
+    if (googleConnectDesc) googleConnectDesc.textContent = 'GCal, Sheets, Docs';
+    if (gcalCardBtn) gcalCardBtn.classList.remove('hidden');
   } else {
     googleConnectLabel.textContent = 'Google Connection';
     if (googleConnectDesc) googleConnectDesc.textContent = 'GCal, Sheets, Docs';
+    if (gcalCardBtn) gcalCardBtn.classList.add('hidden');
   }
 }
 
 async function handleGoogleConnection() {
   if (!currentUser) return;
-  if (gcalConnected) {
-    openGcalPanel();
-    return;
-  }
-  // Initiate OAuth
+  if (gcalConnected) return;
   try {
     const res = await fetch('/api/oauth/google/auth', { credentials: 'include' });
     if (!res.ok) throw new Error('Failed');
     const data = await res.json();
     window.location.href = data.url;
-  } catch(e) {
+  } catch (e) {
     console.error('Google auth error:', e);
   }
-}
-
-async function openGcalPanel() {
-  if (!gcalPanel) return;
-  gcalPanel.classList.remove('hidden');
-  gcalGrid.innerHTML = '<div class="gcal-loading">Loading calendar\u2026</div>';
-  gcalDayEvents.classList.add('hidden');
-  gcalCalendarsList.classList.add('hidden');
-  gcalSelectedDay = null;
-  gcalViewDate = new Date();
-  await loadGcalCalendars();
-  await loadGcalEvents();
-  renderGcalGrid();
-}
-
-async function loadGcalCalendars() {
-  try {
-    const res = await fetch('/api/google/calendars', { credentials: 'include' });
-    if (!res.ok) {
-      if (res.status === 401) { gcalConnected = false; updateGoogleConnectButton(); gcalPanel.classList.add('hidden'); return; }
-      throw new Error('Failed');
-    }
-    const data = await res.json();
-    gcalCalendars = data.calendars || [];
-  } catch(e) {
-    console.error('Load calendars error:', e);
-    gcalCalendars = [];
-  }
-}
-
-async function loadGcalEvents() {
-  const year = gcalViewDate.getFullYear();
-  const month = gcalViewDate.getMonth();
-  // Load a wider range for the month view
-  const timeMin = new Date(year, month - 1, 1).toISOString();
-  const timeMax = new Date(year, month + 2, 0).toISOString();
-  try {
-    const res = await fetch(`/api/google/calendar/events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}`, { credentials: 'include' });
-    if (!res.ok) {
-      if (res.status === 401) { gcalConnected = false; updateGoogleConnectButton(); gcalPanel.classList.add('hidden'); return; }
-      throw new Error('Failed');
-    }
-    const data = await res.json();
-    gcalEvents = data.events || [];
-  } catch(e) {
-    console.error('Load events error:', e);
-    gcalEvents = [];
-  }
-}
-
-function renderGcalGrid() {
-  if (!gcalGrid) return;
-  const year = gcalViewDate.getFullYear();
-  const month = gcalViewDate.getMonth();
-  const today = new Date();
-  const firstDay = new Date(year, month, 1);
-  const lastDay = new Date(year, month + 1, 0);
-  const startDow = firstDay.getDay(); // 0=Sun
-
-  gcalMonthLabel.textContent = firstDay.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-
-  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  let html = '<div class="gcal-grid-header">';
-  dayNames.forEach(d => html += `<div>${d}</div>`);
-  html += '</div><div class="gcal-grid-body">';
-
-  // Previous month padding
-  const prevLastDay = new Date(year, month, 0).getDate();
-  for (let i = startDow - 1; i >= 0; i--) {
-    const d = prevLastDay - i;
-    const dateStr = formatDateKey(new Date(year, month - 1, d));
-    const evts = getEventsForDate(dateStr);
-    html += renderDayCell(d, dateStr, true, false, false, evts);
-  }
-
-  // Current month days
-  for (let d = 1; d <= lastDay.getDate(); d++) {
-    const dateStr = formatDateKey(new Date(year, month, d));
-    const isToday = today.getFullYear() === year && today.getMonth() === month && today.getDate() === d;
-    const isSelected = gcalSelectedDay === dateStr;
-    const evts = getEventsForDate(dateStr);
-    html += renderDayCell(d, dateStr, false, isToday, isSelected, evts);
-  }
-
-  // Next month padding
-  const totalCells = startDow + lastDay.getDate();
-  const remaining = totalCells % 7 === 0 ? 0 : 7 - (totalCells % 7);
-  for (let d = 1; d <= remaining; d++) {
-    const dateStr = formatDateKey(new Date(year, month + 1, d));
-    const evts = getEventsForDate(dateStr);
-    html += renderDayCell(d, dateStr, true, false, false, evts);
-  }
-
-  html += '</div>';
-  gcalGrid.innerHTML = html;
-
-  // Add click handlers
-  gcalGrid.querySelectorAll('.gcal-day').forEach(el => {
-    el.addEventListener('click', () => {
-      const dateStr = el.dataset.date;
-      gcalSelectedDay = dateStr;
-      // Update selected state
-      gcalGrid.querySelectorAll('.gcal-day').forEach(d => d.classList.remove('selected'));
-      el.classList.add('selected');
-      showDayEvents(dateStr);
-    });
-  });
-}
-
-function renderDayCell(day, dateStr, otherMonth, isToday, isSelected, events) {
-  const classes = ['gcal-day'];
-  if (otherMonth) classes.push('other-month');
-  if (isToday) classes.push('today');
-  if (isSelected) classes.push('selected');
-
-  let dots = '';
-  if (events.length > 0) {
-    dots = '<div class="gcal-day-dots">';
-    const shown = events.slice(0, 3);
-    shown.forEach(evt => {
-      const cal = gcalCalendars.find(c => c.id === evt.calendarId);
-      const color = cal?.backgroundColor || '#4285f4';
-      dots += `<div class="gcal-day-dot" style="background:${color}"></div>`;
-    });
-    if (events.length > 3) dots += `<div class="gcal-day-dot" style="background:rgba(0,0,0,0.2)"></div>`;
-    dots += '</div>';
-  }
-
-  return `<div class="${classes.join(' ')}" data-date="${dateStr}">
-    <div class="gcal-day-num">${day}</div>
-    ${dots}
-  </div>`;
 }
 
 function formatDateKey(date) {
   return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
 }
 
-function getEventsForDate(dateStr) {
-  return gcalEvents.filter(evt => {
-    const start = evt.start;
-    if (!start) return false;
-    const evtDate = start.length === 10 ? start : start.substring(0, 10);
-    if (evtDate === dateStr) return true;
-    // Multi-day events
-    if (evt.allDay && evt.end) {
-      const endDate = evt.end.length === 10 ? evt.end : evt.end.substring(0, 10);
-      return dateStr >= evtDate && dateStr < endDate;
-    }
-    return false;
-  });
-}
-
-function showDayEvents(dateStr) {
-  const events = getEventsForDate(dateStr);
-  const date = new Date(dateStr + 'T12:00:00');
-  gcalDayEventsHeader.textContent = date.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
-
-  if (events.length === 0) {
-    gcalDayEventsList.innerHTML = '<div class="gcal-empty">No events</div>';
-  } else {
-    gcalDayEventsList.innerHTML = events.map(evt => {
-      const cal = gcalCalendars.find(c => c.id === evt.calendarId);
-      const color = cal?.backgroundColor || '#4285f4';
-      let timeStr = '';
-      if (evt.allDay) {
-        timeStr = 'All day';
-      } else {
-        const s = new Date(evt.start);
-        const e = new Date(evt.end);
-        timeStr = s.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) + ' \u2013 ' + e.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
-      }
-      return `<div class="gcal-event">
-        <div class="gcal-event-color" style="background:${color}"></div>
-        <div class="gcal-event-info">
-          <div class="gcal-event-title">${escapeHtml(evt.summary)}</div>
-          <div class="gcal-event-time">${timeStr}</div>
-          ${evt.location ? `<div class="gcal-event-location">${escapeHtml(evt.location)}</div>` : ''}
-        </div>
-      </div>`;
-    }).join('');
-  }
-  gcalDayEvents.classList.remove('hidden');
-}
-
-function renderCalendarsList() {
-  if (!gcalCalendarsList) return;
-  gcalCalendarsList.innerHTML = gcalCalendars.map(cal => {
-    const visible = cal.visible !== false;
-    return `<div class="gcal-cal-item ${visible ? 'visible' : ''}" data-cal-id="${escapeHtml(cal.id)}">
-      <div class="gcal-cal-dot" style="background:${cal.backgroundColor || '#4285f4'}"></div>
-      <span class="gcal-cal-name">${escapeHtml(cal.summary)}</span>
-      <div class="gcal-cal-check">${visible ? '\u2713' : ''}</div>
-    </div>`;
-  }).join('');
-
-  gcalCalendarsList.querySelectorAll('.gcal-cal-item').forEach(el => {
-    el.addEventListener('click', async () => {
-      const calId = el.dataset.calId;
-      const cal = gcalCalendars.find(c => c.id === calId);
-      if (!cal) return;
-      cal.visible = !cal.visible;
-      gcalCalendarSettings[calId] = cal.visible;
-      // Save settings
-      try {
-        await fetch('/api/google/calendar/settings', {
-          method: 'PUT',
-          credentials: 'include',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ settings: gcalCalendarSettings })
-        });
-      } catch(e) { /* ignore */ }
-      renderCalendarsList();
-      await loadGcalEvents();
-      renderGcalGrid();
-      if (gcalSelectedDay) showDayEvents(gcalSelectedDay);
-    });
-  });
-}
-
-// Event listeners
-if (gcalClose) gcalClose.addEventListener('click', () => gcalPanel.classList.add('hidden'));
-if (gcalPrev) gcalPrev.addEventListener('click', async () => {
-  gcalViewDate.setMonth(gcalViewDate.getMonth() - 1);
-  gcalSelectedDay = null;
-  gcalDayEvents.classList.add('hidden');
-  await loadGcalEvents();
-  renderGcalGrid();
-});
-if (gcalNext) gcalNext.addEventListener('click', async () => {
-  gcalViewDate.setMonth(gcalViewDate.getMonth() + 1);
-  gcalSelectedDay = null;
-  gcalDayEvents.classList.add('hidden');
-  await loadGcalEvents();
-  renderGcalGrid();
-});
-if (gcalToday) gcalToday.addEventListener('click', async () => {
-  gcalViewDate = new Date();
-  gcalSelectedDay = formatDateKey(new Date());
-  await loadGcalEvents();
-  renderGcalGrid();
-  showDayEvents(gcalSelectedDay);
-});
-if (gcalCalsToggle) gcalCalsToggle.addEventListener('click', () => {
-  const visible = gcalCalendarsList.classList.contains('hidden');
-  if (visible) {
-    renderCalendarsList();
-    gcalCalendarsList.classList.remove('hidden');
-  } else {
-    gcalCalendarsList.classList.add('hidden');
-  }
-});
-
-// Check for google=connected in URL (post-OAuth redirect)
+// Post-OAuth redirect: clean URL and refresh connection status
 if (window.location.search.includes('google=connected')) {
-  // Clean up URL
   const url = new URL(window.location);
   url.searchParams.delete('google');
   window.history.replaceState({}, '', url.pathname);
-  // Check status and open panel
-  setTimeout(async () => {
-    await checkGoogleStatus();
-    if (gcalConnected) openGcalPanel();
-  }, 500);
+  setTimeout(() => checkGoogleStatus(), 500);
 }
 
 bootstrap();
