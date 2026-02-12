@@ -262,14 +262,25 @@ export async function convertTextToLatex(text) {
       messages: [
         {
           role: 'system',
-          content: 'You are a LaTeX expert that converts plain text and math expressions into proper LaTeX notation. Respond ONLY with valid JSON, no other text.'
+          content: `You are a LaTeX expert that converts plain text and math expressions into proper LaTeX notation (KaTeX-compatible). Respond ONLY with valid JSON, no other text.
+
+PARENTHESES AND SCOPE (critical):
+- If the user writes explicit parentheses, respect them exactly.
+- When there are NO parentheses, infer the natural scope and make the best guess:
+  - "sin of 3x squared" or "sin 3x squared" → argument of sin is 3x^2: \\sin(3x^2).
+  - "cos of x squared" → \\cos(x^2). "integral of 3x squared" → \\int 3x^2\\,dx.
+  - "integral of sin of 3x squared" → \\int \\sin(3x^2)\\,dx. Always wrap integrands and function arguments in parentheses when converting from plain English.
+- For "X of Y" or "X of Y squared", the "of Y" (or "of Y squared") is the argument of X.
+- Produce complete, valid LaTeX only. No partial or placeholder expressions (no trailing "::" or "[" or bare "integralof").`
         },
         {
           role: 'user',
-          content: `Convert the following text into LaTeX notation. Convert math expressions, equations, Greek letters, operations, fractions, integrals, summations, matrices, and any mathematical notation into proper LaTeX.
+          content: `Convert the following text into LaTeX notation. Convert math expressions, equations, Greek letters, operations, fractions, integrals, summations, matrices, and any mathematical notation into proper KaTeX-compatible LaTeX.
 
 If the text is primarily a math expression or equation, wrap it in display math mode ($$...$$).
 If the text contains inline math mixed with regular text, wrap math parts in inline math mode ($...$) and keep regular text as-is.
+
+Respect parentheses when present. When there are no parentheses, infer the intended scope: e.g. "sin of 3x squared" means sin(3x^2); "integral of 3x squared" means \\int 3x^2\\,dx. Always output complete, valid LaTeX (no incomplete fragments).
 
 Text to convert:
 "${text}"

@@ -304,7 +304,16 @@ IMPORTANT rules:
 - Use \\, for thin space between differential dx and the integrand: \\int f(x)\\,dx
 - For multi-line equations, use \\begin{aligned}...\\end{aligned} inside $$ delimiters
 - Never use \\displaystyle inside display mode (it's redundant)
-- Use \\text{} for non-math words within equations`
+- Use \\text{} for non-math words within equations
+
+PARENTHESES AND SCOPE (critical):
+- If the user writes explicit parentheses, respect them exactly (e.g. "sin(3x squared)" or "sin (3x)^2").
+- When there are NO parentheses, infer the natural scope and make the best guess:
+  - "sin of 3x squared" or "sin 3x squared" → the argument of sin is 3x^2, so output \\sin(3x^2) (not \\sin(3x)^2).
+  - "cos of x squared" → \\cos(x^2). "integral of 3x squared" or "integral of 3x^2" → \\int 3x^2\\,dx.
+  - "integral of sin of 3x squared" → \\int \\sin(3x^2)\\,dx. Always wrap the integrand and function arguments in parentheses when converting from plain English.
+- For "X of Y" or "X of Y squared", the "of Y" (or "of Y squared") is the argument of X: e.g. "sin of 3x squared" = sin(3x^2), "log of x plus 1" = \\log(x+1).
+- Produce complete, valid LaTeX only. No partial or placeholder expressions (no trailing "::" or "[" or bare "integralof").`
         },
         {
           role: 'user',
@@ -313,6 +322,8 @@ IMPORTANT rules:
 If the text is primarily a math expression or equation, wrap it in display math mode ($$...$$).
 If the text contains inline math mixed with regular text, wrap math parts in inline math mode ($...$) and keep regular text as-is.
 For multiple equations or steps, use $$\\begin{aligned} ... \\end{aligned}$$ with & for alignment points and \\\\ for line breaks.
+
+Respect parentheses when present. When there are no parentheses, infer the intended scope: e.g. "sin of 3x squared" means sin(3x^2); "integral of 3x squared" means \\int 3x^2\\,dx. Always output complete, valid LaTeX (no incomplete fragments).
 
 Text to convert:
 "${text}"
