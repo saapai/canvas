@@ -66,6 +66,13 @@ npm run dev
 
 After committing, your text melts into the page, then disappears and reappears in a graph layout based on semantic relationships determined by the LLM.
 
+### LaTeX converter
+
+With the **fx** (LaTeX) button toggled on, committed text is sent to the server and converted to LaTeX, then rendered with KaTeX.
+
+- **Flow:** You type plain English or math (e.g. "integral of 3x squared", "sin of 3x squared"). On commit, the client POSTs the text to `/api/convert-latex`. The server uses an LLM (GPT-4o-mini) with a fixed system prompt to map that to KaTeX-compatible LaTeX (e.g. `\int 3x^2\,dx`, `\sin(3x^2)`). The response is JSON `{ latex, isFullMath }`. The client parses it (with a small fix for backslashes in JSON), then renders the `latex` string with KaTeX into the entry and stores both the original text and the LaTeX source in the entry’s `latexData` for reload.
+- **Parentheses and scope:** The prompt tells the model to respect explicit parentheses and, when there are none, to infer scope (e.g. "sin of 3x squared" → `\sin(3x^2)`). Integrals like "integral of 3x squared" are converted to `\int 3x^2\,dx` (or with bounds when given).
+
 ## Project Structure
 
 ```

@@ -356,19 +356,55 @@ Where "isFullMath" is true if the entire content is mathematical, false if it's 
       jsonStr = jsonMatch[1];
     }
 
-    // LaTeX contains backslashes (\sin, \int). JSON only allows \" \\ \/ \b \f \n \r \t \uXXXX.
-    // Double any invalid escape so JSON.parse succeeds. Don't touch \uXXXX (unicode).
-    function fixJsonLatexEscapes(str) {
-      return str.replace(/\\(?!["\\\/bfnrt])(?!u[0-9a-fA-F]{4})(.)/g, '\\\\$1');
+    // LaTeX backslashes conflict with JSON escapes: \frac → \f (form feed) + "rac",
+    // \theta → \t (tab) + "heta", \nabla → \n (newline) + "abla", etc.
+    // Fix: inside JSON string values, double-escape ALL backslashes except
+    // \" (quote), \\ (already-escaped backslash), \/ (slash), and \uXXXX (unicode).
+    // This is applied ALWAYS, not just on parse failure, because valid JSON escapes
+    // like \f, \b, \n, \r, \t silently corrupt LaTeX commands.
+    function fixJsonLatexEscapes(raw) {
+      const out = [];
+      let inStr = false;
+      for (let i = 0; i < raw.length; i++) {
+        const c = raw[i];
+        if (!inStr) {
+          out.push(c);
+          if (c === '"') inStr = true;
+          continue;
+        }
+        // Inside a JSON string value
+        if (c === '\\') {
+          const next = raw[i + 1];
+          if (next === '"' || next === '/') {
+            // Preserve \" and \/ — these are valid JSON escapes we need
+            out.push(c, next);
+            i++;
+          } else if (next === '\\') {
+            // Already-escaped backslash — LLM correctly doubled it
+            out.push(c, next);
+            i++;
+          } else if (next === 'u' && /^[0-9a-fA-F]{4}$/.test(raw.substring(i + 2, i + 6))) {
+            // Unicode escape \uXXXX
+            out.push(raw.substring(i, i + 6));
+            i += 5;
+          } else {
+            // Everything else (\f, \b, \n, \r, \t, \i, \s, \, etc.)
+            // Double-escape so the backslash is literal in the parsed value
+            out.push('\\\\');
+            // Don't skip next char — it's processed in the next iteration
+          }
+        } else if (c === '"') {
+          out.push(c);
+          inStr = false;
+        } else {
+          out.push(c);
+        }
+      }
+      return out.join('');
     }
 
-    let parsed;
-    try {
-      parsed = JSON.parse(jsonStr);
-    } catch (_) {
-      jsonStr = fixJsonLatexEscapes(jsonStr);
-      parsed = JSON.parse(jsonStr);
-    }
+    jsonStr = fixJsonLatexEscapes(jsonStr);
+    const parsed = JSON.parse(jsonStr);
     return parsed;
   } catch (error) {
     console.error('Error converting text to LaTeX:', error);
