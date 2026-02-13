@@ -19,6 +19,7 @@ import {
   getAllEntries,
   saveEntry,
   deleteEntry,
+  restoreDeletedEntries,
   saveAllEntries,
   getUserById,
   getUserByPhone,
@@ -1469,6 +1470,28 @@ app.delete('/api/entries/:id', async (req, res) => {
     res.json({ success: true });
   } catch (error) {
     console.error('Error deleting entry:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/entries/restore', requireAuth, async (req, res) => {
+  try {
+    const { pageOwnerId } = req.body;
+    let targetUserId = req.user.id;
+    if (pageOwnerId && pageOwnerId !== req.user.id) {
+      const pageOwner = await getUserById(pageOwnerId);
+      if (!pageOwner) return res.status(403).json({ error: 'Invalid page owner' });
+      const loggedInUser = await getUserById(req.user.id);
+      if (!loggedInUser || loggedInUser.phone !== pageOwner.phone) {
+        return res.status(403).json({ error: 'No permission' });
+      }
+      targetUserId = pageOwnerId;
+    }
+    const restored = await restoreDeletedEntries(targetUserId);
+    console.log(`[RESTORE] Restored ${restored.length} entries for user ${targetUserId}`);
+    res.json({ success: true, restored: restored.length, entries: restored });
+  } catch (error) {
+    console.error('Error restoring entries:', error);
     res.status(500).json({ error: error.message });
   }
 });

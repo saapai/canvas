@@ -5184,7 +5184,7 @@ editor.addEventListener('blur', (e) => {
       }
     }, 0);
   } else if (trimmed.length === 0 && editingEntryId && editingEntryId !== 'anchor') {
-    // If editor is empty and editing existing entry, delete the entry
+    // If editor is empty and editing existing entry, consider deleting the entry
     // BUT: skip auto-delete for entries that are pure media/link cards (no text)
     setTimeout(async () => {
       const active = document.activeElement;
@@ -5192,6 +5192,20 @@ editor.addEventListener('blur', (e) => {
       if (active !== editor && !editor.contains(active) && !focusInFormatBar) {
         const entryData = entries.get(editingEntryId);
         if (!entryData) return;
+
+        // SAFETY: If the entry has saved text, the editor reading as empty is a
+        // DOM timing race (blur/focus race, shift+drag, rapid click, etc.).
+        // Never auto-delete an entry that has persisted text.
+        if (entryData.text && entryData.text.trim().length > 0) {
+          console.log('[BLUR] Editor empty but entry has saved text — skipping delete, entry:', editingEntryId);
+          entryData.element.classList.remove('editing', 'deadline-editing');
+          editingEntryId = null;
+          editor.removeEventListener('keydown', handleDeadlineTableKeydown);
+          editor.textContent = '';
+          editor.innerHTML = '';
+          showCursorInDefaultPosition();
+          return;
+        }
 
         const hasMediaOrLinks =
           !!entryData.mediaCardData ||
@@ -5208,7 +5222,7 @@ editor.addEventListener('blur', (e) => {
           return;
         }
 
-        // No media/link cards: user really cleared text, delete entry
+        // No saved text and no media/link cards: user really cleared text, delete entry
         const deletedEntryId = editingEntryId; // Store before deletion
         const deletedEntryData = entries.get(deletedEntryId);
         let deletedEntryPos = null;

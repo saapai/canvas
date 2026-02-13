@@ -427,6 +427,23 @@ export async function deleteEntry(id, userId) {
   }
 }
 
+export async function restoreDeletedEntries(userId) {
+  try {
+    const db = getPool();
+    const result = await db.query(
+      `UPDATE entries
+       SET deleted_at = NULL
+       WHERE user_id = $1 AND deleted_at IS NOT NULL
+       RETURNING id, text, deleted_at`,
+      [userId]
+    );
+    return result.rows;
+  } catch (error) {
+    console.error('Error restoring entries:', error);
+    throw error;
+  }
+}
+
 export async function saveAllEntries(entries, userId) {
   try {
     if (entries.length === 0) return;
