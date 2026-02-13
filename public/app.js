@@ -704,6 +704,7 @@ async function loadUserEntries(username, editable) {
         } else if (processedText) {
           if (entryData.textHtml && /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(entryData.textHtml)) {
             entry.innerHTML = meltifyHtml(entryData.textHtml);
+            applyEntryFontSize(entry, entryData.textHtml);
           } else {
             entry.innerHTML = meltify(processedText);
           }
@@ -1304,6 +1305,7 @@ async function loadEntriesFromServer() {
         if (entryData.textHtml && /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(entryData.textHtml)) {
           // Has formatting, use HTML version
           entry.innerHTML = meltifyHtml(entryData.textHtml);
+          applyEntryFontSize(entry, entryData.textHtml);
         } else {
           // No formatting, use regular meltify
           entry.innerHTML = meltify(processedText);
@@ -2839,6 +2841,7 @@ async function commitEditor(){
         } else {
           entryData.element.innerHTML = '';
         }
+        applyEntryFontSize(entryData.element, trimmedHtml);
       }
       } // end else (non-latex)
 
@@ -3028,6 +3031,7 @@ async function commitEditor(){
   } else {
     entry.innerHTML = '';
   }
+  applyEntryFontSize(entry, trimmedHtml);
   if (!isCalendarCard) world.appendChild(entry);
   }
 
@@ -3558,6 +3562,27 @@ function renderLatex(latexSource, element) {
   doRender();
 }
 
+// Detect the primary font-size from an entry's textHtml and set it on the element.
+// This ensures text outside explicit font-size spans still renders at the correct size
+// (the entry CSS defaults to 16px, so entries with larger fonts would shrink on reload).
+function applyEntryFontSize(entry, textHtml) {
+  if (!textHtml) {
+    entry.style.fontSize = '';
+    return;
+  }
+  const match = textHtml.match(/style="[^"]*font-size:\s*(\d+(?:\.\d+)?)px/);
+  if (match) {
+    const size = parseFloat(match[1]);
+    if (size && size !== 16) {
+      entry.style.fontSize = size + 'px';
+    } else {
+      entry.style.fontSize = '';
+    }
+  } else {
+    entry.style.fontSize = '';
+  }
+}
+
 function escapeHtml(s){
   return s
     .replaceAll('&','&amp;')
@@ -4075,6 +4100,7 @@ viewport.addEventListener('mousedown', (e) => {
           const { processedText } = processTextWithLinks(trimmedRight);
           entryData.element.innerHTML = hasFmt ? meltifyHtml(htmlContent) : meltify(processedText || '');
         }
+        applyEntryFontSize(entryData.element, hasFmt ? htmlContent : null);
         updateEntryDimensions(entryData.element);
         updateEntryOnServer(entryData);
       }
@@ -7286,6 +7312,7 @@ async function performUndo() {
           } else {
             entry.innerHTML = '';
           }
+          applyEntryFontSize(entry, entryData.textHtml);
           if (entryData.linkCardsData && entryData.linkCardsData.length > 0) {
             entryData.linkCardsData.forEach((cardData) => {
               if (cardData) {
