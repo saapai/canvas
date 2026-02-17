@@ -46,7 +46,7 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
-const RESERVED_USERNAMES = new Set(['stats']);
+const RESERVED_USERNAMES = new Set(['stats', 'privacy', 'terms-and-conditions', 'login', 'home', 'api']);
 
 // Optional Twilio client for SMS / Verify (used for sending verification codes)
 const TWILIO_ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || '';
@@ -461,7 +461,7 @@ app.post('/api/auth/set-username', requireAuth, async (req, res) => {
     if (trimmed.length > 40) {
       return res.status(400).json({ error: 'Username too long' });
     }
-    if (RESERVED_USERNAMES.has(trimmed)) {
+    if (RESERVED_USERNAMES.has(trimmed.toLowerCase())) {
       return res.status(400).json({ error: 'Username is reserved' });
     }
 
@@ -507,6 +507,30 @@ app.get('/stats', (_req, res) => {
   } catch (error) {
     console.error('Error serving stats page:', error);
     res.status(500).send('Error loading stats page');
+  }
+});
+
+// Privacy Policy page
+app.get('/privacy', (_req, res) => {
+  try {
+    const privacyPath = join(__dirname, '../public/privacy.html');
+    const html = readFileSync(privacyPath, 'utf8');
+    res.send(html);
+  } catch (error) {
+    console.error('Error serving privacy page:', error);
+    res.status(500).send('Error loading privacy page');
+  }
+});
+
+// Terms and Conditions page
+app.get('/terms-and-conditions', (_req, res) => {
+  try {
+    const termsPath = join(__dirname, '../public/terms-and-conditions.html');
+    const html = readFileSync(termsPath, 'utf8');
+    res.send(html);
+  } catch (error) {
+    console.error('Error serving terms page:', error);
+    res.status(500).send('Error loading terms page');
   }
 });
 
@@ -658,7 +682,7 @@ app.post('/api/auth/create-space', requireAuth, async (req, res) => {
     if (trimmed.length > 40) {
       return res.status(400).json({ error: 'Username too long' });
     }
-    if (RESERVED_USERNAMES.has(trimmed)) {
+    if (RESERVED_USERNAMES.has(trimmed.toLowerCase())) {
       return res.status(400).json({ error: 'Username is reserved' });
     }
     
@@ -707,7 +731,7 @@ app.put('/api/auth/update-username', requireAuth, async (req, res) => {
     if (trimmed.length > 40) {
       return res.status(400).json({ error: 'Username too long' });
     }
-    if (RESERVED_USERNAMES.has(trimmed)) {
+    if (RESERVED_USERNAMES.has(trimmed.toLowerCase())) {
       return res.status(400).json({ error: 'Username is reserved' });
     }
     

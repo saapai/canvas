@@ -58,6 +58,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
 const isDevelopment = process.env.NODE_ENV !== 'production';
+const RESERVED_USERNAMES = new Set(['stats', 'privacy', 'terms-and-conditions', 'login', 'home', 'api']);
 const DEBUG = process.env.DEBUG === 'true' || isDevelopment;
 
 // Helper for conditional logging
@@ -469,6 +470,10 @@ app.post('/api/auth/set-username', requireAuth, async (req, res) => {
     }
     const trimmed = usernameValidation.trimmed;
 
+    if (RESERVED_USERNAMES.has(trimmed.toLowerCase())) {
+      return res.status(400).json({ error: 'Username is reserved' });
+    }
+
     const taken = await isUsernameTaken(trimmed);
     if (taken) {
       return res.status(400).json({ error: 'Username already taken' });
@@ -582,7 +587,11 @@ app.post('/api/auth/create-space', requireAuth, async (req, res) => {
       return res.status(400).json({ error: usernameValidation.error });
     }
     const trimmed = usernameValidation.trimmed;
-    
+
+    if (RESERVED_USERNAMES.has(trimmed.toLowerCase())) {
+      return res.status(400).json({ error: 'Username is reserved' });
+    }
+
     const taken = await isUsernameTaken(trimmed);
     if (taken) {
       return res.status(400).json({ error: 'Username already taken' });
@@ -621,7 +630,11 @@ app.put('/api/auth/update-username', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'User ID is required' });
     }
     const trimmed = usernameValidation.trimmed;
-    
+
+    if (RESERVED_USERNAMES.has(trimmed.toLowerCase())) {
+      return res.status(400).json({ error: 'Username is reserved' });
+    }
+
     // Check if username is taken (excluding current user)
     const existingUser = await getUserByUsername(trimmed);
     if (existingUser && existingUser.id !== userId) {
@@ -1611,6 +1624,30 @@ app.get('/api/public/:username/path/*', async (req, res) => {
   } catch (error) {
     console.error('Error fetching public path:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Privacy Policy page
+app.get('/privacy', (_req, res) => {
+  try {
+    const privacyPath = join(__dirname, '../public/privacy.html');
+    const html = readFileSync(privacyPath, 'utf8');
+    res.send(html);
+  } catch (error) {
+    console.error('Error serving privacy page:', error);
+    res.status(500).send('Error loading privacy page');
+  }
+});
+
+// Terms and Conditions page
+app.get('/terms-and-conditions', (_req, res) => {
+  try {
+    const termsPath = join(__dirname, '../public/terms-and-conditions.html');
+    const html = readFileSync(termsPath, 'utf8');
+    res.send(html);
+  } catch (error) {
+    console.error('Error serving terms page:', error);
+    res.status(500).send('Error loading terms page');
   }
 });
 

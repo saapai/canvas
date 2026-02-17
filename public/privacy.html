@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Privacy Policy - Duttapad</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --paper: #f7f2e8;
+      --ink: #1d1d1f;
+      --muted: rgba(0,0,0,0.45);
+      --accent: rgba(59, 130, 246, 0.8);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      min-height: 100%;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "SF Pro Display", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: var(--paper);
+      color: var(--ink);
+      text-rendering: geometricPrecision;
+      -webkit-font-smoothing: antialiased;
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background:
+        repeating-linear-gradient(to bottom, rgba(0,0,0,0.035) 0px, rgba(0,0,0,0.035) 1px, transparent 1px, transparent 28px),
+        repeating-linear-gradient(135deg, rgba(0,0,0,0.02) 0px, rgba(0,0,0,0.02) 1px, transparent 1px, transparent 14px);
+      mix-blend-mode: multiply;
+      opacity: 0.9;
+    }
+    .container {
+      position: relative;
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 60px 24px 80px;
+    }
+    .back-link {
+      display: inline-block;
+      margin-bottom: 32px;
+      color: var(--muted);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+    .back-link:hover { color: var(--ink); }
+    h1 {
+      font-size: 32px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      letter-spacing: -0.5px;
+    }
+    .last-updated {
+      color: var(--muted);
+      font-size: 13px;
+      margin-bottom: 40px;
+    }
+    h2 {
+      font-size: 18px;
+      font-weight: 600;
+      margin-top: 36px;
+      margin-bottom: 12px;
+    }
+    p, li {
+      font-size: 15px;
+      line-height: 1.7;
+      color: var(--ink);
+    }
+    p { margin-bottom: 14px; }
+    ul {
+      padding-left: 20px;
+      margin-bottom: 14px;
+    }
+    li { margin-bottom: 6px; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    strong { font-weight: 600; }
+    .divider {
+      border: none;
+      border-top: 1px solid rgba(0,0,0,0.08);
+      margin: 36px 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <a href="/" class="back-link">&larr; Back to Duttapad</a>
+    <h1>Privacy Policy</h1>
+    <p class="last-updated">Last updated: February 16, 2026</p>
+
+    <p>Duttapad ("we," "us," or "our") operates the website <strong>duttapad.com</strong> and related services. This Privacy Policy explains what data we collect, how we use it, and your rights regarding that data.</p>
+
+    <h2>1. Information We Collect</h2>
+    <p>We collect the following information when you use Duttapad:</p>
+    <ul>
+      <li><strong>Phone number</strong> &mdash; used for account verification via SMS. We send a one-time verification code through Twilio to authenticate your identity.</li>
+      <li><strong>Username</strong> &mdash; chosen by you to identify your canvas and serve as your public URL.</li>
+      <li><strong>Canvas entries</strong> &mdash; the text, positions, media cards, link cards, LaTeX data, and other content you create on your canvas.</li>
+      <li><strong>Uploaded images</strong> &mdash; images you upload to your canvas, stored via Supabase.</li>
+      <li><strong>Google account data</strong> &mdash; if you connect Google Calendar, we store OAuth tokens to fetch your calendar events. We access calendar data in read-only mode.</li>
+      <li><strong>Background preferences</strong> &mdash; your chosen canvas background settings.</li>
+    </ul>
+
+    <h2>2. How We Use Your Information</h2>
+    <p>We use your information to:</p>
+    <ul>
+      <li>Authenticate your identity and secure your account via SMS verification.</li>
+      <li>Store and display your canvas entries.</li>
+      <li>Provide features such as media cards, link previews, LaTeX rendering, and calendar integration.</li>
+      <li>Process text through AI models (OpenAI GPT-4o-mini) for semantic organization and LaTeX conversion.</li>
+    </ul>
+
+    <h2>3. SMS/Text Messaging</h2>
+    <p>Duttapad uses Twilio to send SMS verification codes to your phone number during sign-in. By providing your phone number, you consent to receive these messages.</p>
+    <ul>
+      <li><strong>Program name:</strong> Duttapad</li>
+      <li><strong>Purpose:</strong> One-time verification codes for account authentication.</li>
+      <li><strong>Message frequency:</strong> Messages are sent only when you initiate a sign-in. Typically 1 message per sign-in attempt.</li>
+      <li><strong>Message and data rates may apply.</strong> Contact your carrier for details.</li>
+      <li><strong>Opt-out:</strong> You can stop receiving messages at any time by texting <strong>STOP</strong> to the number that sent you the verification code. You will receive a confirmation message and no further messages will be sent.</li>
+      <li><strong>Help:</strong> For assistance, text <strong>HELP</strong> to the number that sent you the verification code, or contact us at the email below.</li>
+    </ul>
+    <p>We do not share your phone number or any information collected through SMS with third parties for marketing purposes. Your phone number is used solely for authentication and account management.</p>
+
+    <h2>4. Data Sharing</h2>
+    <p>We do not sell, rent, or share your personal information with third parties for marketing purposes. Your data may be processed by the following services solely to provide Duttapad's functionality:</p>
+    <ul>
+      <li><strong>Twilio</strong> &mdash; SMS verification delivery.</li>
+      <li><strong>OpenAI</strong> &mdash; Text processing and LaTeX conversion.</li>
+      <li><strong>Supabase</strong> &mdash; Image storage.</li>
+      <li><strong>Google APIs</strong> &mdash; Calendar integration (only if you connect your Google account).</li>
+      <li><strong>TMDB / Spotify</strong> &mdash; Media search functionality.</li>
+    </ul>
+
+    <h2>5. Data Storage and Security</h2>
+    <p>Your data is stored in a PostgreSQL database. We use industry-standard security measures including HTTPS encryption, HTTP-only cookies, and secure authentication tokens. Deleted entries are soft-deleted (marked as deleted rather than permanently removed) to allow for recovery.</p>
+
+    <h2>6. Your Public Canvas</h2>
+    <p>Your canvas is publicly viewable at <strong>duttapad.com/your-username</strong>. Anyone with your URL can view your canvas entries. Only you (the authenticated owner) can create, edit, or delete entries.</p>
+
+    <h2>7. Your Rights</h2>
+    <p>You have the right to:</p>
+    <ul>
+      <li>Access your data at any time through your canvas.</li>
+      <li>Delete individual entries from your canvas.</li>
+      <li>Change your username.</li>
+      <li>Disconnect third-party integrations (e.g., Google Calendar).</li>
+      <li>Request full deletion of your account and associated data by contacting us.</li>
+    </ul>
+
+    <h2>8. Cookies</h2>
+    <p>We use a single HTTP-only authentication cookie (<code>auth_token</code>) to maintain your login session. This cookie expires after 30 days. We do not use tracking cookies or analytics cookies.</p>
+
+    <h2>9. Children's Privacy</h2>
+    <p>Duttapad is not intended for use by children under 13 years of age. We do not knowingly collect personal information from children under 13.</p>
+
+    <h2>10. Changes to This Policy</h2>
+    <p>We may update this Privacy Policy from time to time. Changes will be posted on this page with an updated "Last updated" date.</p>
+
+    <hr class="divider">
+
+    <h2>Contact Us</h2>
+    <p>If you have any questions about this Privacy Policy, please contact us at <a href="mailto:support@duttapad.com">support@duttapad.com</a>.</p>
+  </div>
+</body>
+</html>

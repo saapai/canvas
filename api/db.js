@@ -568,7 +568,7 @@ export async function getUserByUsername(username) {
     const result = await db.query(
       `SELECT id, phone, username
        FROM users
-       WHERE username = $1`,
+       WHERE LOWER(username) = LOWER($1)`,
       [username]
     );
     if (result.rows.length === 0) return null;
@@ -589,7 +589,7 @@ export async function getEntriesByUsername(username) {
         `SELECT e.id, e.text, e.text_html, e.position_x, e.position_y, e.parent_entry_id, e.link_cards_data, e.media_card_data, e.latex_data, e.created_at
          FROM entries e
          JOIN users u ON e.user_id = u.id
-         WHERE u.username = $1 AND e.deleted_at IS NULL
+         WHERE LOWER(u.username) = LOWER($1) AND e.deleted_at IS NULL
          ORDER BY e.created_at ASC`,
         [username]
       );
@@ -601,7 +601,7 @@ export async function getEntriesByUsername(username) {
           `SELECT e.id, e.text, e.position_x, e.position_y, e.parent_entry_id, e.link_cards_data, e.media_card_data, e.created_at
            FROM entries e
            JOIN users u ON e.user_id = u.id
-           WHERE u.username = $1 AND e.deleted_at IS NULL
+           WHERE LOWER(u.username) = LOWER($1) AND e.deleted_at IS NULL
            ORDER BY e.created_at ASC`,
           [username]
         );
@@ -666,7 +666,7 @@ export async function isUsernameTaken(username) {
     const result = await db.query(
       `SELECT 1
        FROM users
-       WHERE username = $1
+       WHERE LOWER(username) = LOWER($1)
        LIMIT 1`,
       [username]
     );
