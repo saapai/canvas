@@ -1882,14 +1882,65 @@ body.has-bg-image::before {
   gap: 20px;
 }
 
+.help-category {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.help-category-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 14px 18px;
+  background: rgba(255, 255, 255, 0.04);
+  border: none;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s;
+}
+
+.help-category-toggle:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.help-chevron {
+  font-size: 20px;
+  transition: transform 0.2s;
+  color: #888;
+}
+
+.help-category[data-open="true"] .help-chevron {
+  transform: rotate(90deg);
+}
+
+.help-category-items {
+  display: none;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 18px 16px;
+}
+
+.help-category[data-open="true"] .help-category-items {
+  display: flex;
+}
+
 .help-item {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding: 15px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  gap: 4px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.help-item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
 }
 
 .help-item strong {

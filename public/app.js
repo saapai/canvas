@@ -1125,96 +1125,55 @@ async function deleteEntryFromServer(entryId) {
 }
 
 async function deleteEntryWithConfirmation(entryId, skipConfirmation = false, skipUndo = false) {
-  const childCount = countChildEntries(entryId);
-  
-  // If no children, delete immediately
-  if (childCount === 0) {
-    const entryData = entries.get(entryId);
-    if (entryData) {
-      // Save undo state (unless we're deleting recursively as part of a parent deletion)
-      if (!skipUndo) {
-        const deletedEntry = {
-          id: entryData.id,
-          text: entryData.text,
-          position: entryData.position,
-          parentEntryId: entryData.parentEntryId,
-          mediaCardData: entryData.mediaCardData,
-          linkCardsData: entryData.linkCardsData
-        };
-        saveUndoState('delete', { entries: [deletedEntry] });
-      }
-      
-      entryData.element.classList.remove('editing', 'deadline-editing');
-      entryData.element.remove();
-      entries.delete(entryId);
-      await deleteEntryFromServer(entryId);
-      return true;
+  const entryData = entries.get(entryId);
+  if (!entryData) return false;
+
+  // Count ALL descendants (not just direct children)
+  function collectAllDescendants(parentId) {
+    const result = [];
+    const children = Array.from(entries.values()).filter(e => e.parentEntryId === parentId);
+    for (const child of children) {
+      result.push(child);
+      result.push(...collectAllDescendants(child.id));
     }
-    return false;
+    return result;
   }
 
-  // If has children, show confirmation (unless we're deleting recursively)
-  let confirmed = true;
-  if (!skipConfirmation) {
-    confirmed = await showDeleteConfirmation(entryId, childCount);
+  const allDescendants = collectAllDescendants(entryId);
+
+  // If has descendants and not skipping confirmation, ask user
+  if (allDescendants.length > 0 && !skipConfirmation) {
+    const confirmed = await showDeleteConfirmation(entryId, allDescendants.length);
+    if (!confirmed) return false;
   }
-  
-  if (confirmed) {
-    const entryData = entries.get(entryId);
-    if (entryData) {
-      // Collect all entries to delete (parent + all descendants)
-      const entriesToDelete = [];
-      
-      // Recursively collect all child entries
-      function collectChildren(parentId) {
-        const children = Array.from(entries.values()).filter(e => e.parentEntryId === parentId);
-        for (const child of children) {
-          entriesToDelete.push({
-            id: child.id,
-            text: child.text,
-            position: child.position,
-            parentEntryId: child.parentEntryId,
-            mediaCardData: child.mediaCardData,
-            linkCardsData: child.linkCardsData
-          });
-          collectChildren(child.id); // Recursively collect grandchildren
-        }
-      }
-      
-      // Add parent entry
-      entriesToDelete.push({
-        id: entryData.id,
-        text: entryData.text,
-        position: entryData.position,
-        parentEntryId: entryData.parentEntryId,
-        mediaCardData: entryData.mediaCardData,
-        linkCardsData: entryData.linkCardsData
-      });
-      
-      // Collect all children
-      collectChildren(entryId);
-      
-      // Save undo state (unless we're deleting recursively as part of a parent deletion)
-      if (!skipUndo) {
-        saveUndoState('delete', { entries: entriesToDelete });
-      }
-      
-      // Delete all child entries first (recursively, without confirmation and without undo)
-      const childEntries = Array.from(entries.values()).filter(e => e.parentEntryId === entryId);
-      for (const child of childEntries) {
-        await deleteEntryWithConfirmation(child.id, true, true); // Skip confirmation and undo for children
-      }
-      
-      // Then delete the parent entry
-      entryData.element.classList.remove('editing', 'deadline-editing');
-      entryData.element.remove();
-      entries.delete(entryId);
-      await deleteEntryFromServer(entryId);
-      return true;
-    }
+
+  // Collect all entries for undo (parent + descendants)
+  if (!skipUndo) {
+    const entriesToDelete = [entryData, ...allDescendants].map(e => ({
+      id: e.id,
+      text: e.text,
+      position: e.position,
+      parentEntryId: e.parentEntryId,
+      mediaCardData: e.mediaCardData,
+      linkCardsData: e.linkCardsData
+    }));
+    saveUndoState('delete', { entries: entriesToDelete });
   }
-  
-  return false;
+
+  // Delete all descendants first (from DOM, Map, and server)
+  for (const desc of allDescendants) {
+    desc.element.classList.remove('editing', 'deadline-editing');
+    desc.element.remove();
+    entries.delete(desc.id);
+    await deleteEntryFromServer(desc.id);
+  }
+
+  // Delete the parent entry
+  entryData.element.classList.remove('editing', 'deadline-editing');
+  entryData.element.remove();
+  entries.delete(entryId);
+  await deleteEntryFromServer(entryId);
+  return true;
 }
 
 async function loadEntriesFromServer() {
@@ -2718,22 +2677,8 @@ async function commitEditor(){
       return;
     }
     if(entryData){
-      // If editor text is empty, check whether deletion is appropriate
+      // If editor text is empty, delete the entry
       if(!trimmedRight){
-        // Safety: if entry has saved text but editor reads as empty, this is a
-        // DOM timing issue (blur/focus race, shift+drag, etc.) — not intentional
-        if(entryData.text && entryData.text.trim().length > 0) {
-          console.log('[COMMIT] Editor empty but entry has saved text — skipping delete');
-          entryData.element.classList.remove('editing', 'deadline-editing');
-          editingEntryId = null;
-          editor.removeEventListener('keydown', handleDeadlineTableKeydown);
-          editor.textContent = '';
-          editor.innerHTML = '';
-          showCursorInDefaultPosition();
-          isCommitting = false;
-          return;
-        }
-        // User intentionally cleared text and committed - delete the entry
         const deletedEntryId = editingEntryId; // Store before deletion
         const deletedEntryData = entries.get(deletedEntryId);
         let deletedEntryPos = null;
@@ -4478,7 +4423,26 @@ window.addEventListener('mouseup', async (e) => {
         if(isClick && e.button !== 2 && draggingEntry.id !== 'anchor' && draggingEntry.id && !isReadOnly) {
           const entryData = entries.get(draggingEntry.id);
           if(entryData) {
-            if(isImageEntry(draggingEntry) || isFileEntry(draggingEntry)) {
+            // Cmd/Ctrl+click: toggle entry in multi-selection
+            if ((e.metaKey || e.ctrlKey) && !e.shiftKey) {
+              const eid = draggingEntry.id;
+              // Check if this entry has a URL — if so, open it (existing behavior)
+              const urls = extractUrls(entryData.text);
+              if (urls.length > 0) {
+                window.open(urls[0], '_blank');
+              } else {
+                // Toggle selection
+                if (selectedEntries.has(eid)) {
+                  selectedEntries.delete(eid);
+                  entryData.element.classList.remove('selected');
+                  if (selectedEntries.size === 0) showCursorInDefaultPosition();
+                } else {
+                  selectedEntries.add(eid);
+                  entryData.element.classList.add('selected');
+                  hideCursor();
+                }
+              }
+            } else if(isImageEntry(draggingEntry) || isFileEntry(draggingEntry)) {
               selectOnlyEntry(draggingEntry.id);
             } else if(draggingEntry.querySelector('.gcal-card')) {
               // Calendar card: no edit mode, do nothing on click
@@ -5938,6 +5902,14 @@ if (helpModal) {
     if (e.target === helpModal) {
       helpModal.classList.add('hidden');
     }
+  });
+  // Help category toggles
+  helpModal.querySelectorAll('.help-category-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const cat = btn.closest('.help-category');
+      const isOpen = cat.getAttribute('data-open') === 'true';
+      cat.setAttribute('data-open', isOpen ? 'false' : 'true');
+    });
   });
 }
 
