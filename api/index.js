@@ -12,7 +12,7 @@ import { dirname, join } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-import { processTextWithLLM, fetchLinkMetadata, generateLinkCard, extractDeadlinesFromFile, convertTextToLatex, generateResearchEntries } from './llm.js';
+import { processTextWithLLM, fetchLinkMetadata, generateLinkCard, extractDeadlinesFromFile, convertTextToLatex, generateResearchEntries, planResearch } from './llm.js';
 import { chatWithCanvas } from '../server/chat.js';
 import {
   initDatabase,
@@ -1225,6 +1225,23 @@ app.post('/api/research-suggestions', requireAuth, async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error('Error generating research entries:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/research', requireAuth, async (req, res) => {
+  try {
+    const { thoughtChain, canvasContext } = req.body;
+    if (!Array.isArray(thoughtChain) || thoughtChain.length === 0) {
+      return res.status(400).json({ error: 'thoughtChain must be a non-empty array' });
+    }
+    const chain = thoughtChain.filter(t => typeof t === 'string' && t.trim().length > 0).slice(0, 15);
+    if (chain.length === 0) return res.status(400).json({ error: 'thoughtChain must contain valid strings' });
+    const context = Array.isArray(canvasContext) ? canvasContext.slice(0, 20) : [];
+    const result = await planResearch(chain, context);
+    res.json(result);
+  } catch (error) {
+    console.error('Error in research:', error);
     res.status(500).json({ error: error.message });
   }
 });

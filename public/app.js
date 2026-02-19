@@ -673,10 +673,15 @@ async function loadUserEntries(username, editable) {
       // Initially hide all entries - visibility will be set after navigation state is determined
       entry.style.display = 'none';
       
-      // Process text with links (skip for image-only and file entries)
+      // Process text with links (skip for image-only, file, and research entries)
+      const isResearchCard = entryData.mediaCardData && entryData.mediaCardData.researchCardType;
       const isImageOnly = entryData.mediaCardData && entryData.mediaCardData.type === 'image';
       const isFileEntry = entryData.mediaCardData && entryData.mediaCardData.type === 'file';
-      if (isImageOnly) {
+      if (isResearchCard) {
+        // Research card entry: render with appropriate card renderer
+        const tempData = { ...entryData, element: entry };
+        renderResearchCard(entry, tempData);
+      } else if (isImageOnly) {
         entry.classList.add('canvas-image');
         entry.innerHTML = '';
         const img = document.createElement('img');
@@ -1253,8 +1258,12 @@ async function loadEntriesFromServer() {
       // Process text with links
       const { processedText, urls } = processTextWithLinks(entryData.text);
 
+      // Research card entries: render with appropriate card renderer
+      if (entryData.mediaCardData && entryData.mediaCardData.researchCardType) {
+        const tempData = { ...entryData, element: entry };
+        renderResearchCard(entry, tempData);
       // LaTeX entries: render via KaTeX
-      if (entryData.latexData && entryData.latexData.enabled) {
+      } else if (entryData.latexData && entryData.latexData.enabled) {
         renderLatex(entryData.latexData.source, entry);
       } else if (entryData.textHtml && entryData.textHtml.includes('deadline-table')) {
         entry.innerHTML = entryData.textHtml;
@@ -1290,10 +1299,11 @@ async function loadEntriesFromServer() {
         textHtml: entryData.textHtml, // Preserve HTML formatting
         latexData: entryData.latexData || null,
         position: entryData.position,
-        parentEntryId: entryData.parentEntryId
+        parentEntryId: entryData.parentEntryId,
+        mediaCardData: entryData.mediaCardData || null
       };
       entries.set(entryData.id, storedEntryData);
-      
+
       // Generate link cards if URLs exist
       if (urls.length > 0) {
         urls.forEach(async (url) => {
@@ -3096,6 +3106,19 @@ async function commitEditor(){
 function updateEntryDimensions(entry) {
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
+      // Research cards: use auto dimensions based on card content
+      if (entry.classList.contains('research-entry')) {
+        const card = entry.firstElementChild;
+        if (card) {
+          const w = Math.max(card.scrollWidth, card.offsetWidth);
+          const h = Math.max(card.scrollHeight, card.offsetHeight);
+          entry.style.setProperty('width', `${w}px`, 'important');
+          entry.style.setProperty('height', `${h}px`, 'important');
+          entry.style.setProperty('min-height', 'auto', 'important');
+          entry.style.setProperty('min-width', 'auto', 'important');
+        }
+        return;
+      }
       // Deadline tables: use actual DOM dimensions
       const deadlineTable = entry.querySelector('.deadline-table');
       if (deadlineTable) {
@@ -4297,7 +4320,7 @@ viewport.addEventListener('mousemove', (e) => {
               selectedData.element.style.left = `${selectedNewX}px`;
               selectedData.element.style.top = `${selectedNewY}px`;
               selectedData.position = { x: selectedNewX, y: selectedNewY };
-              
+
               // If this selected entry is in edit mode, also move the editor to match
               if(editingEntryId === selectedId && editor.style.display !== 'none') {
                 editorWorldPos = { x: selectedNewX, y: selectedNewY };
@@ -4305,6 +4328,8 @@ viewport.addEventListener('mousemove', (e) => {
                 editor.style.left = `${selectedNewX - 4}px`;
                 editor.style.top = `${selectedNewY}px`;
               }
+              // Update research SVG lines
+              updateResearchLinePositions(selectedId);
             }
           });
         }
@@ -4322,7 +4347,7 @@ viewport.addEventListener('mousemove', (e) => {
         if(entryData) {
           console.log('[DRAG] Updating position for entry:', entryId, 'from', entryData.position, 'to', { x: newX, y: newY });
           entryData.position = { x: newX, y: newY };
-          
+
           // If this entry is in edit mode, also move the editor to match
           if(editingEntryId === entryId && editor.style.display !== 'none') {
             editorWorldPos = { x: newX, y: newY };
@@ -4330,7 +4355,10 @@ viewport.addEventListener('mousemove', (e) => {
             editor.style.left = `${newX - 4}px`;
             editor.style.top = `${newY}px`;
           }
-          
+
+          // Update research SVG lines
+          updateResearchLinePositions(entryId);
+
           // Debounce position saves to avoid too many server requests
           if (entryData.positionSaveTimeout) {
             clearTimeout(entryData.positionSaveTimeout);
@@ -7391,7 +7419,9 @@ async function performUndo() {
         
         // Process and restore text
         const { processedText, urls } = processTextWithLinks(state.data.oldText);
-        if (editEntryData.textHtml && editEntryData.textHtml.includes('deadline-table')) {
+        if (state.data.oldMediaCardData && state.data.oldMediaCardData.researchCardType) {
+          renderResearchCard(editEntryData.element, editEntryData);
+        } else if (editEntryData.textHtml && editEntryData.textHtml.includes('deadline-table')) {
           editEntryData.element.innerHTML = editEntryData.textHtml;
         } else if (editEntryData.textHtml && editEntryData.textHtml.includes('gcal-card')) {
           editEntryData.element.innerHTML = editEntryData.textHtml;
@@ -8888,6 +8918,8 @@ let researchGenerating = false;
 const researchChainMap = new Map();
 // Track which entries have already been researched to avoid duplicates
 const researchedEntries = new Set();
+// Track research source → child entry IDs for SVG lines
+const researchChildrenMap = new Map();
 
 // ——— Research Mode Functions ———
 
@@ -8902,40 +8934,239 @@ function buildThoughtChain(entryId) {
   return chain;
 }
 
-// Compute 4 radial positions around a source entry (right, down, left, up)
-function computeResearchPositions(sourceEntryId) {
+// ——— Research v2: Card Renderers ———
+
+function createResearchAnswerCard(answerText) {
+  const card = document.createElement('div');
+  card.className = 'research-answer-card research-card-animate';
+  const label = document.createElement('div');
+  label.className = 'research-answer-label';
+  label.innerHTML = '<svg class="research-answer-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0L10.2 5.3L16 6.2L11.8 10.1L12.8 16L8 13.3L3.2 16L4.2 10.1L0 6.2L5.8 5.3Z"/></svg> AI Overview';
+  card.appendChild(label);
+  const paragraphs = answerText.split(/\\n|\n/).filter(p => p.trim());
+  paragraphs.forEach(p => {
+    const para = document.createElement('p');
+    para.textContent = p.trim();
+    card.appendChild(para);
+  });
+  return card;
+}
+
+function createWebResultCard(result) {
+  const card = document.createElement('div');
+  card.className = 'research-web-card research-card-animate';
+  let domain = '';
+  try { domain = new URL(result.link).hostname.replace('www.', ''); } catch {}
+  const faviconUrl = result.favicon || `https://www.google.com/s2/favicons?domain=${domain}&sz=32`;
+  card.innerHTML = `<div class="research-web-card-header"><img class="research-web-favicon" src="${faviconUrl}" alt="" onerror="this.style.display='none'"/><span class="research-web-domain">${escapeHtml(domain)}</span></div><div class="research-web-title">${escapeHtml(result.title)}</div><div class="research-web-snippet">${escapeHtml(result.snippet)}</div>`;
+  card.addEventListener('click', (e) => {
+    if (e.metaKey || e.ctrlKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      window.open(result.link, '_blank');
+    }
+  });
+  return card;
+}
+
+function createResearchImageCard(imageData) {
+  const card = document.createElement('div');
+  card.className = 'research-image-card research-card-animate';
+  const img = document.createElement('img');
+  img.src = imageData.url;
+  img.alt = imageData.alt || '';
+  img.draggable = false;
+  img.loading = 'lazy';
+  card.appendChild(img);
+  if (imageData.photographer) {
+    const credit = document.createElement('div');
+    credit.className = 'research-image-credit';
+    credit.textContent = imageData.photographer;
+    card.appendChild(credit);
+  }
+  return card;
+}
+
+function createFollowUpCard(questionText) {
+  const card = document.createElement('div');
+  card.className = 'research-followup-card research-card-animate';
+  card.innerHTML = `<span class="research-followup-icon">?</span>`;
+  const textSpan = document.createElement('span');
+  textSpan.textContent = questionText;
+  card.appendChild(textSpan);
+  return card;
+}
+
+// Render a research card inside an entry element based on mediaCardData.researchCardType
+function renderResearchCard(entry, entryData) {
+  const mcd = entryData.mediaCardData;
+  if (!mcd || !mcd.researchCardType) return false;
+
+  entry.classList.add('research-entry');
+  // Clear meltified content
+  entry.innerHTML = '';
+
+  switch (mcd.researchCardType) {
+    case 'answer':
+      entry.appendChild(createResearchAnswerCard(entryData.text));
+      break;
+    case 'web': {
+      const webData = mcd.webResultData || {};
+      entry.appendChild(createWebResultCard({
+        title: webData.title || entryData.text,
+        link: webData.link || '',
+        snippet: webData.snippet || '',
+        favicon: webData.favicon || ''
+      }));
+      break;
+    }
+    case 'image': {
+      const imgData = mcd.imageData || {};
+      entry.appendChild(createResearchImageCard({
+        url: imgData.url || '',
+        alt: imgData.alt || entryData.text,
+        photographer: imgData.photographer || ''
+      }));
+      break;
+    }
+    case 'followup':
+      entry.appendChild(createFollowUpCard(entryData.text));
+      break;
+    default:
+      return false;
+  }
+  return true;
+}
+
+// ——— Research v2: Layout Engine ———
+
+function computeResearchLayout(sourceEntryId) {
   const sourceData = entries.get(sourceEntryId);
-  if (!sourceData || !sourceData.element) return [];
+  if (!sourceData || !sourceData.element) return {};
 
   const el = sourceData.element;
   const srcX = parseFloat(el.style.left) || 0;
   const srcY = parseFloat(el.style.top) || 0;
   const srcW = el.offsetWidth || 160;
   const srcH = el.offsetHeight || 40;
-  const centerX = srcX + srcW / 2;
-  const centerY = srcY + srcH / 2;
+  const cx = srcX + srcW / 2;
+  const cy = srcY + srcH / 2;
 
-  const radius = 340;
-  const entryW = 200;
-  const entryH = 80;
-  // right (0°), below (90°), left (180°), above (270°)
-  const angles = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
+  const gap = 40;
+  const positions = {};
 
-  return angles.map(angle => ({
-    x: centerX + radius * Math.cos(angle) - entryW / 2,
-    y: centerY + radius * Math.sin(angle) - entryH / 2,
-  }));
+  // Answer: below source, centered
+  positions.answer = { x: cx - 210, y: cy + srcH / 2 + gap + 20 };
+
+  // Web results: right of source, stacked vertically
+  const webX = cx + srcW / 2 + gap + 40;
+  positions.web = [
+    { x: webX, y: cy - 100 },
+    { x: webX, y: cy + 10 },
+    { x: webX, y: cy + 120 }
+  ];
+
+  // Images: left of source, stacked vertically
+  const imgX = cx - srcW / 2 - gap - 320;
+  positions.images = [
+    { x: imgX, y: cy - 80 },
+    { x: imgX, y: cy + 130 }
+  ];
+
+  // Follow-ups: above source, spread horizontally
+  const fuY = cy - srcH / 2 - gap - 50;
+  positions.followUps = [
+    { x: cx - 220, y: fuY },
+    { x: cx + 30, y: fuY }
+  ];
+
+  return positions;
 }
 
-// Create a skeleton placeholder entry at a world-position while research is loading
-function createResearchPlaceholder(pos) {
+// Simple collision nudge — push entries apart if overlapping
+function nudgeIfOverlapping(positions) {
+  const allPos = [];
+  if (positions.answer) allPos.push({ pos: positions.answer, w: 420, h: 140 });
+  (positions.web || []).forEach(p => allPos.push({ pos: p, w: 320, h: 90 }));
+  (positions.images || []).forEach(p => allPos.push({ pos: p, w: 280, h: 200 }));
+  (positions.followUps || []).forEach(p => allPos.push({ pos: p, w: 220, h: 40 }));
+
+  for (let i = 0; i < allPos.length; i++) {
+    for (let j = i + 1; j < allPos.length; j++) {
+      const a = allPos[i], b = allPos[j];
+      const overlapX = (a.pos.x + a.w > b.pos.x) && (b.pos.x + b.w > a.pos.x);
+      const overlapY = (a.pos.y + a.h > b.pos.y) && (b.pos.y + b.h > a.pos.y);
+      if (overlapX && overlapY) {
+        b.pos.y += 20;
+      }
+    }
+  }
+}
+
+// ——— Research v2: SVG Connection Lines ———
+
+function drawResearchLine(svg, sourceId, targetId) {
+  const sourceData = entries.get(sourceId);
+  const targetData = entries.get(targetId);
+  if (!sourceData?.element || !targetData?.element) return;
+
+  const sEl = sourceData.element;
+  const tEl = targetData.element;
+  const sx = (parseFloat(sEl.style.left) || 0) + (sEl.offsetWidth || 0) / 2;
+  const sy = (parseFloat(sEl.style.top) || 0) + (sEl.offsetHeight || 0) / 2;
+  const tx = (parseFloat(tEl.style.left) || 0) + (tEl.offsetWidth || 0) / 2;
+  const ty = (parseFloat(tEl.style.top) || 0) + (tEl.offsetHeight || 0) / 2;
+
+  const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  line.setAttribute('x1', sx);
+  line.setAttribute('y1', sy);
+  line.setAttribute('x2', tx);
+  line.setAttribute('y2', ty);
+  line.classList.add('research-connection');
+  line.dataset.sourceId = sourceId;
+  line.dataset.targetId = targetId;
+  svg.appendChild(line);
+}
+
+function clearResearchLines(sourceId) {
+  const svg = document.getElementById('research-lines');
+  if (!svg) return;
+  const lines = svg.querySelectorAll(`line[data-source-id="${sourceId}"]`);
+  lines.forEach(l => l.remove());
+}
+
+function updateResearchLinePositions(entryId) {
+  const svg = document.getElementById('research-lines');
+  if (!svg) return;
+  // Update lines where this entry is source or target
+  const lines = svg.querySelectorAll(`line[data-source-id="${entryId}"], line[data-target-id="${entryId}"]`);
+  lines.forEach(line => {
+    const sId = line.dataset.sourceId;
+    const tId = line.dataset.targetId;
+    const sData = entries.get(sId);
+    const tData = entries.get(tId);
+    if (!sData?.element || !tData?.element) { line.remove(); return; }
+    const sEl = sData.element;
+    const tEl = tData.element;
+    line.setAttribute('x1', (parseFloat(sEl.style.left) || 0) + (sEl.offsetWidth || 0) / 2);
+    line.setAttribute('y1', (parseFloat(sEl.style.top) || 0) + (sEl.offsetHeight || 0) / 2);
+    line.setAttribute('x2', (parseFloat(tEl.style.left) || 0) + (tEl.offsetWidth || 0) / 2);
+    line.setAttribute('y2', (parseFloat(tEl.style.top) || 0) + (tEl.offsetHeight || 0) / 2);
+  });
+}
+
+// ——— Research v2: Skeleton Placeholders ———
+
+function createResearchPlaceholder(pos, sizeClass) {
   const el = document.createElement('div');
-  el.className = 'research-placeholder';
+  el.className = `research-placeholder ${sizeClass || ''}`;
   el.style.left = `${pos.x}px`;
   el.style.top = `${pos.y}px`;
   world.appendChild(el);
   return el;
 }
+
+// ——— Research v2: Main Orchestrator ———
 
 async function spawnResearchEntries(sourceEntryId) {
   if (!researchModeEnabled || isReadOnly || researchGenerating) return;
@@ -8948,9 +9179,22 @@ async function spawnResearchEntries(sourceEntryId) {
   researchedEntries.add(sourceEntryId);
   if (entryData.element) entryData.element.classList.add('research-generating');
 
-  // Pre-compute positions and show skeleton placeholders immediately
-  const positions = computeResearchPositions(sourceEntryId);
-  const skeletons = positions.map(pos => createResearchPlaceholder(pos));
+  const positions = computeResearchLayout(sourceEntryId);
+  nudgeIfOverlapping(positions);
+
+  // Show skeleton placeholders at all positions with staggered timing
+  const skeletons = [];
+  let skeletonDelay = 0;
+  const addSkeleton = (pos, cls) => {
+    setTimeout(() => {
+      skeletons.push(createResearchPlaceholder(pos, cls));
+    }, skeletonDelay);
+    skeletonDelay += 80;
+  };
+  if (positions.answer) addSkeleton(positions.answer, 'research-skeleton-answer');
+  (positions.web || []).forEach(p => addSkeleton(p, 'research-skeleton-web'));
+  (positions.images || []).forEach(p => addSkeleton(p, 'research-skeleton-image'));
+  (positions.followUps || []).forEach(p => addSkeleton(p, 'research-skeleton-followup'));
 
   const thoughtChain = buildThoughtChain(sourceEntryId);
   const canvasContext = [];
@@ -8961,117 +9205,181 @@ async function spawnResearchEntries(sourceEntryId) {
   });
 
   try {
-    const res = await fetch('/api/research-suggestions', {
+    const res = await fetch('/api/research', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ thoughtChain, canvasContext })
     });
     if (!res.ok) throw new Error('API error');
     const data = await res.json();
-    if (data.entries && data.entries.length > 0) {
-      await placeResearchEntries(sourceEntryId, data.entries, positions, skeletons);
-    }
+    await placeResearchResults(sourceEntryId, data, positions, skeletons);
   } catch (err) {
-    console.error('[RESEARCH] Failed to generate entries:', err);
+    console.error('[RESEARCH] v2 failed, trying legacy endpoint:', err);
+    // Fallback to old endpoint
+    try {
+      const res = await fetch('/api/research-suggestions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ thoughtChain, canvasContext })
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.entries && data.entries.length > 0) {
+          // Legacy placement: use old 4-position radial layout
+          const legacyPositions = computeLegacyResearchPositions(sourceEntryId);
+          await placeLegacyResearchEntries(sourceEntryId, data.entries, legacyPositions, skeletons);
+        }
+      }
+    } catch (e2) {
+      console.error('[RESEARCH] Legacy fallback also failed:', e2);
+    }
   } finally {
-    // Remove any remaining skeletons (e.g. if fewer entries returned than positions)
     skeletons.forEach(s => { if (s.parentNode) s.remove(); });
     researchGenerating = false;
     if (entryData.element) entryData.element.classList.remove('research-generating');
   }
 }
 
-async function placeResearchEntries(sourceEntryId, textEntries, positions, skeletons) {
+// Legacy 4-position layout for fallback
+function computeLegacyResearchPositions(sourceEntryId) {
   const sourceData = entries.get(sourceEntryId);
-  if (!sourceData || !sourceData.element) return;
+  if (!sourceData || !sourceData.element) return [];
+  const el = sourceData.element;
+  const srcX = parseFloat(el.style.left) || 0;
+  const srcY = parseFloat(el.style.top) || 0;
+  const srcW = el.offsetWidth || 160;
+  const srcH = el.offsetHeight || 40;
+  const cx = srcX + srcW / 2;
+  const cy = srcY + srcH / 2;
+  const radius = 340;
+  const entryW = 200;
+  const entryH = 80;
+  const angles = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
+  return angles.map(angle => ({
+    x: cx + radius * Math.cos(angle) - entryW / 2,
+    y: cy + radius * Math.sin(angle) - entryH / 2,
+  }));
+}
 
+async function placeLegacyResearchEntries(sourceEntryId, textEntries, positions, skeletons) {
+  const svg = document.getElementById('research-lines');
   for (let i = 0; i < Math.min(textEntries.length, positions.length); i++) {
     const text = textEntries[i];
     if (!text || typeof text !== 'string') continue;
-
-    // Remove the corresponding skeleton placeholder
     if (skeletons[i] && skeletons[i].parentNode) skeletons[i].remove();
-
     const pos = positions[i];
-    const ex = pos.x;
-    const ey = pos.y;
-
     const entryId = generateEntryId();
     const entry = document.createElement('div');
     entry.className = 'entry melt';
     entry.id = entryId;
-    entry.style.left = `${ex}px`;
-    entry.style.top = `${ey}px`;
-
-    const urls = extractUrls(text);
-    const processedText = text;
-
-    entry.innerHTML = meltify(processedText);
+    entry.style.left = `${pos.x}px`;
+    entry.style.top = `${pos.y}px`;
+    entry.innerHTML = meltify(text);
     applyEntryFontSize(entry, null);
     world.appendChild(entry);
-
-    setTimeout(() => {
-      updateEntryDimensions(entry);
-    }, 50);
-
+    setTimeout(() => updateEntryDimensions(entry), 50);
     const entryDataObj = {
-      id: entryId,
-      element: entry,
-      text: processedText,
-      textHtml: null,
-      latexData: null,
-      position: { x: ex, y: ey },
-      parentEntryId: currentViewEntryId
+      id: entryId, element: entry, text, textHtml: null, latexData: null,
+      position: { x: pos.x, y: pos.y }, parentEntryId: currentViewEntryId
+    };
+    entries.set(entryId, entryDataObj);
+    researchChainMap.set(entryId, sourceEntryId);
+    updateEntryVisibility();
+    await saveEntryToServer(entryDataObj);
+    if (svg) drawResearchLine(svg, sourceEntryId, entryId);
+    setTimeout(() => {
+      entry.classList.remove('melt');
+      entry.querySelectorAll('span').forEach(s => {
+        s.style.animation = 'none'; s.style.transform = ''; s.style.filter = ''; s.style.opacity = '';
+      });
+      updateEntryDimensions(entry);
+    }, 1500);
+  }
+}
+
+async function placeResearchResults(sourceEntryId, data, positions, skeletons) {
+  const svg = document.getElementById('research-lines');
+  const childIds = [];
+  let skeletonIdx = 0;
+  let placeDelay = 0;
+
+  const placeOne = async (pos, text, cardType, extraMediaData) => {
+    // Remove corresponding skeleton
+    if (skeletons[skeletonIdx] && skeletons[skeletonIdx].parentNode) skeletons[skeletonIdx].remove();
+    skeletonIdx++;
+
+    await new Promise(r => setTimeout(r, placeDelay));
+    placeDelay += 120;
+
+    const entryId = generateEntryId();
+    const entry = document.createElement('div');
+    entry.className = 'entry research-entry';
+    entry.id = entryId;
+    entry.style.left = `${pos.x}px`;
+    entry.style.top = `${pos.y}px`;
+
+    const mediaCardData = { researchCardType: cardType, ...extraMediaData };
+
+    // Build entry data object
+    const entryDataObj = {
+      id: entryId, element: entry, text, textHtml: null, latexData: null,
+      position: { x: pos.x, y: pos.y }, parentEntryId: currentViewEntryId,
+      mediaCardData
     };
     entries.set(entryId, entryDataObj);
 
-    // Track lineage for thought chain
+    // Render the card
+    renderResearchCard(entry, entryDataObj);
+
+    world.appendChild(entry);
+    setTimeout(() => updateEntryDimensions(entry), 50);
+
     researchChainMap.set(entryId, sourceEntryId);
+    childIds.push(entryId);
 
     updateEntryVisibility();
     await saveEntryToServer(entryDataObj);
 
-    // Remove melt class after animation
-    setTimeout(() => {
-      entry.classList.remove('melt');
-      const spans = entry.querySelectorAll('span');
-      spans.forEach(span => {
-        span.style.animation = 'none';
-        span.style.transform = '';
-        span.style.filter = '';
-        span.style.opacity = '';
-      });
-      updateEntryDimensions(entry);
-    }, 1500);
-
-    // Process URLs into link cards (same as normal entry creation)
-    if (urls.length > 0) {
-      const placeholders = [];
-      for (const url of urls) {
-        const placeholder = createLinkCardPlaceholder(url);
-        entry.appendChild(placeholder);
-        updateEntryWidthForLinkCard(entry, placeholder);
-        placeholders.push({ placeholder, url });
-      }
-      const allCardData = [];
-      for (const { placeholder, url } of placeholders) {
-        const cardData = await generateLinkCard(url);
-        if (cardData) {
-          const card = createLinkCard(cardData);
-          placeholder.replaceWith(card);
-          updateEntryWidthForLinkCard(entry, card);
-          allCardData.push(cardData);
-        } else {
-          placeholder.remove();
-        }
-      }
-      if (allCardData.length > 0) {
-        entryDataObj.linkCardsData = allCardData;
-        await updateEntryOnServer(entryDataObj);
-      }
-      updateEntryDimensions(entry);
+    if (svg) {
+      setTimeout(() => drawResearchLine(svg, sourceEntryId, entryId), 50);
     }
+
+    return entryId;
+  };
+
+  // Place answer card
+  if (data.answer && positions.answer) {
+    await placeOne(positions.answer, data.answer, 'answer', {});
   }
+
+  // Place web results
+  const webResults = data.webResults || [];
+  const webPositions = positions.web || [];
+  for (let i = 0; i < Math.min(webResults.length, webPositions.length); i++) {
+    const wr = webResults[i];
+    await placeOne(webPositions[i], wr.title || '', 'web', {
+      webResultData: { title: wr.title, link: wr.link, snippet: wr.snippet, favicon: wr.favicon }
+    });
+  }
+
+  // Place images
+  const images = data.images || [];
+  const imgPositions = positions.images || [];
+  for (let i = 0; i < Math.min(images.length, imgPositions.length); i++) {
+    const img = images[i];
+    await placeOne(imgPositions[i], img.alt || '', 'image', {
+      imageData: { url: img.url, alt: img.alt, photographer: img.photographer }
+    });
+  }
+
+  // Place follow-ups
+  const followUps = data.followUps || [];
+  const fuPositions = positions.followUps || [];
+  for (let i = 0; i < Math.min(followUps.length, fuPositions.length); i++) {
+    await placeOne(fuPositions[i], followUps[i], 'followup', {});
+  }
+
+  researchChildrenMap.set(sourceEntryId, childIds);
 }
 
 function setViewMode(mode) {

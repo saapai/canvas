@@ -419,6 +419,59 @@ Where "isFullMath" is true if the entire content is mathematical, false if it's 
 }
 
 export async function generateResearchEntries(thoughtChain, canvasContext) {
+  // Legacy wrapper — delegates to planResearch for backward compatibility
+  const result = await planResearch(thoughtChain, canvasContext);
+  const entries = [];
+  if (result.answer) entries.push(result.answer);
+  result.webResults.forEach(r => entries.push(`${r.title}\n${r.snippet}`));
+  result.followUps.forEach(q => entries.push(q));
+  return { entries: entries.slice(0, 5) };
+}
+
+async function searchSerper(query) {
+  const apiKey = process.env.SERPER_API_KEY;
+  if (!apiKey) return [];
+  try {
+    const res = await fetch('https://google.serper.dev/search', {
+      method: 'POST',
+      headers: { 'X-API-KEY': apiKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ q: query, num: 3 })
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.organic || []).slice(0, 3).map(r => ({
+      title: r.title || '',
+      link: r.link || '',
+      snippet: r.snippet || '',
+      favicon: r.favicon || `https://www.google.com/s2/favicons?domain=${new URL(r.link).hostname}&sz=32`
+    }));
+  } catch (e) {
+    console.error('[RESEARCH] Serper search failed:', e.message);
+    return [];
+  }
+}
+
+async function searchPexels(query) {
+  const apiKey = process.env.PEXELS_API_KEY;
+  if (!apiKey) return [];
+  try {
+    const res = await fetch(`https://api.pexels.com/v1/search?query=${encodeURIComponent(query)}&per_page=2&orientation=landscape`, {
+      headers: { Authorization: apiKey }
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.photos || []).slice(0, 2).map(p => ({
+      url: p.src?.medium || p.src?.original || '',
+      alt: p.alt || query,
+      photographer: p.photographer || ''
+    }));
+  } catch (e) {
+    console.error('[RESEARCH] Pexels search failed:', e.message);
+    return [];
+  }
+}
+
+export async function planResearch(thoughtChain, canvasContext) {
   const contextSnippet = (canvasContext || [])
     .slice(0, 20)
     .map(c => `- "${c.text}"`)
@@ -430,53 +483,86 @@ export async function generateResearchEntries(thoughtChain, canvasContext) {
 
   const currentFocus = thoughtChain[thoughtChain.length - 1];
 
-  const prompt = `The user is researching: "${currentFocus}"
+  // Step 1: LLM call to extract search query + follow-up questions
+  let searchQuery = currentFocus;
+  let followUps = [];
+  try {
+    const planCompletion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: 'Extract the optimal web search query and generate follow-up questions. Respond ONLY with valid JSON.' },
+        { role: 'user', content: `The user is researching: "${currentFocus}"
+${thoughtChain.length > 1 ? `\nThought chain:\n${chainFormatted}` : ''}
+
+Generate:
+1. An optimal Google search query (concise, specific) for this topic
+2. Exactly 2 follow-up questions that would deepen understanding
+
+Respond ONLY with valid JSON:
+{"query": "search query here", "followUps": ["question 1?", "question 2?"]}` }
+      ],
+      temperature: 0.3,
+      max_tokens: 200
+    });
+    const planContent = planCompletion.choices[0].message.content.trim();
+    let planJson = planContent;
+    const planMatch = planContent.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+    if (planMatch) planJson = planMatch[1];
+    const planResult = JSON.parse(planJson);
+    if (planResult.query) searchQuery = planResult.query;
+    if (Array.isArray(planResult.followUps)) followUps = planResult.followUps.slice(0, 2);
+  } catch (e) {
+    console.error('[RESEARCH] Plan extraction failed, using raw query:', e.message);
+  }
+
+  // Step 2: Fire 3 parallel requests
+  const answerPrompt = `The user is researching: "${currentFocus}"
 ${thoughtChain.length > 1 ? `\nThought chain:\n${chainFormatted}\n` : ''}
 Other canvas context:
 ${contextSnippet || '(none)'}
 
-Generate exactly 4 research entries placed in 4 semantic directions. Be direct and informative like a Google AI Overview — answer the actual question, don't be vague:
-
-Entry 1 (direct answer / core fact): Directly answer or define "${currentFocus}" in 2–4 sentences. Be specific, not generic. Use \\n between sentences to create paragraph breaks.
-
-Entry 2 (historical or causal context): 2–3 sentences on the origin, cause, or history. Use \\n between sentences.
-
-Entry 3 (key distinction or mechanism): What's the most important nuance, difference, or mechanism to understand? 2–3 sentences. Use \\n between sentences.
-
-Entry 4 (a real reference URL): A single real URL (Wikipedia, Stanford Encyclopedia of Philosophy, Nature, or similar authoritative source) that directly covers this topic. Just the bare URL, nothing else.
-
-Rules:
-- Be concrete and specific — avoid filler phrases like "it's worth noting" or "interestingly"
-- Do NOT repeat content from the thought chain
-- Do NOT add labels like "Entry 1:" or "Core fact:" — just write the content
-- Use \\n (literal backslash-n in the JSON string) between sentences within an entry for visual paragraph breaks
-- The URL entry must be a real, stable link you are confident exists
+Write a comprehensive answer in 2–3 paragraphs (like a Google AI Overview). Be direct, specific, and informative. Do NOT use filler phrases. Use \\n between paragraphs.
 
 Respond ONLY with valid JSON:
-{"entries":["entry 1 text","entry 2 text","entry 3 text","https://example.com"]}`;
+{"answer": "your answer here"}`;
 
-  try {
-    const completion = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: 'You are a precise research assistant. Answer directly and specifically like a Google AI Overview. Respond ONLY with valid JSON, no other text.' },
-        { role: 'user', content: prompt }
-      ],
-      temperature: 0.6,
-      max_tokens: 800
-    });
+  const [answerResult, webResults, images] = await Promise.all([
+    // LLM answer synthesis
+    (async () => {
+      try {
+        const completion = await openai.chat.completions.create({
+          model: 'gpt-4o-mini',
+          messages: [
+            { role: 'system', content: 'You are a precise research assistant. Answer directly like a Google AI Overview. Respond ONLY with valid JSON.' },
+            { role: 'user', content: answerPrompt }
+          ],
+          temperature: 0.5,
+          max_tokens: 600
+        });
+        const content = completion.choices[0].message.content.trim();
+        let jsonStr = content;
+        const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+        if (jsonMatch) jsonStr = jsonMatch[1];
+        const parsed = JSON.parse(jsonStr);
+        return parsed.answer || '';
+      } catch (e) {
+        console.error('[RESEARCH] Answer synthesis failed:', e.message);
+        return '';
+      }
+    })(),
+    // Serper web search
+    searchSerper(searchQuery),
+    // Pexels image search
+    searchPexels(searchQuery)
+  ]);
 
-    const content = completion.choices[0].message.content.trim();
-    let jsonStr = content;
-    const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
-    if (jsonMatch) jsonStr = jsonMatch[1];
-
-    const result = JSON.parse(jsonStr);
-    return { entries: Array.isArray(result.entries) ? result.entries.slice(0, 5) : [] };
-  } catch (error) {
-    console.error('Error generating research entries:', error);
-    return { entries: [] };
-  }
+  return {
+    answer: answerResult,
+    webResults,
+    images,
+    followUps,
+    query: searchQuery
+  };
 }
 
 export async function extractDeadlinesFromFile(buffer, mimetype, originalname) {
