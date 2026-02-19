@@ -716,31 +716,35 @@ async function loadUserEntries(username, editable) {
           urls.forEach((url, index) => {
             const cachedCardData = cachedLinkCardsData[index];
             if (cachedCardData) {
+              // Show cached card immediately — no loading state
               const card = createLinkCard(cachedCardData);
               entry.appendChild(card);
               updateEntryWidthForLinkCard(entry, card);
+              // Quietly refresh in the background; only update DOM + server if something changed
               generateLinkCard(url).then(freshCardData => {
-                if (freshCardData) {
+                if (!freshCardData) return;
+                const changed = freshCardData.title !== cachedCardData.title ||
+                                freshCardData.image !== cachedCardData.image ||
+                                freshCardData.description !== cachedCardData.description;
+                if (changed) {
                   const freshCard = createLinkCard(freshCardData);
                   card.replaceWith(freshCard);
                   updateEntryWidthForLinkCard(entry, freshCard);
                   storedEntryData.linkCardsData[index] = freshCardData;
+                  updateEntryOnServer(storedEntryData);
                 }
               });
             } else {
-              const placeholder = createLinkCardPlaceholder(url);
-              entry.appendChild(placeholder);
+              // No cached data — fetch silently, no placeholder shown
               generateLinkCard(url).then(cardData => {
-                if (cardData) {
-                  const card = createLinkCard(cardData);
-                  placeholder.replaceWith(card);
-                  updateEntryWidthForLinkCard(entry, card);
-                  if (!storedEntryData.linkCardsData) storedEntryData.linkCardsData = [];
-                  storedEntryData.linkCardsData[index] = cardData;
-                  setTimeout(() => updateEntryDimensions(entry), 100);
-                } else {
-                  placeholder.remove();
-                }
+                if (!cardData) return;
+                const card = createLinkCard(cardData);
+                entry.appendChild(card);
+                updateEntryWidthForLinkCard(entry, card);
+                if (!storedEntryData.linkCardsData) storedEntryData.linkCardsData = [];
+                storedEntryData.linkCardsData[index] = cardData;
+                updateEntryOnServer(storedEntryData);
+                setTimeout(() => updateEntryDimensions(entry), 100);
               });
             }
           });
