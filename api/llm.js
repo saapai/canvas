@@ -428,6 +428,27 @@ export async function generateResearchEntries(thoughtChain, canvasContext) {
   return { entries: entries.slice(0, 5) };
 }
 
+async function searchBrave(query) {
+  const apiKey = process.env.BRAVE_API_KEY;
+  if (!apiKey) return [];
+  try {
+    const res = await fetch(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=3`, {
+      headers: { 'Accept': 'application/json', 'Accept-Encoding': 'gzip', 'X-Subscription-Token': apiKey }
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.web?.results || []).slice(0, 3).map(r => ({
+      title: r.title || '',
+      link: r.url || '',
+      snippet: r.description || '',
+      favicon: r.profile?.img || `https://www.google.com/s2/favicons?domain=${new URL(r.url).hostname}&sz=32`
+    }));
+  } catch (e) {
+    console.error('[RESEARCH] Brave search failed:', e.message);
+    return [];
+  }
+}
+
 async function searchSerper(query) {
   const apiKey = process.env.SERPER_API_KEY;
   if (!apiKey) return [];
@@ -449,6 +470,15 @@ async function searchSerper(query) {
     console.error('[RESEARCH] Serper search failed:', e.message);
     return [];
   }
+}
+
+// Try Brave first (2k free/month), fall back to Serper
+async function searchWeb(query) {
+  if (process.env.BRAVE_API_KEY) {
+    const results = await searchBrave(query);
+    if (results.length > 0) return results;
+  }
+  return searchSerper(query);
 }
 
 async function searchPexels(query) {
@@ -551,7 +581,8 @@ Respond ONLY with valid JSON:
       }
     })(),
     // Serper web search
-    searchSerper(searchQuery),
+    // Web search (Brave first, Serper fallback)
+    searchWeb(searchQuery),
     // Pexels image search
     searchPexels(searchQuery)
   ]);
