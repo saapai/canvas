@@ -776,7 +776,7 @@ async function loadUserEntries(username, editable) {
       };
       entries.set(entryData.id, storedEntryData);
       
-      if (!isImageOnly && !isFileEntry && entryData.mediaCardData && entryData.mediaCardData.type !== 'image') {
+      if (!isImageOnly && !isFileEntry && !isResearchCard && entryData.mediaCardData && entryData.mediaCardData.type !== 'image') {
         const card = createMediaCard(entryData.mediaCardData);
         entry.appendChild(card);
         setTimeout(() => updateEntryDimensions(entry), 100);
@@ -3566,6 +3566,7 @@ function applyEntryFontSize(entry, textHtml) {
 }
 
 function escapeHtml(s){
+  if (!s) return '';
   return s
     .replaceAll('&','&amp;')
     .replaceAll('<','&lt;')
