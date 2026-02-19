@@ -345,38 +345,40 @@ export async function generateResearchEntries(thoughtChain, canvasContext) {
 
   const currentFocus = thoughtChain[thoughtChain.length - 1];
 
-  const prompt = `The user is exploring ideas on a freeform canvas. Their current focus is:
-"${currentFocus}"
-
-${thoughtChain.length > 1 ? `Their train of thought so far:\n${chainFormatted}\n` : ''}
-Other entries on the canvas:
+  const prompt = `The user is researching: "${currentFocus}"
+${thoughtChain.length > 1 ? `\nThought chain:\n${chainFormatted}\n` : ''}
+Other canvas context:
 ${contextSnippet || '(none)'}
 
-Generate 4 related entries for the canvas. These should feel like a curious researcher jotting notes around a topic. Mix these types:
-- A surprising fact or specific insight (1-2 sentences)
-- A relevant real URL (just the bare link, e.g. https://en.wikipedia.org/wiki/...) — only use URLs you're confident are real
-- A concise related concept or question worth exploring (under 10 words)
-- A connection to something unexpected or cross-domain (1 sentence)
+Generate exactly 4 research entries placed in 4 semantic directions. Be direct and informative like a Google AI Overview — answer the actual question, don't be vague:
+
+Entry 1 (direct answer / core fact): Directly answer or define "${currentFocus}" in 2–4 sentences. Be specific, not generic. Use \\n between sentences to create paragraph breaks.
+
+Entry 2 (historical or causal context): 2–3 sentences on the origin, cause, or history. Use \\n between sentences.
+
+Entry 3 (key distinction or mechanism): What's the most important nuance, difference, or mechanism to understand? 2–3 sentences. Use \\n between sentences.
+
+Entry 4 (a real reference URL): A single real URL (Wikipedia, Stanford Encyclopedia of Philosophy, Nature, or similar authoritative source) that directly covers this topic. Just the bare URL, nothing else.
 
 Rules:
-- Each entry should be short — like something you'd scribble on a sticky note or canvas
-- Do NOT repeat anything from the thought chain or existing canvas entries
-- Do NOT use labels like "Fact:" or "Question:" — just write the content directly
-- URLs should be real Wikipedia, Stanford Encyclopedia, or other stable reference links
-- Keep entries varied in length and type
+- Be concrete and specific — avoid filler phrases like "it's worth noting" or "interestingly"
+- Do NOT repeat content from the thought chain
+- Do NOT add labels like "Entry 1:" or "Core fact:" — just write the content
+- Use \\n (literal backslash-n in the JSON string) between sentences within an entry for visual paragraph breaks
+- The URL entry must be a real, stable link you are confident exists
 
 Respond ONLY with valid JSON:
-{"entries":["entry text 1","entry text 2","entry text 3","entry text 4"]}`;
+{"entries":["entry 1 text","entry 2 text","entry 3 text","https://example.com"]}`;
 
   try {
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: 'You are a brilliant, curious research assistant. Generate concise, interesting canvas entries. Respond ONLY with valid JSON, no other text.' },
+        { role: 'system', content: 'You are a precise research assistant. Answer directly and specifically like a Google AI Overview. Respond ONLY with valid JSON, no other text.' },
         { role: 'user', content: prompt }
       ],
-      temperature: 0.85,
-      max_tokens: 600
+      temperature: 0.6,
+      max_tokens: 800
     });
 
     const content = completion.choices[0].message.content.trim();

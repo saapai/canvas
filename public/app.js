@@ -7500,8 +7500,10 @@ async function deleteSelectedEntries() {
   // Save undo state with all entries (including children)
   saveUndoState('delete', { entries: allEntriesToDelete });
   
+  // Snapshot to array first — Set iteration is affected by mutations during async loop
+  const entriesToDelete = [...selectedEntries];
   // Delete entries (skip confirmation since we already confirmed, skip undo since we saved it above)
-  for (const entryId of selectedEntries) {
+  for (const entryId of entriesToDelete) {
     await deleteEntryWithConfirmation(entryId, true, true); // Skip confirmation and undo
   }
   
@@ -8900,6 +8902,41 @@ function buildThoughtChain(entryId) {
   return chain;
 }
 
+// Compute 4 radial positions around a source entry (right, down, left, up)
+function computeResearchPositions(sourceEntryId) {
+  const sourceData = entries.get(sourceEntryId);
+  if (!sourceData || !sourceData.element) return [];
+
+  const el = sourceData.element;
+  const srcX = parseFloat(el.style.left) || 0;
+  const srcY = parseFloat(el.style.top) || 0;
+  const srcW = el.offsetWidth || 160;
+  const srcH = el.offsetHeight || 40;
+  const centerX = srcX + srcW / 2;
+  const centerY = srcY + srcH / 2;
+
+  const radius = 340;
+  const entryW = 200;
+  const entryH = 80;
+  // right (0°), below (90°), left (180°), above (270°)
+  const angles = [0, Math.PI / 2, Math.PI, -Math.PI / 2];
+
+  return angles.map(angle => ({
+    x: centerX + radius * Math.cos(angle) - entryW / 2,
+    y: centerY + radius * Math.sin(angle) - entryH / 2,
+  }));
+}
+
+// Create a skeleton placeholder entry at a world-position while research is loading
+function createResearchPlaceholder(pos) {
+  const el = document.createElement('div');
+  el.className = 'research-placeholder';
+  el.style.left = `${pos.x}px`;
+  el.style.top = `${pos.y}px`;
+  world.appendChild(el);
+  return el;
+}
+
 async function spawnResearchEntries(sourceEntryId) {
   if (!researchModeEnabled || isReadOnly || researchGenerating) return;
   if (researchedEntries.has(sourceEntryId)) return;
@@ -8910,6 +8947,10 @@ async function spawnResearchEntries(sourceEntryId) {
   researchGenerating = true;
   researchedEntries.add(sourceEntryId);
   if (entryData.element) entryData.element.classList.add('research-generating');
+
+  // Pre-compute positions and show skeleton placeholders immediately
+  const positions = computeResearchPositions(sourceEntryId);
+  const skeletons = positions.map(pos => createResearchPlaceholder(pos));
 
   const thoughtChain = buildThoughtChain(sourceEntryId);
   const canvasContext = [];
@@ -8928,39 +8969,32 @@ async function spawnResearchEntries(sourceEntryId) {
     if (!res.ok) throw new Error('API error');
     const data = await res.json();
     if (data.entries && data.entries.length > 0) {
-      placeResearchEntries(sourceEntryId, data.entries);
+      await placeResearchEntries(sourceEntryId, data.entries, positions, skeletons);
     }
   } catch (err) {
     console.error('[RESEARCH] Failed to generate entries:', err);
   } finally {
+    // Remove any remaining skeletons (e.g. if fewer entries returned than positions)
+    skeletons.forEach(s => { if (s.parentNode) s.remove(); });
     researchGenerating = false;
     if (entryData.element) entryData.element.classList.remove('research-generating');
   }
 }
 
-async function placeResearchEntries(sourceEntryId, textEntries) {
+async function placeResearchEntries(sourceEntryId, textEntries, positions, skeletons) {
   const sourceData = entries.get(sourceEntryId);
   if (!sourceData || !sourceData.element) return;
 
-  const el = sourceData.element;
-  const srcX = parseFloat(el.style.left) || 0;
-  const srcY = parseFloat(el.style.top) || 0;
-  const srcW = el.offsetWidth || 100;
-  const srcH = el.offsetHeight || 20;
-  const centerX = srcX + srcW / 2;
-  const centerY = srcY + srcH + 30;
-
-  const count = textEntries.length;
-  const spacing = 220;
-  const totalWidth = (count - 1) * spacing;
-  const startX = centerX - totalWidth / 2;
-
-  for (let i = 0; i < count; i++) {
+  for (let i = 0; i < Math.min(textEntries.length, positions.length); i++) {
     const text = textEntries[i];
     if (!text || typeof text !== 'string') continue;
 
-    const ex = startX + i * spacing - 80;
-    const ey = centerY + (Math.random() * 40 - 20);
+    // Remove the corresponding skeleton placeholder
+    if (skeletons[i] && skeletons[i].parentNode) skeletons[i].remove();
+
+    const pos = positions[i];
+    const ex = pos.x;
+    const ey = pos.y;
 
     const entryId = generateEntryId();
     const entry = document.createElement('div');

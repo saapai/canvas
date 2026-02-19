@@ -3303,22 +3303,53 @@ body.article-mode #chat-panel {
 }
 
 /* ——— Research Mode ——— */
+.research-generating {
+  position: relative;
+}
+
 .research-generating::after {
   content: '';
   position: absolute;
-  bottom: -16px;
+  bottom: -14px;
   left: 50%;
   transform: translateX(-50%);
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: rgba(59, 130, 246, 0.5);
-  animation: research-pulse 1s ease-in-out infinite;
+  width: 28px;
+  height: 4px;
+  border-radius: 2px;
+  background: linear-gradient(90deg,
+    rgba(120,120,120,0.15) 0%,
+    rgba(180,180,180,0.55) 40%,
+    rgba(120,120,120,0.15) 100%
+  );
+  background-size: 200% 100%;
+  animation: research-sweep 1.2s linear infinite;
 }
 
-@keyframes research-pulse {
-  0%, 100% { opacity: 0.3; transform: translateX(-50%) scale(1); }
-  50% { opacity: 0.8; transform: translateX(-50%) scale(1.4); }
+@keyframes research-sweep {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Skeleton placeholder cards shown while research entries are being generated */
+.research-placeholder {
+  position: absolute;
+  width: 200px;
+  min-height: 72px;
+  border-radius: 10px;
+  border: 1px dashed rgba(150, 150, 150, 0.25);
+  background: linear-gradient(90deg,
+    rgba(150,150,150,0.04) 0%,
+    rgba(200,200,200,0.12) 40%,
+    rgba(150,150,150,0.04) 100%
+  );
+  background-size: 300% 100%;
+  animation: research-shimmer 1.6s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes research-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
 /* ——— Google Calendar Card (canvas-droppable) ——— */
