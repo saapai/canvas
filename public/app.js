@@ -2858,10 +2858,10 @@ async function commitEditor(){
         console.log('[COMMIT] About to updateEntryOnServer, entryData.textHtml:', entryData.textHtml ? entryData.textHtml.substring(0, 100) : 'null');
         await updateEntryOnServer(entryData);
         console.log('[COMMIT] Entry updated successfully:', entryData.id);
-        // Research mode: regenerate anchors if text changed
+        // Research mode: generate related entries if text changed
         if (researchModeEnabled && oldText !== trimmedRight) {
-          clearAllResearchElements();
-          spawnResearchAnchors(entryData.id);
+          researchedEntries.delete(entryData.id);
+          spawnResearchEntries(entryData.id);
         }
       } catch (error) {
         console.error('[COMMIT] Failed to update entry:', error);
@@ -3015,10 +3015,9 @@ async function commitEditor(){
   console.log('[COMMIT] Saving new text entry:', entryData.id, entryData.text.substring(0, 50));
   await saveEntryToServer(entryData);
 
-  // Research mode: generate anchors from the new entry
+  // Research mode: generate related entries from the new entry
   if (researchModeEnabled) {
-    clearAllResearchElements();
-    spawnResearchAnchors(entryId);
+    spawnResearchEntries(entryId);
   }
 
   // Generate and add cards for URLs (async, after text is rendered)
@@ -4091,8 +4090,7 @@ viewport.addEventListener('mousedown', (e) => {
   if(e.target.closest('#breadcrumb')) return;
   // Don't handle clicks on background picker
   if(e.target.closest('#bg-picker-button, #bg-picker-dropdown, #bg-upload-input')) return;
-  // Don't handle clicks on research elements (they have their own click handlers)
-  if(e.target.closest('.research-anchor') || e.target.closest('.research-card')) return;
+  // Research entries are normal entries — no special guard needed
   
   // Set flag to prevent cursor updates during click handling
   // This prevents cursor from appearing in random spot when clicking
@@ -4507,6 +4505,11 @@ window.addEventListener('mouseup', async (e) => {
                   placeEditorAtWorld(worldPos.x, worldPos.y, textToEdit, entryIdToEdit);
                 }
               }, 300);
+
+              // Research mode: generate related entries when clicking any entry
+              if (researchModeEnabled && entryIdToEdit !== 'anchor') {
+                spawnResearchEntries(entryIdToEdit);
+              }
             }
           }
         }
@@ -4588,8 +4591,7 @@ window.addEventListener('mouseup', async (e) => {
       console.log('[MOUSEUP] Dragging ended. dist:', dist, 'dt:', dt, 'isClick:', isClick);
       if(dist < 6 && dt < 350 && !isClick){
         console.log('[MOUSEUP] Detected as click on empty space');
-        // Clear research elements on empty space click
-        if (researchModeEnabled) clearAllResearchElements();
+        // Research entries are real — no special cleanup on empty click
         // Clear selection if clicking on empty space (no shift key)
         if (!e.shiftKey && selectedEntries.size > 0) {
           clearSelection();
@@ -4667,8 +4669,7 @@ window.addEventListener('mouseup', async (e) => {
 
 viewport.addEventListener('dblclick', (e) => {
   if (isReadOnly) return;
-  // Block double-click navigation on research elements
-  if (e.target.closest('.research-anchor') || e.target.closest('.research-card')) return;
+  // Research entries are normal entries — no special guard needed
   if (pendingEditTimeout) {
     clearTimeout(pendingEditTimeout);
     pendingEditTimeout = null;
@@ -5014,8 +5015,7 @@ editor.addEventListener('keydown', (e) => {
   if(e.key === 'Escape'){
     e.preventDefault();
 
-    // Clear research elements on ESC
-    if (researchModeEnabled) clearAllResearchElements();
+    // Research entries are real — no special cleanup on ESC
 
     // Remove editing class from entry
     if(editingEntryId && editingEntryId !== 'anchor'){
@@ -8878,254 +8878,170 @@ const viewToggleResearch = document.getElementById('view-toggle-research');
 // ——— Research Mode State ———
 let researchModeEnabled = false;
 let researchGenerating = false;
-// researchState: { sourceEntryId, sourceText, anchors: { deeper: {...}, broader: {...}, lateral: {...} } }
-// Each anchor: { label, element, connectorEl, angle, x, y, chain: [{ card data }], chainElements: [DOM], chainLines: [DOM], loading }
-let researchState = null;
+// Track thought chain lineage: childEntryId → parentEntryId
+const researchChainMap = new Map();
+// Track which entries have already been researched to avoid duplicates
+const researchedEntries = new Set();
 
 // ——— Research Mode Functions ———
 
-function gatherResearchContext() {
-  const ctx = [];
-  entries.forEach((ed) => {
-    if (ed.id === 'anchor') return;
-    if (ed.parentEntryId !== currentViewEntryId) return;
-    ctx.push({ text: ed.text });
-  });
-  return ctx;
+function buildThoughtChain(entryId) {
+  const chain = [];
+  let current = entryId;
+  while (current) {
+    const ed = entries.get(current);
+    if (ed && ed.text) chain.unshift(ed.text);
+    current = researchChainMap.get(current) || null;
+  }
+  return chain;
 }
 
-async function spawnResearchAnchors(sourceEntryId) {
-  if (!researchModeEnabled || isReadOnly) return;
+async function spawnResearchEntries(sourceEntryId) {
+  if (!researchModeEnabled || isReadOnly || researchGenerating) return;
+  if (researchedEntries.has(sourceEntryId)) return;
+
   const entryData = entries.get(sourceEntryId);
   if (!entryData || !entryData.text || entryData.text.trim().length < 5) return;
 
-  // Clear previous research state
-  clearAllResearchElements();
-
   researchGenerating = true;
+  researchedEntries.add(sourceEntryId);
   if (entryData.element) entryData.element.classList.add('research-generating');
 
-  const canvasContext = gatherResearchContext();
+  const thoughtChain = buildThoughtChain(sourceEntryId);
+  const canvasContext = [];
+  entries.forEach((ed) => {
+    if (ed.id === 'anchor' || ed.id === sourceEntryId) return;
+    if (ed.parentEntryId !== currentViewEntryId) return;
+    canvasContext.push({ text: ed.text });
+  });
 
   try {
     const res = await fetch('/api/research-suggestions', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ entryText: entryData.text, canvasContext })
+      body: JSON.stringify({ thoughtChain, canvasContext })
     });
     if (!res.ok) throw new Error('API error');
     const data = await res.json();
-    if (data.anchors && data.anchors.length > 0) {
-      renderResearchAnchors(sourceEntryId, data.anchors);
+    if (data.entries && data.entries.length > 0) {
+      placeResearchEntries(sourceEntryId, data.entries);
     }
   } catch (err) {
-    console.error('[RESEARCH] Failed to generate anchors:', err);
+    console.error('[RESEARCH] Failed to generate entries:', err);
   } finally {
     researchGenerating = false;
     if (entryData.element) entryData.element.classList.remove('research-generating');
   }
 }
 
-function renderResearchAnchors(sourceEntryId, anchors) {
-  const entryData = entries.get(sourceEntryId);
-  if (!entryData || !entryData.element) return;
+async function placeResearchEntries(sourceEntryId, textEntries) {
+  const sourceData = entries.get(sourceEntryId);
+  if (!sourceData || !sourceData.element) return;
 
-  const el = entryData.element;
+  const el = sourceData.element;
   const srcX = parseFloat(el.style.left) || 0;
   const srcY = parseFloat(el.style.top) || 0;
   const srcW = el.offsetWidth || 100;
   const srcH = el.offsetHeight || 20;
   const centerX = srcX + srcW / 2;
-  const centerY = srcY + srcH / 2;
+  const centerY = srcY + srcH + 30;
 
-  const anchorRadius = 180;
-  const startAngle = -Math.PI / 2;
-  const directions = ['deeper', 'broader', 'lateral'];
+  const count = textEntries.length;
+  const spacing = 220;
+  const totalWidth = (count - 1) * spacing;
+  const startX = centerX - totalWidth / 2;
 
-  const state = {
-    sourceEntryId,
-    sourceText: entryData.text,
-    centerX, centerY,
-    anchors: {}
-  };
+  for (let i = 0; i < count; i++) {
+    const text = textEntries[i];
+    if (!text || typeof text !== 'string') continue;
 
-  anchors.forEach((anchor, i) => {
-    const dir = anchor.direction || directions[i];
-    const angle = startAngle + (i * (2 * Math.PI / 3));
-    const ax = centerX + anchorRadius * Math.cos(angle);
-    const ay = centerY + anchorRadius * Math.sin(angle);
+    const ex = startX + i * spacing - 80;
+    const ey = centerY + (Math.random() * 40 - 20);
 
-    // Draw connector line from source center to anchor
-    const connectorEl = document.createElement('div');
-    connectorEl.className = 'research-connector';
-    const dist = Math.sqrt((ax - centerX) ** 2 + (ay - centerY) ** 2);
-    connectorEl.style.left = `${centerX}px`;
-    connectorEl.style.top = `${centerY}px`;
-    connectorEl.style.width = `${dist}px`;
-    connectorEl.style.transform = `rotate(${angle}rad)`;
-    world.appendChild(connectorEl);
+    const entryId = generateEntryId();
+    const entry = document.createElement('div');
+    entry.className = 'entry melt';
+    entry.id = entryId;
+    entry.style.left = `${ex}px`;
+    entry.style.top = `${ey}px`;
 
-    // Create anchor label
-    const anchorEl = document.createElement('div');
-    anchorEl.className = `research-anchor ${dir}`;
-    anchorEl.style.animationDelay = `${i * 80}ms`;
-    anchorEl.textContent = anchor.label || dir;
+    const urls = extractUrls(text);
+    const processedText = text;
 
-    // Position anchor centered on its point
-    anchorEl.style.left = `${ax}px`;
-    anchorEl.style.top = `${ay}px`;
-    anchorEl.style.transform = 'translate(-50%, -50%)';
+    entry.innerHTML = meltify(processedText);
+    applyEntryFontSize(entry, null);
+    world.appendChild(entry);
 
-    anchorEl.addEventListener('click', (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      expandDirection(dir);
-    });
-    anchorEl.addEventListener('dblclick', (e) => { e.stopPropagation(); e.preventDefault(); });
+    setTimeout(() => {
+      updateEntryDimensions(entry);
+    }, 50);
 
-    world.appendChild(anchorEl);
-
-    state.anchors[dir] = {
-      label: anchor.label || dir,
-      element: anchorEl,
-      connectorEl,
-      angle,
-      x: ax,
-      y: ay,
-      chain: [],          // array of card data objects (title, explanation, references)
-      chainElements: [],  // DOM elements for cards
-      chainLines: [],     // DOM connector lines between cards
-      loading: false
+    const entryDataObj = {
+      id: entryId,
+      element: entry,
+      text: processedText,
+      textHtml: null,
+      latexData: null,
+      position: { x: ex, y: ey },
+      parentEntryId: currentViewEntryId
     };
-  });
+    entries.set(entryId, entryDataObj);
 
-  researchState = state;
-}
+    // Track lineage for thought chain
+    researchChainMap.set(entryId, sourceEntryId);
 
-async function expandDirection(direction) {
-  if (!researchState || !researchState.anchors[direction]) return;
-  const anchor = researchState.anchors[direction];
-  if (anchor.loading) return;
+    updateEntryVisibility();
+    await saveEntryToServer(entryDataObj);
 
-  anchor.loading = true;
-  anchor.element.classList.add('loading', 'active');
+    // Remove melt class after animation
+    setTimeout(() => {
+      entry.classList.remove('melt');
+      const spans = entry.querySelectorAll('span');
+      spans.forEach(span => {
+        span.style.animation = 'none';
+        span.style.transform = '';
+        span.style.filter = '';
+        span.style.opacity = '';
+      });
+      updateEntryDimensions(entry);
+    }, 1500);
 
-  const chainHistory = anchor.chain.map(c => c.title);
-  const canvasContext = gatherResearchContext();
-
-  try {
-    const res = await fetch('/api/research-suggestions', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        entryText: researchState.sourceText,
-        canvasContext,
-        direction,
-        chainHistory
-      })
-    });
-    if (!res.ok) throw new Error('API error');
-    const data = await res.json();
-    if (data.card) {
-      appendCardToChain(direction, data.card);
+    // Process URLs into link cards (same as normal entry creation)
+    if (urls.length > 0) {
+      const placeholders = [];
+      for (const url of urls) {
+        const placeholder = createLinkCardPlaceholder(url);
+        entry.appendChild(placeholder);
+        updateEntryWidthForLinkCard(entry, placeholder);
+        placeholders.push({ placeholder, url });
+      }
+      const allCardData = [];
+      for (const { placeholder, url } of placeholders) {
+        const cardData = await generateLinkCard(url);
+        if (cardData) {
+          const card = createLinkCard(cardData);
+          placeholder.replaceWith(card);
+          updateEntryWidthForLinkCard(entry, card);
+          allCardData.push(cardData);
+        } else {
+          placeholder.remove();
+        }
+      }
+      if (allCardData.length > 0) {
+        entryDataObj.linkCardsData = allCardData;
+        await updateEntryOnServer(entryDataObj);
+      }
+      updateEntryDimensions(entry);
     }
-  } catch (err) {
-    console.error(`[RESEARCH] Failed to expand ${direction}:`, err);
-  } finally {
-    anchor.loading = false;
-    anchor.element.classList.remove('loading');
   }
-}
-
-function appendCardToChain(direction, cardData) {
-  if (!researchState || !researchState.anchors[direction]) return;
-  const anchor = researchState.anchors[direction];
-  const chainIndex = anchor.chain.length;
-
-  // Position: extend outward from anchor along the same angle
-  const cardSpacing = 200;
-  const cardOffset = 80; // initial offset from anchor
-  const totalDist = cardOffset + chainIndex * cardSpacing;
-  const cx = anchor.x + totalDist * Math.cos(anchor.angle);
-  const cy = anchor.y + totalDist * Math.sin(anchor.angle);
-
-  // Draw connector line from previous element to this card
-  const prevX = chainIndex === 0 ? anchor.x : anchor.x + (cardOffset + (chainIndex - 1) * cardSpacing) * Math.cos(anchor.angle) + 140;
-  const prevY = chainIndex === 0 ? anchor.y : anchor.y + (cardOffset + (chainIndex - 1) * cardSpacing) * Math.sin(anchor.angle);
-  const lineEl = document.createElement('div');
-  lineEl.className = `research-chain-line ${direction}`;
-  const dx = cx - prevX;
-  const dy = cy - prevY;
-  const lineDist = Math.sqrt(dx * dx + dy * dy);
-  const lineAngle = Math.atan2(dy, dx);
-  lineEl.style.left = `${prevX}px`;
-  lineEl.style.top = `${prevY}px`;
-  lineEl.style.width = `${lineDist}px`;
-  lineEl.style.transform = `rotate(${lineAngle}rad)`;
-  lineEl.style.transformOrigin = '0 50%';
-  world.appendChild(lineEl);
-  anchor.chainLines.push(lineEl);
-
-  // Create the rich content card
-  const card = document.createElement('div');
-  card.className = `research-card ${direction}`;
-  card.style.left = `${cx}px`;
-  card.style.top = `${cy}px`;
-  card.style.animationDelay = '0ms';
-
-  let html = `<div class="research-card-title">${escapeHtml(cardData.title || '')}</div>`;
-  html += `<div class="research-card-explanation">${escapeHtml(cardData.explanation || '')}</div>`;
-
-  if (cardData.references && cardData.references.length > 0) {
-    html += '<ul class="research-card-references">';
-    cardData.references.forEach(ref => {
-      html += `<li>${escapeHtml(ref)}</li>`;
-    });
-    html += '</ul>';
-  }
-
-  html += `<div class="research-card-continue">Continue ${direction} &rarr;</div>`;
-
-  card.innerHTML = html;
-
-  // "Continue" button generates next card in this direction
-  const continueBtn = card.querySelector('.research-card-continue');
-  continueBtn.addEventListener('click', (e) => {
-    e.stopPropagation();
-    e.preventDefault();
-    expandDirection(direction);
-  });
-
-  // Block propagation on the card itself
-  card.addEventListener('click', (e) => e.stopPropagation());
-  card.addEventListener('dblclick', (e) => { e.stopPropagation(); e.preventDefault(); });
-
-  world.appendChild(card);
-
-  anchor.chain.push(cardData);
-  anchor.chainElements.push(card);
-}
-
-function clearAllResearchElements() {
-  if (researchState) {
-    Object.values(researchState.anchors).forEach(anchor => {
-      if (anchor.element) anchor.element.remove();
-      if (anchor.connectorEl) anchor.connectorEl.remove();
-      anchor.chainElements.forEach(el => el.remove());
-      anchor.chainLines.forEach(el => el.remove());
-    });
-    researchState = null;
-  }
-  document.querySelectorAll('.research-generating').forEach(el => el.classList.remove('research-generating'));
 }
 
 function setViewMode(mode) {
   if (mode === currentViewMode) return;
 
-  // Clean up research mode when leaving it
+  // Just toggle the flag — research entries are real and persist
   if (researchModeEnabled && mode !== 'research') {
     researchModeEnabled = false;
-    clearAllResearchElements();
   }
 
   currentViewMode = mode;
@@ -9420,24 +9336,21 @@ if (viewToggleCanvas) viewToggleCanvas.addEventListener('click', () => setViewMo
 if (viewToggleArticle) viewToggleArticle.addEventListener('click', () => setViewMode('article'));
 if (viewToggleResearch) viewToggleResearch.addEventListener('click', () => setViewMode('research'));
 
-// Patch navigation functions to re-render article view and clear research suggestions
+// Patch navigation functions to re-render article view
 const _origNavigateToEntry = navigateToEntry;
 navigateToEntry = function(entryId) {
-  clearAllResearchElements();
   _origNavigateToEntry(entryId);
   if (currentViewMode === 'article') setTimeout(() => renderArticleView(), 300);
 };
 
 const _origNavigateBack = navigateBack;
 navigateBack = function(level) {
-  clearAllResearchElements();
   _origNavigateBack(level);
   if (currentViewMode === 'article') setTimeout(() => renderArticleView(), 300);
 };
 
 const _origNavigateToRoot = navigateToRoot;
 navigateToRoot = function() {
-  clearAllResearchElements();
   _origNavigateToRoot();
   if (currentViewMode === 'article') setTimeout(() => renderArticleView(), 300);
 };

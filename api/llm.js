@@ -418,101 +418,62 @@ Where "isFullMath" is true if the entire content is mathematical, false if it's 
   }
 }
 
-export async function generateResearchSuggestions(entryText, canvasContext, direction, chainHistory) {
+export async function generateResearchEntries(thoughtChain, canvasContext) {
   const contextSnippet = (canvasContext || [])
     .slice(0, 20)
     .map(c => `- "${c.text}"`)
     .join('\n');
 
-  const chainSnippet = (chainHistory || [])
-    .map((c, i) => `  ${i + 1}. "${c}"`)
+  const chainFormatted = thoughtChain
+    .map((t, i) => `  ${i + 1}. "${t}"`)
     .join('\n');
 
-  // If direction is specified, generate a single rich content piece for that direction
-  if (direction) {
-    const directionDescriptions = {
-      deeper: 'Drill into a specific detail, subtopic, mechanism, or implication. Go more granular and technical.',
-      broader: 'Zoom out to a larger context, historical background, related field, or systemic view.',
-      lateral: 'Make an unexpected, creative, or cross-domain connection. Find surprising parallels.'
-    };
+  const currentFocus = thoughtChain[thoughtChain.length - 1];
 
-    const prompt = `You are researching: "${entryText}"
+  const prompt = `The user is exploring ideas on a freeform canvas. Their current focus is:
+"${currentFocus}"
 
-Other canvas entries for context:
+${thoughtChain.length > 1 ? `Their train of thought so far:\n${chainFormatted}\n` : ''}
+Other entries on the canvas:
 ${contextSnippet || '(none)'}
 
-Direction: ${direction.toUpperCase()} — ${directionDescriptions[direction] || 'Explore this direction.'}
-${chainSnippet ? `\nPrevious steps in this direction (do NOT repeat these — go further):\n${chainSnippet}\n` : ''}
-Generate ONE rich research card for this direction. Include:
-- title: A compelling 3-8 word title for this research lead
-- explanation: A 2-4 sentence explanation of the insight, concept, or finding
-- references: An array of 1-3 real, well-known works (books, articles, papers) relevant to this. Use format "Title" by Author or "Article" — Publication. Only cite real works you are confident exist.
-- searchQuery: A concise image search query (2-4 words) that would find a relevant visual for this topic
+Generate 4 related entries for the canvas. These should feel like a curious researcher jotting notes around a topic. Mix these types:
+- A surprising fact or specific insight (1-2 sentences)
+- A relevant real URL (just the bare link, e.g. https://en.wikipedia.org/wiki/...) — only use URLs you're confident are real
+- A concise related concept or question worth exploring (under 10 words)
+- A connection to something unexpected or cross-domain (1 sentence)
+
+Rules:
+- Each entry should be short — like something you'd scribble on a sticky note or canvas
+- Do NOT repeat anything from the thought chain or existing canvas entries
+- Do NOT use labels like "Fact:" or "Question:" — just write the content directly
+- URLs should be real Wikipedia, Stanford Encyclopedia, or other stable reference links
+- Keep entries varied in length and type
 
 Respond ONLY with valid JSON:
-{"title":"...","explanation":"...","references":["...","..."],"searchQuery":"..."}`;
-
-    try {
-      const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: 'You are a brilliant research assistant. Generate insightful, specific research leads with real references. Respond ONLY with valid JSON.' },
-          { role: 'user', content: prompt }
-        ],
-        temperature: 0.85,
-        max_tokens: 500
-      });
-
-      const content = completion.choices[0].message.content.trim();
-      let jsonStr = content;
-      const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/);
-      if (jsonMatch) jsonStr = jsonMatch[1];
-
-      const result = JSON.parse(jsonStr);
-      return { card: result };
-    } catch (error) {
-      console.error('Error generating research card:', error);
-      return { card: null };
-    }
-  }
-
-  // No direction: generate the 3 anchor labels
-  const prompt = `Given this canvas entry: "${entryText}"
-
-Other entries on this canvas:
-${contextSnippet || '(none)'}
-
-Generate exactly 3 research direction labels branching from this entry:
-1. DEEPER: A specific subtopic to drill into — label it with a concise 2-5 word noun phrase
-2. BROADER: A larger context to zoom out to — label it with a concise 2-5 word noun phrase
-3. LATERAL: An unexpected cross-domain connection — label it with a concise 2-5 word noun phrase
-
-These are direction labels, not full explanations. Examples: "Molecular mechanisms", "Renaissance trade routes", "Jazz improvisation parallels"
-
-Respond ONLY with valid JSON:
-{"anchors":[{"direction":"deeper","label":"..."},{"direction":"broader","label":"..."},{"direction":"lateral","label":"..."}]}`;
+{"entries":["entry text 1","entry text 2","entry text 3","entry text 4"]}`;
 
   try {
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: 'You are a research assistant that generates creative, thought-provoking research directions. Respond ONLY with valid JSON, no other text.' },
+        { role: 'system', content: 'You are a brilliant, curious research assistant. Generate concise, interesting canvas entries. Respond ONLY with valid JSON, no other text.' },
         { role: 'user', content: prompt }
       ],
-      temperature: 0.8,
-      max_tokens: 200
+      temperature: 0.85,
+      max_tokens: 600
     });
 
     const content = completion.choices[0].message.content.trim();
     let jsonStr = content;
-    const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/);
+    const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
     if (jsonMatch) jsonStr = jsonMatch[1];
 
     const result = JSON.parse(jsonStr);
-    return { anchors: Array.isArray(result.anchors) ? result.anchors.slice(0, 3) : [] };
+    return { entries: Array.isArray(result.entries) ? result.entries.slice(0, 5) : [] };
   } catch (error) {
-    console.error('Error generating research anchors:', error);
-    return { anchors: [] };
+    console.error('Error generating research entries:', error);
+    return { entries: [] };
   }
 }
 
