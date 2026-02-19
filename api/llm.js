@@ -472,13 +472,51 @@ async function searchSerper(query) {
   }
 }
 
-// Try Brave first (2k free/month), fall back to Serper
+// Ask GPT-4o-mini for real, well-known articles (always available, no extra API key)
+async function searchLLM(query) {
+  try {
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: 'You recommend real, authoritative web resources. Only suggest URLs you are highly confident exist — prefer Wikipedia, major news outlets, official documentation, and well-known educational sites. Respond ONLY with valid JSON.' },
+        { role: 'user', content: `Find 3 real, authoritative web articles or resources about: "${query}"
+
+For each result provide the actual URL (must be a real page that exists), the page title, and a 1-2 sentence description.
+
+Respond ONLY with valid JSON:
+{"results":[{"title":"...","link":"https://...","snippet":"..."}]}` }
+      ],
+      temperature: 0.3,
+      max_tokens: 400
+    });
+    const content = completion.choices[0].message.content.trim();
+    let jsonStr = content;
+    const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
+    if (jsonMatch) jsonStr = jsonMatch[1];
+    const parsed = JSON.parse(jsonStr);
+    return (parsed.results || []).slice(0, 3).map(r => ({
+      title: r.title || '',
+      link: r.link || r.url || '',
+      snippet: r.snippet || r.description || '',
+      favicon: r.link ? `https://www.google.com/s2/favicons?domain=${new URL(r.link || r.url).hostname}&sz=32` : ''
+    }));
+  } catch (e) {
+    console.error('[RESEARCH] LLM search failed:', e.message);
+    return [];
+  }
+}
+
+// Try Brave first (2k free/month), then Serper, then LLM as final fallback
 async function searchWeb(query) {
   if (process.env.BRAVE_API_KEY) {
     const results = await searchBrave(query);
     if (results.length > 0) return results;
   }
-  return searchSerper(query);
+  if (process.env.SERPER_API_KEY) {
+    const results = await searchSerper(query);
+    if (results.length > 0) return results;
+  }
+  return searchLLM(query);
 }
 
 async function searchPexels(query) {
