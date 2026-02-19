@@ -343,65 +343,21 @@ export async function generateResearchEntries(thoughtChain, canvasContext) {
   return { entries: entries.slice(0, 5) };
 }
 
-async function searchBrave(query) {
-  const apiKey = process.env.BRAVE_API_KEY;
-  if (!apiKey) return [];
-  try {
-    const res = await fetch(`https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=3`, {
-      headers: { 'Accept': 'application/json', 'Accept-Encoding': 'gzip', 'X-Subscription-Token': apiKey }
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return (data.web?.results || []).slice(0, 3).map(r => ({
-      title: r.title || '',
-      link: r.url || '',
-      snippet: r.description || '',
-      favicon: r.profile?.img || `https://www.google.com/s2/favicons?domain=${new URL(r.url).hostname}&sz=32`
-    }));
-  } catch (e) {
-    console.error('[RESEARCH] Brave search failed:', e.message);
-    return [];
-  }
-}
-
-async function searchSerper(query) {
-  const apiKey = process.env.SERPER_API_KEY;
-  if (!apiKey) return [];
-  try {
-    const res = await fetch('https://google.serper.dev/search', {
-      method: 'POST',
-      headers: { 'X-API-KEY': apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ q: query, num: 3 })
-    });
-    if (!res.ok) return [];
-    const data = await res.json();
-    return (data.organic || []).slice(0, 3).map(r => ({
-      title: r.title || '',
-      link: r.link || '',
-      snippet: r.snippet || '',
-      favicon: r.favicon || `https://www.google.com/s2/favicons?domain=${new URL(r.link).hostname}&sz=32`
-    }));
-  } catch (e) {
-    console.error('[RESEARCH] Serper search failed:', e.message);
-    return [];
-  }
-}
-
-// Ask GPT-4o-mini for real, well-known articles (always available, no extra API key)
-async function searchLLM(query) {
+// Ask GPT-4o-mini for real, cited sources — no external search API needed
+async function searchWeb(query) {
   try {
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: 'You recommend real, authoritative web resources. Only suggest URLs you are highly confident exist — prefer Wikipedia, major news outlets, official documentation, and well-known educational sites. Respond ONLY with valid JSON.' },
-        { role: 'user', content: `Find 3 real, authoritative web articles or resources about: "${query}"
+        { role: 'system', content: 'You recommend real, authoritative web resources. ONLY suggest URLs you are highly confident exist and are stable — Wikipedia articles, official documentation, well-known educational sites (Stanford Encyclopedia, MIT OpenCourseWare, Khan Academy), major publications (Nature, NYT, BBC, The Atlantic), and government/org sites (.gov, .org). NEVER fabricate or guess URLs. If unsure a page exists, do not include it. Respond ONLY with valid JSON.' },
+        { role: 'user', content: `Cite 3 real, authoritative sources about: "${query}"
 
-For each result provide the actual URL (must be a real page that exists), the page title, and a 1-2 sentence description.
+Each source must have a real URL that definitely exists, the exact page title, and a 1-2 sentence summary of what the page covers.
 
 Respond ONLY with valid JSON:
 {"results":[{"title":"...","link":"https://...","snippet":"..."}]}` }
       ],
-      temperature: 0.3,
+      temperature: 0.2,
       max_tokens: 400
     });
     const content = completion.choices[0].message.content.trim();
@@ -409,29 +365,16 @@ Respond ONLY with valid JSON:
     const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
     if (jsonMatch) jsonStr = jsonMatch[1];
     const parsed = JSON.parse(jsonStr);
-    return (parsed.results || []).slice(0, 3).map(r => ({
-      title: r.title || '',
-      link: r.link || r.url || '',
-      snippet: r.snippet || r.description || '',
-      favicon: r.link ? `https://www.google.com/s2/favicons?domain=${new URL(r.link || r.url).hostname}&sz=32` : ''
-    }));
+    return (parsed.results || []).slice(0, 3).map(r => {
+      const link = r.link || r.url || '';
+      let favicon = '';
+      try { favicon = `https://www.google.com/s2/favicons?domain=${new URL(link).hostname}&sz=32`; } catch {}
+      return { title: r.title || '', link, snippet: r.snippet || r.description || '', favicon };
+    });
   } catch (e) {
-    console.error('[RESEARCH] LLM search failed:', e.message);
+    console.error('[RESEARCH] Web search failed:', e.message);
     return [];
   }
-}
-
-// Try Brave first (2k free/month), then Serper, then LLM as final fallback
-async function searchWeb(query) {
-  if (process.env.BRAVE_API_KEY) {
-    const results = await searchBrave(query);
-    if (results.length > 0) return results;
-  }
-  if (process.env.SERPER_API_KEY) {
-    const results = await searchSerper(query);
-    if (results.length > 0) return results;
-  }
-  return searchLLM(query);
 }
 
 async function searchPexels(query) {
