@@ -1095,12 +1095,14 @@ app.post('/api/convert-latex', requireAuth, async (req, res) => {
 
 app.post('/api/research-suggestions', requireAuth, async (req, res) => {
   try {
-    const { entryText, canvasContext } = req.body;
+    const { entryText, canvasContext, direction, chainHistory } = req.body;
     if (!entryText || typeof entryText !== 'string' || entryText.trim().length < 5) {
       return res.status(400).json({ error: 'entryText must be at least 5 characters' });
     }
     const context = Array.isArray(canvasContext) ? canvasContext.slice(0, 20) : [];
-    const result = await generateResearchSuggestions(entryText.trim(), context);
+    const dir = ['deeper', 'broader', 'lateral'].includes(direction) ? direction : null;
+    const chain = Array.isArray(chainHistory) ? chainHistory.slice(0, 10) : [];
+    const result = await generateResearchSuggestions(entryText.trim(), context, dir, chain);
     res.json(result);
   } catch (error) {
     console.error('Error generating research suggestions:', error);

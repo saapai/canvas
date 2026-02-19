@@ -2858,10 +2858,10 @@ async function commitEditor(){
         console.log('[COMMIT] About to updateEntryOnServer, entryData.textHtml:', entryData.textHtml ? entryData.textHtml.substring(0, 100) : 'null');
         await updateEntryOnServer(entryData);
         console.log('[COMMIT] Entry updated successfully:', entryData.id);
-        // Research mode: regenerate leads if text changed
+        // Research mode: regenerate anchors if text changed
         if (researchModeEnabled && oldText !== trimmedRight) {
-          clearAllResearchSuggestions();
-          generateResearchLeads(entryData.id);
+          clearAllResearchElements();
+          spawnResearchAnchors(entryData.id);
         }
       } catch (error) {
         console.error('[COMMIT] Failed to update entry:', error);
@@ -3015,10 +3015,10 @@ async function commitEditor(){
   console.log('[COMMIT] Saving new text entry:', entryData.id, entryData.text.substring(0, 50));
   await saveEntryToServer(entryData);
 
-  // Research mode: generate leads from the new entry
+  // Research mode: generate anchors from the new entry
   if (researchModeEnabled) {
-    clearAllResearchSuggestions();
-    generateResearchLeads(entryId);
+    clearAllResearchElements();
+    spawnResearchAnchors(entryId);
   }
 
   // Generate and add cards for URLs (async, after text is rendered)
@@ -4091,8 +4091,8 @@ viewport.addEventListener('mousedown', (e) => {
   if(e.target.closest('#breadcrumb')) return;
   // Don't handle clicks on background picker
   if(e.target.closest('#bg-picker-button, #bg-picker-dropdown, #bg-upload-input')) return;
-  // Don't handle clicks on research suggestions (they have their own click handler)
-  if(e.target.closest('.research-suggestion')) return;
+  // Don't handle clicks on research elements (they have their own click handlers)
+  if(e.target.closest('.research-anchor') || e.target.closest('.research-card')) return;
   
   // Set flag to prevent cursor updates during click handling
   // This prevents cursor from appearing in random spot when clicking
@@ -4588,8 +4588,8 @@ window.addEventListener('mouseup', async (e) => {
       console.log('[MOUSEUP] Dragging ended. dist:', dist, 'dt:', dt, 'isClick:', isClick);
       if(dist < 6 && dt < 350 && !isClick){
         console.log('[MOUSEUP] Detected as click on empty space');
-        // Clear research suggestions on empty space click
-        if (researchModeEnabled) clearAllResearchSuggestions();
+        // Clear research elements on empty space click
+        if (researchModeEnabled) clearAllResearchElements();
         // Clear selection if clicking on empty space (no shift key)
         if (!e.shiftKey && selectedEntries.size > 0) {
           clearSelection();
@@ -4667,8 +4667,8 @@ window.addEventListener('mouseup', async (e) => {
 
 viewport.addEventListener('dblclick', (e) => {
   if (isReadOnly) return;
-  // Block double-click navigation on research suggestions
-  if (e.target.closest('.research-suggestion')) return;
+  // Block double-click navigation on research elements
+  if (e.target.closest('.research-anchor') || e.target.closest('.research-card')) return;
   if (pendingEditTimeout) {
     clearTimeout(pendingEditTimeout);
     pendingEditTimeout = null;
@@ -5014,8 +5014,8 @@ editor.addEventListener('keydown', (e) => {
   if(e.key === 'Escape'){
     e.preventDefault();
 
-    // Clear research suggestions on ESC
-    if (researchModeEnabled) clearAllResearchSuggestions();
+    // Clear research elements on ESC
+    if (researchModeEnabled) clearAllResearchElements();
 
     // Remove editing class from entry
     if(editingEntryId && editingEntryId !== 'anchor'){
@@ -8877,26 +8877,35 @@ const viewToggleResearch = document.getElementById('view-toggle-research');
 
 // ——— Research Mode State ———
 let researchModeEnabled = false;
-let researchSuggestions = new Map(); // suggestionId -> { element, sourceEntryId, text, siblingIds }
 let researchGenerating = false;
+// researchState: { sourceEntryId, sourceText, anchors: { deeper: {...}, broader: {...}, lateral: {...} } }
+// Each anchor: { label, element, connectorEl, angle, x, y, chain: [{ card data }], chainElements: [DOM], chainLines: [DOM], loading }
+let researchState = null;
 
 // ——— Research Mode Functions ———
-async function generateResearchLeads(sourceEntryId) {
-  if (!researchModeEnabled || isReadOnly || researchGenerating) return;
+
+function gatherResearchContext() {
+  const ctx = [];
+  entries.forEach((ed) => {
+    if (ed.id === 'anchor') return;
+    if (ed.parentEntryId !== currentViewEntryId) return;
+    ctx.push({ text: ed.text });
+  });
+  return ctx;
+}
+
+async function spawnResearchAnchors(sourceEntryId) {
+  if (!researchModeEnabled || isReadOnly) return;
   const entryData = entries.get(sourceEntryId);
   if (!entryData || !entryData.text || entryData.text.trim().length < 5) return;
 
+  // Clear previous research state
+  clearAllResearchElements();
+
   researchGenerating = true;
-  // Add pulsing indicator to source entry
   if (entryData.element) entryData.element.classList.add('research-generating');
 
-  // Gather context from visible entries
-  const canvasContext = [];
-  entries.forEach((ed) => {
-    if (ed.id === 'anchor' || ed.id === sourceEntryId) return;
-    if (ed.parentEntryId !== currentViewEntryId) return;
-    canvasContext.push({ text: ed.text });
-  });
+  const canvasContext = gatherResearchContext();
 
   try {
     const res = await fetch('/api/research-suggestions', {
@@ -8906,21 +8915,18 @@ async function generateResearchLeads(sourceEntryId) {
     });
     if (!res.ok) throw new Error('API error');
     const data = await res.json();
-    if (data.suggestions && data.suggestions.length > 0) {
-      renderResearchSuggestions(sourceEntryId, data.suggestions);
+    if (data.anchors && data.anchors.length > 0) {
+      renderResearchAnchors(sourceEntryId, data.anchors);
     }
   } catch (err) {
-    console.error('[RESEARCH] Failed to generate leads:', err);
+    console.error('[RESEARCH] Failed to generate anchors:', err);
   } finally {
     researchGenerating = false;
     if (entryData.element) entryData.element.classList.remove('research-generating');
   }
 }
 
-function renderResearchSuggestions(sourceEntryId, suggestions) {
-  // Clear existing suggestions for this source
-  clearSuggestionsForSource(sourceEntryId);
-
+function renderResearchAnchors(sourceEntryId, anchors) {
   const entryData = entries.get(sourceEntryId);
   if (!entryData || !entryData.element) return;
 
@@ -8931,150 +8937,186 @@ function renderResearchSuggestions(sourceEntryId, suggestions) {
   const srcH = el.offsetHeight || 20;
   const centerX = srcX + srcW / 2;
   const centerY = srcY + srcH / 2;
-  const radius = 250;
-  // Start at -90deg (top) so suggestions radiate outward at 120-degree intervals
+
+  const anchorRadius = 180;
   const startAngle = -Math.PI / 2;
+  const directions = ['deeper', 'broader', 'lateral'];
 
-  const siblingIds = [];
-
-  suggestions.forEach((suggestion, i) => {
-    const angle = startAngle + (i * (2 * Math.PI / 3));
-    const sx = centerX + radius * Math.cos(angle) - 130; // offset by half max-width
-    const sy = centerY + radius * Math.sin(angle) - 15;
-
-    const suggestionId = `research-${sourceEntryId}-${i}-${Date.now()}`;
-    siblingIds.push(suggestionId);
-
-    const div = document.createElement('div');
-    div.className = 'research-suggestion';
-    div.id = suggestionId;
-    div.style.left = `${sx}px`;
-    div.style.top = `${sy}px`;
-    div.style.animationDelay = `${i * 100}ms`;
-    div.textContent = suggestion.text;
-
-    div.addEventListener('click', (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      acceptResearchSuggestion(suggestionId);
-    });
-
-    // Block double-click navigation on suggestions
-    div.addEventListener('dblclick', (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-    });
-
-    world.appendChild(div);
-
-    researchSuggestions.set(suggestionId, {
-      element: div,
-      sourceEntryId,
-      text: suggestion.text,
-      siblingIds // will be updated after loop
-    });
-  });
-
-  // Update sibling references so each knows about the others
-  siblingIds.forEach(id => {
-    const s = researchSuggestions.get(id);
-    if (s) s.siblingIds = siblingIds;
-  });
-}
-
-async function acceptResearchSuggestion(suggestionId) {
-  const suggestion = researchSuggestions.get(suggestionId);
-  if (!suggestion) return;
-
-  // Mark as accepting
-  suggestion.element.classList.add('accepting');
-
-  // Dismiss siblings
-  dismissSiblings(suggestionId, suggestion.siblingIds);
-
-  // Convert to a real entry
-  const sx = parseFloat(suggestion.element.style.left) || 0;
-  const sy = parseFloat(suggestion.element.style.top) || 0;
-
-  const entryId = generateEntryId();
-  const entry = document.createElement('div');
-  entry.className = 'entry melt';
-  entry.id = entryId;
-  entry.style.left = `${sx}px`;
-  entry.style.top = `${sy}px`;
-  entry.innerHTML = meltify(suggestion.text);
-  world.appendChild(entry);
-
-  const entryData = {
-    id: entryId,
-    element: entry,
-    text: suggestion.text,
-    textHtml: null,
-    latexData: null,
-    position: { x: sx, y: sy },
-    parentEntryId: currentViewEntryId
+  const state = {
+    sourceEntryId,
+    sourceText: entryData.text,
+    centerX, centerY,
+    anchors: {}
   };
-  entries.set(entryId, entryData);
-  updateEntryVisibility();
 
-  // Remove the suggestion ghost element after transition
-  setTimeout(() => {
-    suggestion.element.remove();
-    researchSuggestions.delete(suggestionId);
-  }, 350);
+  anchors.forEach((anchor, i) => {
+    const dir = anchor.direction || directions[i];
+    const angle = startAngle + (i * (2 * Math.PI / 3));
+    const ax = centerX + anchorRadius * Math.cos(angle);
+    const ay = centerY + anchorRadius * Math.sin(angle);
 
-  // Save to server
-  await saveEntryToServer(entryData);
+    // Draw connector line from source center to anchor
+    const connectorEl = document.createElement('div');
+    connectorEl.className = 'research-connector';
+    const dist = Math.sqrt((ax - centerX) ** 2 + (ay - centerY) ** 2);
+    connectorEl.style.left = `${centerX}px`;
+    connectorEl.style.top = `${centerY}px`;
+    connectorEl.style.width = `${dist}px`;
+    connectorEl.style.transform = `rotate(${angle}rad)`;
+    world.appendChild(connectorEl);
 
-  // Remove melt class after animation
-  setTimeout(() => {
-    entry.classList.remove('melt');
-    const spans = entry.querySelectorAll('span');
-    spans.forEach(span => {
-      span.style.animation = 'none';
-      span.style.transform = '';
-      span.style.filter = '';
-      span.style.opacity = '';
+    // Create anchor label
+    const anchorEl = document.createElement('div');
+    anchorEl.className = `research-anchor ${dir}`;
+    anchorEl.style.animationDelay = `${i * 80}ms`;
+    anchorEl.textContent = anchor.label || dir;
+
+    // Position anchor centered on its point
+    anchorEl.style.left = `${ax}px`;
+    anchorEl.style.top = `${ay}px`;
+    anchorEl.style.transform = 'translate(-50%, -50%)';
+
+    anchorEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      expandDirection(dir);
     });
-    updateEntryDimensions(entry);
-  }, 1500);
+    anchorEl.addEventListener('dblclick', (e) => { e.stopPropagation(); e.preventDefault(); });
 
-  // Generate new leads from the accepted entry
-  generateResearchLeads(entryId);
+    world.appendChild(anchorEl);
+
+    state.anchors[dir] = {
+      label: anchor.label || dir,
+      element: anchorEl,
+      connectorEl,
+      angle,
+      x: ax,
+      y: ay,
+      chain: [],          // array of card data objects (title, explanation, references)
+      chainElements: [],  // DOM elements for cards
+      chainLines: [],     // DOM connector lines between cards
+      loading: false
+    };
+  });
+
+  researchState = state;
 }
 
-function dismissSiblings(acceptedId, siblingIds) {
-  siblingIds.forEach(id => {
-    if (id === acceptedId) return;
-    const s = researchSuggestions.get(id);
-    if (s && s.element) {
-      s.element.classList.add('dismissing');
-      setTimeout(() => {
-        s.element.remove();
-        researchSuggestions.delete(id);
-      }, 350);
+async function expandDirection(direction) {
+  if (!researchState || !researchState.anchors[direction]) return;
+  const anchor = researchState.anchors[direction];
+  if (anchor.loading) return;
+
+  anchor.loading = true;
+  anchor.element.classList.add('loading', 'active');
+
+  const chainHistory = anchor.chain.map(c => c.title);
+  const canvasContext = gatherResearchContext();
+
+  try {
+    const res = await fetch('/api/research-suggestions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        entryText: researchState.sourceText,
+        canvasContext,
+        direction,
+        chainHistory
+      })
+    });
+    if (!res.ok) throw new Error('API error');
+    const data = await res.json();
+    if (data.card) {
+      appendCardToChain(direction, data.card);
     }
-  });
+  } catch (err) {
+    console.error(`[RESEARCH] Failed to expand ${direction}:`, err);
+  } finally {
+    anchor.loading = false;
+    anchor.element.classList.remove('loading');
+  }
 }
 
-function clearAllResearchSuggestions() {
-  researchSuggestions.forEach((s) => {
-    if (s.element) s.element.remove();
+function appendCardToChain(direction, cardData) {
+  if (!researchState || !researchState.anchors[direction]) return;
+  const anchor = researchState.anchors[direction];
+  const chainIndex = anchor.chain.length;
+
+  // Position: extend outward from anchor along the same angle
+  const cardSpacing = 200;
+  const cardOffset = 80; // initial offset from anchor
+  const totalDist = cardOffset + chainIndex * cardSpacing;
+  const cx = anchor.x + totalDist * Math.cos(anchor.angle);
+  const cy = anchor.y + totalDist * Math.sin(anchor.angle);
+
+  // Draw connector line from previous element to this card
+  const prevX = chainIndex === 0 ? anchor.x : anchor.x + (cardOffset + (chainIndex - 1) * cardSpacing) * Math.cos(anchor.angle) + 140;
+  const prevY = chainIndex === 0 ? anchor.y : anchor.y + (cardOffset + (chainIndex - 1) * cardSpacing) * Math.sin(anchor.angle);
+  const lineEl = document.createElement('div');
+  lineEl.className = `research-chain-line ${direction}`;
+  const dx = cx - prevX;
+  const dy = cy - prevY;
+  const lineDist = Math.sqrt(dx * dx + dy * dy);
+  const lineAngle = Math.atan2(dy, dx);
+  lineEl.style.left = `${prevX}px`;
+  lineEl.style.top = `${prevY}px`;
+  lineEl.style.width = `${lineDist}px`;
+  lineEl.style.transform = `rotate(${lineAngle}rad)`;
+  lineEl.style.transformOrigin = '0 50%';
+  world.appendChild(lineEl);
+  anchor.chainLines.push(lineEl);
+
+  // Create the rich content card
+  const card = document.createElement('div');
+  card.className = `research-card ${direction}`;
+  card.style.left = `${cx}px`;
+  card.style.top = `${cy}px`;
+  card.style.animationDelay = '0ms';
+
+  let html = `<div class="research-card-title">${escapeHtml(cardData.title || '')}</div>`;
+  html += `<div class="research-card-explanation">${escapeHtml(cardData.explanation || '')}</div>`;
+
+  if (cardData.references && cardData.references.length > 0) {
+    html += '<ul class="research-card-references">';
+    cardData.references.forEach(ref => {
+      html += `<li>${escapeHtml(ref)}</li>`;
+    });
+    html += '</ul>';
+  }
+
+  html += `<div class="research-card-continue">Continue ${direction} &rarr;</div>`;
+
+  card.innerHTML = html;
+
+  // "Continue" button generates next card in this direction
+  const continueBtn = card.querySelector('.research-card-continue');
+  continueBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    expandDirection(direction);
   });
-  researchSuggestions.clear();
-  // Remove generating indicator from all entries
+
+  // Block propagation on the card itself
+  card.addEventListener('click', (e) => e.stopPropagation());
+  card.addEventListener('dblclick', (e) => { e.stopPropagation(); e.preventDefault(); });
+
+  world.appendChild(card);
+
+  anchor.chain.push(cardData);
+  anchor.chainElements.push(card);
+}
+
+function clearAllResearchElements() {
+  if (researchState) {
+    Object.values(researchState.anchors).forEach(anchor => {
+      if (anchor.element) anchor.element.remove();
+      if (anchor.connectorEl) anchor.connectorEl.remove();
+      anchor.chainElements.forEach(el => el.remove());
+      anchor.chainLines.forEach(el => el.remove());
+    });
+    researchState = null;
+  }
   document.querySelectorAll('.research-generating').forEach(el => el.classList.remove('research-generating'));
-}
-
-function clearSuggestionsForSource(sourceEntryId) {
-  const toDelete = [];
-  researchSuggestions.forEach((s, id) => {
-    if (s.sourceEntryId === sourceEntryId) {
-      if (s.element) s.element.remove();
-      toDelete.push(id);
-    }
-  });
-  toDelete.forEach(id => researchSuggestions.delete(id));
 }
 
 function setViewMode(mode) {
@@ -9083,7 +9125,7 @@ function setViewMode(mode) {
   // Clean up research mode when leaving it
   if (researchModeEnabled && mode !== 'research') {
     researchModeEnabled = false;
-    clearAllResearchSuggestions();
+    clearAllResearchElements();
   }
 
   currentViewMode = mode;
@@ -9381,21 +9423,21 @@ if (viewToggleResearch) viewToggleResearch.addEventListener('click', () => setVi
 // Patch navigation functions to re-render article view and clear research suggestions
 const _origNavigateToEntry = navigateToEntry;
 navigateToEntry = function(entryId) {
-  clearAllResearchSuggestions();
+  clearAllResearchElements();
   _origNavigateToEntry(entryId);
   if (currentViewMode === 'article') setTimeout(() => renderArticleView(), 300);
 };
 
 const _origNavigateBack = navigateBack;
 navigateBack = function(level) {
-  clearAllResearchSuggestions();
+  clearAllResearchElements();
   _origNavigateBack(level);
   if (currentViewMode === 'article') setTimeout(() => renderArticleView(), 300);
 };
 
 const _origNavigateToRoot = navigateToRoot;
 navigateToRoot = function() {
-  clearAllResearchSuggestions();
+  clearAllResearchElements();
   _origNavigateToRoot();
   if (currentViewMode === 'article') setTimeout(() => renderArticleView(), 300);
 };
