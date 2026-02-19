@@ -12,7 +12,7 @@ import { dirname, join } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-import { processTextWithLLM, fetchLinkMetadata, generateLinkCard, extractDeadlinesFromFile, convertTextToLatex, generateResearchSuggestions } from './llm.js';
+import { processTextWithLLM, fetchLinkMetadata, generateLinkCard, extractDeadlinesFromFile, convertTextToLatex, generateResearchEntries } from './llm.js';
 import { chatWithCanvas } from '../server/chat.js';
 import {
   initDatabase,
@@ -1214,17 +1214,17 @@ app.post('/api/convert-latex', requireAuth, async (req, res) => {
 
 app.post('/api/research-suggestions', requireAuth, async (req, res) => {
   try {
-    const { entryText, canvasContext, direction, chainHistory } = req.body;
-    if (!entryText || typeof entryText !== 'string' || entryText.trim().length < 5) {
-      return res.status(400).json({ error: 'entryText must be at least 5 characters' });
+    const { thoughtChain, canvasContext } = req.body;
+    if (!Array.isArray(thoughtChain) || thoughtChain.length === 0) {
+      return res.status(400).json({ error: 'thoughtChain must be a non-empty array' });
     }
+    const chain = thoughtChain.filter(t => typeof t === 'string' && t.trim().length > 0).slice(0, 15);
+    if (chain.length === 0) return res.status(400).json({ error: 'thoughtChain must contain valid strings' });
     const context = Array.isArray(canvasContext) ? canvasContext.slice(0, 20) : [];
-    const dir = ['deeper', 'broader', 'lateral'].includes(direction) ? direction : null;
-    const chain = Array.isArray(chainHistory) ? chainHistory.slice(0, 10) : [];
-    const result = await generateResearchSuggestions(entryText.trim(), context, dir, chain);
+    const result = await generateResearchEntries(chain, context);
     res.json(result);
   } catch (error) {
-    console.error('Error generating research suggestions:', error);
+    console.error('Error generating research entries:', error);
     res.status(500).json({ error: error.message });
   }
 });
