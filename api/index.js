@@ -12,7 +12,7 @@ import { dirname, join } from 'path';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-import { processTextWithLLM, fetchLinkMetadata, generateLinkCard, extractDeadlinesFromFile, convertTextToLatex } from './llm.js';
+import { processTextWithLLM, fetchLinkMetadata, generateLinkCard, extractDeadlinesFromFile, convertTextToLatex, generateResearchSuggestions } from './llm.js';
 import { chatWithCanvas } from '../server/chat.js';
 import {
   initDatabase,
@@ -1000,6 +1000,21 @@ app.post('/api/convert-latex', requireAuth, async (req, res) => {
     res.json(result);
   } catch (error) {
     console.error('Error converting to LaTeX:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post('/api/research-suggestions', requireAuth, async (req, res) => {
+  try {
+    const { entryText, canvasContext } = req.body;
+    if (!entryText || typeof entryText !== 'string' || entryText.trim().length < 5) {
+      return res.status(400).json({ error: 'entryText must be at least 5 characters' });
+    }
+    const context = Array.isArray(canvasContext) ? canvasContext.slice(0, 20) : [];
+    const result = await generateResearchSuggestions(entryText.trim(), context);
+    res.json(result);
+  } catch (error) {
+    console.error('Error generating research suggestions:', error);
     res.status(500).json({ error: error.message });
   }
 });

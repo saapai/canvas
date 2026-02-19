@@ -2885,13 +2885,18 @@ async function commitEditor(){
         console.log('[COMMIT] About to updateEntryOnServer, entryData.textHtml:', entryData.textHtml ? entryData.textHtml.substring(0, 100) : 'null');
         await updateEntryOnServer(entryData);
         console.log('[COMMIT] Entry updated successfully:', entryData.id);
+        // Research mode: regenerate leads if text changed
+        if (researchModeEnabled && oldText !== trimmedRight) {
+          clearAllResearchSuggestions();
+          generateResearchLeads(entryData.id);
+        }
       } catch (error) {
         console.error('[COMMIT] Failed to update entry:', error);
         // Don't clear editing state on error - let user retry
         isCommitting = false;
         return;
       }
-      
+
       // Remove melt class after animation completes and reset styles
       const maxDuration = 1500; // Maximum animation duration
       setTimeout(() => {
@@ -3030,6 +3035,12 @@ async function commitEditor(){
   // Save to server (await to ensure it completes)
   console.log('[COMMIT] Saving new text entry:', entryData.id, entryData.text.substring(0, 50));
   await saveEntryToServer(entryData);
+
+  // Research mode: generate leads from the new entry
+  if (researchModeEnabled) {
+    clearAllResearchSuggestions();
+    generateResearchLeads(entryId);
+  }
 
   // Generate and add cards for URLs (async, after text is rendered)
   if(urls.length > 0){
@@ -4064,6 +4075,8 @@ viewport.addEventListener('mousedown', (e) => {
   if(e.target.closest('#breadcrumb')) return;
   // Don't handle clicks on background picker
   if(e.target.closest('#bg-picker-button, #bg-picker-dropdown, #bg-upload-input')) return;
+  // Don't handle clicks on research suggestions (they have their own click handler)
+  if(e.target.closest('.research-suggestion')) return;
   
   // Set flag to prevent cursor updates during click handling
   // This prevents cursor from appearing in random spot when clicking
@@ -4538,6 +4551,8 @@ window.addEventListener('mouseup', async (e) => {
       console.log('[MOUSEUP] Dragging ended. dist:', dist, 'dt:', dt, 'isClick:', isClick);
       if(dist < 6 && dt < 350 && !isClick){
         console.log('[MOUSEUP] Detected as click on empty space');
+        // Clear research suggestions on empty space click
+        if (researchModeEnabled) clearAllResearchSuggestions();
         // Clear selection if clicking on empty space (no shift key)
         if (!e.shiftKey && selectedEntries.size > 0) {
           clearSelection();
@@ -4615,6 +4630,8 @@ window.addEventListener('mouseup', async (e) => {
 
 viewport.addEventListener('dblclick', (e) => {
   if (isReadOnly) return;
+  // Block double-click navigation on research suggestions
+  if (e.target.closest('.research-suggestion')) return;
   if (pendingEditTimeout) {
     clearTimeout(pendingEditTimeout);
     pendingEditTimeout = null;
@@ -4959,6 +4976,9 @@ editor.addEventListener('keydown', (e) => {
 
   if(e.key === 'Escape'){
     e.preventDefault();
+
+    // Clear research suggestions on ESC
+    if (researchModeEnabled) clearAllResearchSuggestions();
 
     // Remove editing class from entry
     if(editingEntryId && editingEntryId !== 'anchor'){
@@ -8520,16 +8540,228 @@ const articleAiSection = document.getElementById('article-ai-section');
 const articleAiContent = document.getElementById('article-ai-content');
 const viewToggleCanvas = document.getElementById('view-toggle-canvas');
 const viewToggleArticle = document.getElementById('view-toggle-article');
+const viewToggleResearch = document.getElementById('view-toggle-research');
+
+// ——— Research Mode State ———
+let researchModeEnabled = false;
+let researchSuggestions = new Map(); // suggestionId -> { element, sourceEntryId, text, siblingIds }
+let researchGenerating = false;
+
+// ——— Research Mode Functions ———
+async function generateResearchLeads(sourceEntryId) {
+  if (!researchModeEnabled || isReadOnly || researchGenerating) return;
+  const entryData = entries.get(sourceEntryId);
+  if (!entryData || !entryData.text || entryData.text.trim().length < 5) return;
+
+  researchGenerating = true;
+  // Add pulsing indicator to source entry
+  if (entryData.element) entryData.element.classList.add('research-generating');
+
+  // Gather context from visible entries
+  const canvasContext = [];
+  entries.forEach((ed) => {
+    if (ed.id === 'anchor' || ed.id === sourceEntryId) return;
+    if (ed.parentEntryId !== currentViewEntryId) return;
+    canvasContext.push({ text: ed.text });
+  });
+
+  try {
+    const res = await fetch('/api/research-suggestions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entryText: entryData.text, canvasContext })
+    });
+    if (!res.ok) throw new Error('API error');
+    const data = await res.json();
+    if (data.suggestions && data.suggestions.length > 0) {
+      renderResearchSuggestions(sourceEntryId, data.suggestions);
+    }
+  } catch (err) {
+    console.error('[RESEARCH] Failed to generate leads:', err);
+  } finally {
+    researchGenerating = false;
+    if (entryData.element) entryData.element.classList.remove('research-generating');
+  }
+}
+
+function renderResearchSuggestions(sourceEntryId, suggestions) {
+  // Clear existing suggestions for this source
+  clearSuggestionsForSource(sourceEntryId);
+
+  const entryData = entries.get(sourceEntryId);
+  if (!entryData || !entryData.element) return;
+
+  const el = entryData.element;
+  const srcX = parseFloat(el.style.left) || 0;
+  const srcY = parseFloat(el.style.top) || 0;
+  const srcW = el.offsetWidth || 100;
+  const srcH = el.offsetHeight || 20;
+  const centerX = srcX + srcW / 2;
+  const centerY = srcY + srcH / 2;
+  const radius = 250;
+  // Start at -90deg (top) so suggestions radiate outward at 120-degree intervals
+  const startAngle = -Math.PI / 2;
+
+  const siblingIds = [];
+
+  suggestions.forEach((suggestion, i) => {
+    const angle = startAngle + (i * (2 * Math.PI / 3));
+    const sx = centerX + radius * Math.cos(angle) - 130; // offset by half max-width
+    const sy = centerY + radius * Math.sin(angle) - 15;
+
+    const suggestionId = `research-${sourceEntryId}-${i}-${Date.now()}`;
+    siblingIds.push(suggestionId);
+
+    const div = document.createElement('div');
+    div.className = 'research-suggestion';
+    div.id = suggestionId;
+    div.style.left = `${sx}px`;
+    div.style.top = `${sy}px`;
+    div.style.animationDelay = `${i * 100}ms`;
+    div.textContent = suggestion.text;
+
+    div.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      acceptResearchSuggestion(suggestionId);
+    });
+
+    // Block double-click navigation on suggestions
+    div.addEventListener('dblclick', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+    });
+
+    world.appendChild(div);
+
+    researchSuggestions.set(suggestionId, {
+      element: div,
+      sourceEntryId,
+      text: suggestion.text,
+      siblingIds // will be updated after loop
+    });
+  });
+
+  // Update sibling references so each knows about the others
+  siblingIds.forEach(id => {
+    const s = researchSuggestions.get(id);
+    if (s) s.siblingIds = siblingIds;
+  });
+}
+
+async function acceptResearchSuggestion(suggestionId) {
+  const suggestion = researchSuggestions.get(suggestionId);
+  if (!suggestion) return;
+
+  // Mark as accepting
+  suggestion.element.classList.add('accepting');
+
+  // Dismiss siblings
+  dismissSiblings(suggestionId, suggestion.siblingIds);
+
+  // Convert to a real entry
+  const sx = parseFloat(suggestion.element.style.left) || 0;
+  const sy = parseFloat(suggestion.element.style.top) || 0;
+
+  const entryId = generateEntryId();
+  const entry = document.createElement('div');
+  entry.className = 'entry melt';
+  entry.id = entryId;
+  entry.style.left = `${sx}px`;
+  entry.style.top = `${sy}px`;
+  entry.innerHTML = meltify(suggestion.text);
+  world.appendChild(entry);
+
+  const entryData = {
+    id: entryId,
+    element: entry,
+    text: suggestion.text,
+    textHtml: null,
+    latexData: null,
+    position: { x: sx, y: sy },
+    parentEntryId: currentViewEntryId
+  };
+  entries.set(entryId, entryData);
+  updateEntryVisibility();
+
+  // Remove the suggestion ghost element after transition
+  setTimeout(() => {
+    suggestion.element.remove();
+    researchSuggestions.delete(suggestionId);
+  }, 350);
+
+  // Save to server
+  await saveEntryToServer(entryData);
+
+  // Remove melt class after animation
+  setTimeout(() => {
+    entry.classList.remove('melt');
+    const spans = entry.querySelectorAll('span');
+    spans.forEach(span => {
+      span.style.animation = 'none';
+      span.style.transform = '';
+      span.style.filter = '';
+      span.style.opacity = '';
+    });
+    updateEntryDimensions(entry);
+  }, 1500);
+
+  // Generate new leads from the accepted entry
+  generateResearchLeads(entryId);
+}
+
+function dismissSiblings(acceptedId, siblingIds) {
+  siblingIds.forEach(id => {
+    if (id === acceptedId) return;
+    const s = researchSuggestions.get(id);
+    if (s && s.element) {
+      s.element.classList.add('dismissing');
+      setTimeout(() => {
+        s.element.remove();
+        researchSuggestions.delete(id);
+      }, 350);
+    }
+  });
+}
+
+function clearAllResearchSuggestions() {
+  researchSuggestions.forEach((s) => {
+    if (s.element) s.element.remove();
+  });
+  researchSuggestions.clear();
+  // Remove generating indicator from all entries
+  document.querySelectorAll('.research-generating').forEach(el => el.classList.remove('research-generating'));
+}
+
+function clearSuggestionsForSource(sourceEntryId) {
+  const toDelete = [];
+  researchSuggestions.forEach((s, id) => {
+    if (s.sourceEntryId === sourceEntryId) {
+      if (s.element) s.element.remove();
+      toDelete.push(id);
+    }
+  });
+  toDelete.forEach(id => researchSuggestions.delete(id));
+}
 
 function setViewMode(mode) {
   if (mode === currentViewMode) return;
+
+  // Clean up research mode when leaving it
+  if (researchModeEnabled && mode !== 'research') {
+    researchModeEnabled = false;
+    clearAllResearchSuggestions();
+  }
+
   currentViewMode = mode;
 
   viewToggleCanvas.classList.toggle('active', mode === 'canvas');
   viewToggleArticle.classList.toggle('active', mode === 'article');
+  if (viewToggleResearch) viewToggleResearch.classList.toggle('active', mode === 'research');
   document.body.classList.toggle('article-mode', mode === 'article');
 
   if (mode === 'article') {
+    researchModeEnabled = false;
     viewport.style.display = 'none';
     if (editingEntryId) {
       editor.blur();
@@ -8537,7 +8769,22 @@ function setViewMode(mode) {
     }
     articleView.classList.remove('hidden');
     renderArticleView();
+  } else if (mode === 'research') {
+    researchModeEnabled = true;
+    articleView.classList.add('hidden');
+    viewport.style.display = '';
+    // Recalculate entry dimensions when switching
+    setTimeout(() => {
+      entries.forEach((ed, id) => {
+        if (id === 'anchor') return;
+        if (ed.element && ed.element.style.display !== 'none') {
+          updateEntryDimensions(ed.element);
+        }
+      });
+    }, 50);
   } else {
+    // canvas mode
+    researchModeEnabled = false;
     articleView.classList.add('hidden');
     viewport.style.display = '';
     // Recalculate entry dimensions when switching back
@@ -8796,22 +9043,26 @@ Examples: "Bullshit Jobs" by David Graeber | "Consider the Lobster" – David Fo
 // Toggle event listeners
 if (viewToggleCanvas) viewToggleCanvas.addEventListener('click', () => setViewMode('canvas'));
 if (viewToggleArticle) viewToggleArticle.addEventListener('click', () => setViewMode('article'));
+if (viewToggleResearch) viewToggleResearch.addEventListener('click', () => setViewMode('research'));
 
-// Patch navigation functions to re-render article view
+// Patch navigation functions to re-render article view and clear research suggestions
 const _origNavigateToEntry = navigateToEntry;
 navigateToEntry = function(entryId) {
+  clearAllResearchSuggestions();
   _origNavigateToEntry(entryId);
   if (currentViewMode === 'article') setTimeout(() => renderArticleView(), 300);
 };
 
 const _origNavigateBack = navigateBack;
 navigateBack = function(level) {
+  clearAllResearchSuggestions();
   _origNavigateBack(level);
   if (currentViewMode === 'article') setTimeout(() => renderArticleView(), 300);
 };
 
 const _origNavigateToRoot = navigateToRoot;
 navigateToRoot = function() {
+  clearAllResearchSuggestions();
   _origNavigateToRoot();
   if (currentViewMode === 'article') setTimeout(() => renderArticleView(), 300);
 };

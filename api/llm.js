@@ -345,6 +345,54 @@ Where "isFullMath" is true if the entire content is mathematical, false if it's 
   }
 }
 
+export async function generateResearchSuggestions(entryText, canvasContext) {
+  const contextSnippet = (canvasContext || [])
+    .slice(0, 20)
+    .map(c => `- "${c.text}"`)
+    .join('\n');
+
+  const prompt = `Given this canvas entry: "${entryText}"
+
+Other entries on this canvas:
+${contextSnippet || '(none)'}
+
+Generate exactly 3 research leads branching from this entry:
+1. DEEPER: Drill into a specific detail, subtopic, or implication of this entry
+2. BROADER: Zoom out to a larger context, category, or related field
+3. LATERAL: An unexpected, creative, or cross-domain connection
+
+Each suggestion should be a concise phrase (5-15 words) that could become its own canvas entry.
+
+Respond ONLY with valid JSON:
+{"suggestions":[{"text":"deeper suggestion"},{"text":"broader suggestion"},{"text":"lateral suggestion"}]}`;
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a research assistant that generates creative, thought-provoking research leads. Respond ONLY with valid JSON, no other text.'
+        },
+        { role: 'user', content: prompt }
+      ],
+      temperature: 0.8,
+      max_tokens: 300
+    });
+
+    const content = completion.choices[0].message.content.trim();
+    let jsonStr = content;
+    const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*\})\s*```/);
+    if (jsonMatch) jsonStr = jsonMatch[1];
+
+    const result = JSON.parse(jsonStr);
+    return { suggestions: Array.isArray(result.suggestions) ? result.suggestions.slice(0, 3) : [] };
+  } catch (error) {
+    console.error('Error generating research suggestions:', error);
+    return { suggestions: [] };
+  }
+}
+
 export async function extractDeadlinesFromFile(buffer, mimetype, originalname) {
   // Compute today's date in Pacific time so relative terms resolve correctly
   const pacificNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
