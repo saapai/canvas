@@ -19,6 +19,7 @@ import {
   getEntriesCount,
   saveEntry,
   deleteEntry,
+  restoreDeletedEntries,
   saveAllEntries,
   getUserById,
   getUserByPhone,
@@ -31,8 +32,13 @@ import {
   isUsernameTaken,
   setUsername,
   getPool,
-  setUserBackground
+  setUserBackground,
+  getGoogleTokens,
+  saveGoogleTokens,
+  deleteGoogleTokens,
+  saveGoogleCalendarSettings
 } from './db.js';
+import { google } from 'googleapis';
 import jwt from 'jsonwebtoken';
 import multer from 'multer';
 import { createClient } from '@supabase/supabase-js';
@@ -52,6 +58,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
 const isDevelopment = process.env.NODE_ENV !== 'production';
+const RESERVED_USERNAMES = new Set(['stats', 'privacy', 'terms-and-conditions', 'login', 'home', 'api']);
 const DEBUG = process.env.DEBUG === 'true' || isDevelopment;
 
 // Helper for conditional logging
@@ -463,6 +470,10 @@ app.post('/api/auth/set-username', requireAuth, async (req, res) => {
     }
     const trimmed = usernameValidation.trimmed;
 
+    if (RESERVED_USERNAMES.has(trimmed.toLowerCase())) {
+      return res.status(400).json({ error: 'Username is reserved' });
+    }
+
     const taken = await isUsernameTaken(trimmed);
     if (taken) {
       return res.status(400).json({ error: 'Username already taken' });
@@ -576,7 +587,11 @@ app.post('/api/auth/create-space', requireAuth, async (req, res) => {
       return res.status(400).json({ error: usernameValidation.error });
     }
     const trimmed = usernameValidation.trimmed;
-    
+
+    if (RESERVED_USERNAMES.has(trimmed.toLowerCase())) {
+      return res.status(400).json({ error: 'Username is reserved' });
+    }
+
     const taken = await isUsernameTaken(trimmed);
     if (taken) {
       return res.status(400).json({ error: 'Username already taken' });
@@ -615,7 +630,11 @@ app.put('/api/auth/update-username', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'User ID is required' });
     }
     const trimmed = usernameValidation.trimmed;
-    
+
+    if (RESERVED_USERNAMES.has(trimmed.toLowerCase())) {
+      return res.status(400).json({ error: 'Username is reserved' });
+    }
+
     // Check if username is taken (excluding current user)
     const existingUser = await getUserByUsername(trimmed);
     if (existingUser && existingUser.id !== userId) {
@@ -662,6 +681,199 @@ app.post('/api/auth/logout', (req, res) => {
   
   debugLog('[LOGOUT] Cleared auth cookie');
   return res.json({ success: true });
+});
+
+// ——— Google OAuth + Calendar/Sheets/Docs ———
+
+const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
+const GOOGLE_CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
+const GOOGLE_REDIRECT_URI = process.env.GOOGLE_REDIRECT_URI || 'https://duttapad.com/api/oauth/google/callback';
+const GOOGLE_SCOPES = [
+  'https://www.googleapis.com/auth/calendar.readonly',
+  'https://www.googleapis.com/auth/spreadsheets.readonly',
+  'https://www.googleapis.com/auth/documents.readonly',
+  'https://www.googleapis.com/auth/drive.readonly'
+];
+
+function createOAuth2Client() {
+  return new google.auth.OAuth2(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET, GOOGLE_REDIRECT_URI);
+}
+
+async function getAuthenticatedClient(userId) {
+  const tokens = await getGoogleTokens(userId);
+  if (!tokens) return null;
+  const oauth2 = createOAuth2Client();
+  oauth2.setCredentials({
+    access_token: tokens.access_token,
+    refresh_token: tokens.refresh_token,
+    expiry_date: tokens.token_expiry ? new Date(tokens.token_expiry).getTime() : null
+  });
+  // Auto-refresh: listen for new tokens
+  oauth2.on('tokens', async (newTokens) => {
+    try {
+      await saveGoogleTokens(userId, { ...newTokens, refresh_token: newTokens.refresh_token || tokens.refresh_token });
+    } catch (e) { console.error('Failed to save refreshed Google tokens:', e); }
+  });
+  return oauth2;
+}
+
+// Initiate Google OAuth flow
+app.get('/api/oauth/google/auth', requireAuth, (req, res) => {
+  if (!GOOGLE_CLIENT_ID || !GOOGLE_CLIENT_SECRET) {
+    return res.status(500).json({ error: 'Google OAuth not configured' });
+  }
+  const oauth2 = createOAuth2Client();
+  const url = oauth2.generateAuthUrl({
+    access_type: 'offline',
+    prompt: 'consent',
+    scope: GOOGLE_SCOPES,
+    state: req.user.id // pass user ID via state param
+  });
+  res.json({ url });
+});
+
+// Google OAuth callback
+app.get('/api/oauth/google/callback', async (req, res) => {
+  try {
+    const { code, state: userId } = req.query;
+    if (!code || !userId) return res.status(400).send('Missing code or state');
+
+    const oauth2 = createOAuth2Client();
+    const { tokens } = await oauth2.getToken(code);
+    await saveGoogleTokens(userId, tokens);
+
+    // Redirect back to the user's page
+    const user = await getUserById(userId);
+    const username = user?.username || '';
+    res.redirect(`/${username}?google=connected`);
+  } catch (error) {
+    console.error('Google OAuth callback error:', error);
+    res.status(500).send('Failed to connect Google account. Please try again.');
+  }
+});
+
+// Check Google connection status
+app.get('/api/oauth/google/status', requireAuth, async (req, res) => {
+  try {
+    const tokens = await getGoogleTokens(req.user.id);
+    res.json({ connected: !!tokens, calendarSettings: tokens?.calendar_settings || {} });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to check status' });
+  }
+});
+
+// Disconnect Google account
+app.delete('/api/oauth/google/disconnect', requireAuth, async (req, res) => {
+  try {
+    const oauth2 = await getAuthenticatedClient(req.user.id);
+    if (oauth2) {
+      try { await oauth2.revokeCredentials(); } catch (e) { /* ignore revoke errors */ }
+    }
+    await deleteGoogleTokens(req.user.id);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to disconnect' });
+  }
+});
+
+// List Google Calendars
+app.get('/api/google/calendars', requireAuth, async (req, res) => {
+  try {
+    const oauth2 = await getAuthenticatedClient(req.user.id);
+    if (!oauth2) return res.status(401).json({ error: 'Google not connected' });
+    const calendar = google.calendar({ version: 'v3', auth: oauth2 });
+    const { data } = await calendar.calendarList.list();
+    const tokenData = await getGoogleTokens(req.user.id);
+    const settings = tokenData?.calendar_settings || {};
+    const calendars = (data.items || []).map(c => ({
+      id: c.id,
+      summary: c.summary,
+      backgroundColor: c.backgroundColor,
+      foregroundColor: c.foregroundColor,
+      primary: c.primary || false,
+      visible: settings[c.id] !== false // default visible
+    }));
+    res.json({ calendars });
+  } catch (error) {
+    console.error('Google calendars error:', error);
+    if (error.code === 401 || error.message?.includes('invalid_grant')) {
+      await deleteGoogleTokens(req.user.id);
+      return res.status(401).json({ error: 'Google session expired. Please reconnect.' });
+    }
+    res.status(500).json({ error: 'Failed to list calendars' });
+  }
+});
+
+// Get Google Calendar events
+app.get('/api/google/calendar/events', requireAuth, async (req, res) => {
+  try {
+    const oauth2 = await getAuthenticatedClient(req.user.id);
+    if (!oauth2) return res.status(401).json({ error: 'Google not connected' });
+    const { timeMin, timeMax, calendarIds } = req.query;
+    const calendar = google.calendar({ version: 'v3', auth: oauth2 });
+    const tokenData = await getGoogleTokens(req.user.id);
+    const settings = tokenData?.calendar_settings || {};
+
+    // Get visible calendar IDs
+    let ids = calendarIds ? calendarIds.split(',') : null;
+    if (!ids) {
+      const { data } = await calendar.calendarList.list();
+      ids = (data.items || []).filter(c => settings[c.id] !== false).map(c => c.id);
+    }
+
+    const allEvents = [];
+    for (const calId of ids) {
+      if (settings[calId] === false) continue;
+      try {
+        const { data } = await calendar.events.list({
+          calendarId: calId,
+          timeMin: timeMin || new Date().toISOString(),
+          timeMax: timeMax || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(),
+          singleEvents: true,
+          orderBy: 'startTime',
+          maxResults: 250
+        });
+        (data.items || []).forEach(e => {
+          allEvents.push({
+            id: e.id,
+            calendarId: calId,
+            summary: e.summary || '(No title)',
+            description: e.description || '',
+            start: e.start?.dateTime || e.start?.date,
+            end: e.end?.dateTime || e.end?.date,
+            allDay: !e.start?.dateTime,
+            location: e.location || '',
+            htmlLink: e.htmlLink,
+            color: e.colorId || null
+          });
+        });
+      } catch (e) {
+        console.error(`Failed to fetch events for calendar ${calId}:`, e.message);
+      }
+    }
+
+    allEvents.sort((a, b) => new Date(a.start) - new Date(b.start));
+    res.json({ events: allEvents });
+  } catch (error) {
+    console.error('Google events error:', error);
+    if (error.code === 401 || error.message?.includes('invalid_grant')) {
+      await deleteGoogleTokens(req.user.id);
+      return res.status(401).json({ error: 'Google session expired. Please reconnect.' });
+    }
+    res.status(500).json({ error: 'Failed to fetch events' });
+  }
+});
+
+// Save calendar visibility settings
+app.put('/api/google/calendar/settings', requireAuth, async (req, res) => {
+  try {
+    const { settings } = req.body;
+    if (!settings || typeof settings !== 'object') return res.status(400).json({ error: 'Invalid settings' });
+    await saveGoogleCalendarSettings(req.user.id, settings);
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to save settings' });
+  }
 });
 
 app.post('/api/process-text', async (req, res) => {
@@ -1201,6 +1413,31 @@ app.delete('/api/entries/:id', async (req, res) => {
   }
 });
 
+app.post('/api/entries/restore', async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    const { pageOwnerId } = req.body;
+    let targetUserId = req.user.id;
+    if (pageOwnerId && pageOwnerId !== req.user.id) {
+      const pageOwner = await getUserById(pageOwnerId);
+      if (!pageOwner) return res.status(403).json({ error: 'Invalid page owner' });
+      const loggedInUser = await getUserById(req.user.id);
+      if (!loggedInUser || loggedInUser.phone !== pageOwner.phone) {
+        return res.status(403).json({ error: 'No permission' });
+      }
+      targetUserId = pageOwnerId;
+    }
+    const restored = await restoreDeletedEntries(targetUserId);
+    debugLog(`[RESTORE] Restored ${restored.length} entries for user ${targetUserId}`);
+    res.json({ success: true, restored: restored.length, entries: restored });
+  } catch (error) {
+    console.error('Error restoring entries:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.post('/api/entries/batch', async (req, res) => {
   try {
     if (!req.user) {
@@ -1402,6 +1639,30 @@ app.get('/api/public/:username/path/*', async (req, res) => {
   } catch (error) {
     console.error('Error fetching public path:', error);
     res.status(500).json({ error: error.message });
+  }
+});
+
+// Privacy Policy page
+app.get('/privacy', (_req, res) => {
+  try {
+    const privacyPath = join(__dirname, '../public/privacy.html');
+    const html = readFileSync(privacyPath, 'utf8');
+    res.send(html);
+  } catch (error) {
+    console.error('Error serving privacy page:', error);
+    res.status(500).send('Error loading privacy page');
+  }
+});
+
+// Terms and Conditions page
+app.get('/terms-and-conditions', (_req, res) => {
+  try {
+    const termsPath = join(__dirname, '../public/terms-and-conditions.html');
+    const html = readFileSync(termsPath, 'utf8');
+    res.send(html);
+  } catch (error) {
+    console.error('Error serving terms page:', error);
+    res.status(500).send('Error loading terms page');
   }
 });
 

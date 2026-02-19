@@ -55,6 +55,14 @@
             <span class="template-menu-item-title">Deadlines</span>
             <span class="template-menu-item-desc">Assignments with deadline, class, and status</span>
           </button>
+          <button class="template-menu-item gcal-card-btn hidden" data-template="gcal-card">
+            <span class="template-menu-item-title">Calendar</span>
+            <span class="template-menu-item-desc">Month view with events</span>
+          </button>
+          <button class="template-menu-item" id="google-connect-btn" data-template="google">
+            <span class="template-menu-item-title" id="google-connect-label">Google Connection</span>
+            <span class="template-menu-item-desc" id="google-connect-desc">GCal, Sheets, Docs</span>
+          </button>
         </div>
       </div>
     </div>
@@ -107,68 +115,107 @@
     <div class="help-content">
       <button id="help-close" class="help-close">×</button>
       <h2>How to Use</h2>
-      <div class="help-section">
-        <div class="help-item">
-          <strong>Click anywhere</strong>
-          <span>Start typing to create an entry</span>
-        </div>
-        <div class="help-item">
-          <strong>Single click entry</strong>
-          <span>Edit the entry</span>
-        </div>
-        <div class="help-item">
-          <strong>Click and drag entry</strong>
-          <span>Move an entry around</span>
-        </div>
-        <div class="help-item">
-          <strong>Double click entry</strong>
-          <span>Navigate into entry (open subpage)</span>
-        </div>
-        <div class="help-item">
-          <strong>Right-click entry</strong>
-          <span>Edit existing entry</span>
-        </div>
-        <div class="help-item">
-          <strong>Shift + Drag empty space</strong>
-          <span>Select multiple entries</span>
-        </div>
-        <div class="help-item">
-          <strong>Delete/Backspace</strong>
-          <span>Delete selected entries</span>
-        </div>
-        <div class="help-item">
-          <strong>⌘/Ctrl + Z</strong>
-          <span>Undo last action (move, edit, delete)</span>
-        </div>
-        <div class="help-item">
-          <strong>Enter</strong>
-          <span>Save the current entry</span>
-        </div>
-        <div class="help-item">
-          <strong>Shift + Enter</strong>
-          <span>New line within an entry</span>
-        </div>
-        <div class="help-item">
-          <strong>⌘/Ctrl + Click entry</strong>
-          <span>Open link in browser (if entry has URL)</span>
-        </div>
-        <div class="help-item">
-          <strong>⌘/Ctrl + Shift + 1</strong>
-          <span>Navigate back to home page</span>
-        </div>
-        <div class="help-item">
-          <strong>Drag and drop image</strong>
-          <span>Drop an image on the canvas to place it; drag to move</span>
-        </div>
-        <div class="help-item">
-          <strong>Drag canvas</strong>
-          <span>Pan around the canvas</span>
-        </div>
-        <div class="help-item">
-          <strong>Scroll</strong>
-          <span>Zoom in/out</span>
+
+      <div class="help-category" data-open="true">
+        <button class="help-category-toggle">Entries<span class="help-chevron">›</span></button>
+        <div class="help-category-items">
+          <div class="help-item">
+            <strong>Click anywhere</strong>
+            <span>Start typing to create an entry</span>
+          </div>
+          <div class="help-item">
+            <strong>Single click entry</strong>
+            <span>Edit the entry</span>
+          </div>
+          <div class="help-item">
+            <strong>Right-click entry</strong>
+            <span>Edit existing entry</span>
+          </div>
+          <div class="help-item">
+            <strong>Enter</strong>
+            <span>Save the current entry</span>
+          </div>
+          <div class="help-item">
+            <strong>Shift + Enter</strong>
+            <span>New line within an entry</span>
+          </div>
+          <div class="help-item">
+            <strong>Clear text + Enter</strong>
+            <span>Delete the entry</span>
+          </div>
+          <div class="help-item">
+            <strong>Double click entry</strong>
+            <span>Navigate into entry (open subpage)</span>
+          </div>
         </div>
       </div>
+
+      <div class="help-category">
+        <button class="help-category-toggle">Selection &amp; Deletion<span class="help-chevron">›</span></button>
+        <div class="help-category-items">
+          <div class="help-item">
+            <strong>Shift + Drag</strong>
+            <span>Draw a box to select multiple entries</span>
+          </div>
+          <div class="help-item">
+            <strong>⌘/Ctrl + Click entry</strong>
+            <span>Add or remove entry from selection (or open link if entry has URL)</span>
+          </div>
+          <div class="help-item">
+            <strong>Click and drag entry</strong>
+            <span>Move an entry (or all selected entries)</span>
+          </div>
+          <div class="help-item">
+            <strong>Delete / Backspace</strong>
+            <span>Delete selected entries</span>
+          </div>
+          <div class="help-item">
+            <strong>⌘/Ctrl + Z</strong>
+            <span>Undo last action (move, edit, delete)</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="help-category">
+        <button class="help-category-toggle">Navigation<span class="help-chevron">›</span></button>
+        <div class="help-category-items">
+          <div class="help-item">
+            <strong>Drag canvas</strong>
+            <span>Pan around the canvas</span>
+          </div>
+          <div class="help-item">
+            <strong>Scroll</strong>
+            <span>Zoom in and out</span>
+          </div>
+          <div class="help-item">
+            <strong>⌘/Ctrl + Shift + 1</strong>
+            <span>Navigate back to home page</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="help-category">
+        <button class="help-category-toggle">Media &amp; Files<span class="help-chevron">›</span></button>
+        <div class="help-category-items">
+          <div class="help-item">
+            <strong>Drag and drop image</strong>
+            <span>Drop an image on the canvas to place it</span>
+          </div>
+          <div class="help-item">
+            <strong>Paste URL in entry</strong>
+            <span>Auto-generates a link preview card</span>
+          </div>
+          <div class="help-item">
+            <strong>Media toggle (toolbar)</strong>
+            <span>Search for movies or songs to create media cards</span>
+          </div>
+          <div class="help-item">
+            <strong>LaTeX toggle (toolbar)</strong>
+            <span>Type plain English, converts to rendered math</span>
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
   <div id="auth-overlay" class="auth-overlay hidden">

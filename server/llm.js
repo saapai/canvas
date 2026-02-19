@@ -262,14 +262,32 @@ export async function convertTextToLatex(text) {
       messages: [
         {
           role: 'system',
-          content: 'You are a LaTeX expert that converts plain text and math expressions into proper LaTeX notation. Respond ONLY with valid JSON, no other text.'
+          content: `You are a LaTeX expert that converts plain text and math expressions into proper LaTeX notation (KaTeX-compatible). Respond ONLY with valid JSON, no other text.
+
+PARENTHESES AND SCOPE (critical):
+- If the user writes explicit parentheses, respect them exactly.
+- When there are NO parentheses, infer the natural scope and make the best guess:
+  - "sin of 3x squared" or "sin 3x squared" → argument of sin is 3x^2: \\sin(3x^2).
+  - "cos of x squared" → \\cos(x^2). "integral of 3x squared" → \\int 3x^2\\,dx.
+  - "integral of sin of 3x squared" → \\int \\sin(3x^2)\\,dx. Always wrap integrands and function arguments in parentheses when converting from plain English.
+- For "X of Y" or "X of Y squared", the "of Y" (or "of Y squared") is the argument of X.
+- INTEGRALS: "integral of X" must always become \\int X \\,dx. "integral of 3x squared" → $$\\int 3x^2\\,dx$$. Never leave as plain English.
+- FRACTIONS: "one fifth" → \\frac{1}{5}; "one half" → \\frac{1}{2}; "x over 2" → \\frac{x}{2}. "400 minus one fifth" → 400 - \\frac{1}{5}.
+- POLYNOMIALS AND EQUATIONS: "x squared" → x^2; "3x squared plus 23 equals 400 minus one fifth" → $$3x^2 + 23 = 400 - \\frac{1}{5}$$. "plus" → +, "minus" → -, "equals" → =. Never leave equations as English.
+- Produce complete, valid LaTeX only. No partial or placeholder expressions. Output only the JSON with "latex" and "isFullMath" keys.`
         },
         {
           role: 'user',
-          content: `Convert the following text into LaTeX notation. Convert math expressions, equations, Greek letters, operations, fractions, integrals, summations, matrices, and any mathematical notation into proper LaTeX.
+          content: `Convert the following text into LaTeX notation. Convert math expressions, equations, Greek letters, operations, fractions, integrals, summations, polynomials, and any mathematical notation into proper KaTeX-compatible LaTeX.
 
 If the text is primarily a math expression or equation, wrap it in display math mode ($$...$$).
 If the text contains inline math mixed with regular text, wrap math parts in inline math mode ($...$) and keep regular text as-is.
+
+CRITICAL: Convert ALL math to LaTeX. Never leave as English.
+- Integrals: "integral of 3x squared" → $$\\int 3x^2\\,dx$$
+- Fractions: "one fifth" → \\frac{1}{5}; "400 minus one fifth" → 400 - \\frac{1}{5}
+- Equations: "3x squared plus 23 equals 400 minus one fifth" → $$3x^2 + 23 = 400 - \\frac{1}{5}$$
+Respect parentheses when present; when there are none, infer scope. Always output complete, valid LaTeX.
 
 Text to convert:
 "${text}"
@@ -295,7 +313,20 @@ Where "isFullMath" is true if the entire content is mathematical, false if it's 
       jsonStr = jsonMatch[1];
     }
 
-    return JSON.parse(jsonStr);
+    // LaTeX contains backslashes (\sin, \int). JSON only allows \" \\ \/ \b \f \n \r \t \uXXXX.
+    // Double any invalid escape so JSON.parse succeeds. Don't touch \uXXXX (unicode).
+    function fixJsonLatexEscapes(str) {
+      return str.replace(/\\(?!["\\\/bfnrt])(?!u[0-9a-fA-F]{4})(.)/g, '\\\\$1');
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(jsonStr);
+    } catch (_) {
+      jsonStr = fixJsonLatexEscapes(jsonStr);
+      parsed = JSON.parse(jsonStr);
+    }
+    return parsed;
   } catch (error) {
     console.error('Error converting text to LaTeX:', error);
     return { latex: text, isFullMath: false, error: error.message };

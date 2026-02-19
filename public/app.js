@@ -697,9 +697,14 @@ async function loadUserEntries(username, editable) {
           entry.innerHTML = entryData.textHtml;
           const dt = entry.querySelector('.deadline-table');
           if (dt) setupDeadlineTableHandlers(dt);
+        } else if (entryData.textHtml && entryData.textHtml.includes('gcal-card')) {
+          entry.innerHTML = entryData.textHtml;
+          const card = entry.querySelector('.gcal-card');
+          if (card) setupCalendarCardHandlers(card);
         } else if (processedText) {
           if (entryData.textHtml && /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(entryData.textHtml)) {
             entry.innerHTML = meltifyHtml(entryData.textHtml);
+            applyEntryFontSize(entry, entryData.textHtml);
           } else {
             entry.innerHTML = meltify(processedText);
           }
@@ -1120,96 +1125,55 @@ async function deleteEntryFromServer(entryId) {
 }
 
 async function deleteEntryWithConfirmation(entryId, skipConfirmation = false, skipUndo = false) {
-  const childCount = countChildEntries(entryId);
-  
-  // If no children, delete immediately
-  if (childCount === 0) {
-    const entryData = entries.get(entryId);
-    if (entryData) {
-      // Save undo state (unless we're deleting recursively as part of a parent deletion)
-      if (!skipUndo) {
-        const deletedEntry = {
-          id: entryData.id,
-          text: entryData.text,
-          position: entryData.position,
-          parentEntryId: entryData.parentEntryId,
-          mediaCardData: entryData.mediaCardData,
-          linkCardsData: entryData.linkCardsData
-        };
-        saveUndoState('delete', { entries: [deletedEntry] });
-      }
-      
-      entryData.element.classList.remove('editing', 'deadline-editing');
-      entryData.element.remove();
-      entries.delete(entryId);
-      await deleteEntryFromServer(entryId);
-      return true;
+  const entryData = entries.get(entryId);
+  if (!entryData) return false;
+
+  // Count ALL descendants (not just direct children)
+  function collectAllDescendants(parentId) {
+    const result = [];
+    const children = Array.from(entries.values()).filter(e => e.parentEntryId === parentId);
+    for (const child of children) {
+      result.push(child);
+      result.push(...collectAllDescendants(child.id));
     }
-    return false;
+    return result;
   }
 
-  // If has children, show confirmation (unless we're deleting recursively)
-  let confirmed = true;
-  if (!skipConfirmation) {
-    confirmed = await showDeleteConfirmation(entryId, childCount);
+  const allDescendants = collectAllDescendants(entryId);
+
+  // If has descendants and not skipping confirmation, ask user
+  if (allDescendants.length > 0 && !skipConfirmation) {
+    const confirmed = await showDeleteConfirmation(entryId, allDescendants.length);
+    if (!confirmed) return false;
   }
-  
-  if (confirmed) {
-    const entryData = entries.get(entryId);
-    if (entryData) {
-      // Collect all entries to delete (parent + all descendants)
-      const entriesToDelete = [];
-      
-      // Recursively collect all child entries
-      function collectChildren(parentId) {
-        const children = Array.from(entries.values()).filter(e => e.parentEntryId === parentId);
-        for (const child of children) {
-          entriesToDelete.push({
-            id: child.id,
-            text: child.text,
-            position: child.position,
-            parentEntryId: child.parentEntryId,
-            mediaCardData: child.mediaCardData,
-            linkCardsData: child.linkCardsData
-          });
-          collectChildren(child.id); // Recursively collect grandchildren
-        }
-      }
-      
-      // Add parent entry
-      entriesToDelete.push({
-        id: entryData.id,
-        text: entryData.text,
-        position: entryData.position,
-        parentEntryId: entryData.parentEntryId,
-        mediaCardData: entryData.mediaCardData,
-        linkCardsData: entryData.linkCardsData
-      });
-      
-      // Collect all children
-      collectChildren(entryId);
-      
-      // Save undo state (unless we're deleting recursively as part of a parent deletion)
-      if (!skipUndo) {
-        saveUndoState('delete', { entries: entriesToDelete });
-      }
-      
-      // Delete all child entries first (recursively, without confirmation and without undo)
-      const childEntries = Array.from(entries.values()).filter(e => e.parentEntryId === entryId);
-      for (const child of childEntries) {
-        await deleteEntryWithConfirmation(child.id, true, true); // Skip confirmation and undo for children
-      }
-      
-      // Then delete the parent entry
-      entryData.element.classList.remove('editing', 'deadline-editing');
-      entryData.element.remove();
-      entries.delete(entryId);
-      await deleteEntryFromServer(entryId);
-      return true;
-    }
+
+  // Collect all entries for undo (parent + descendants)
+  if (!skipUndo) {
+    const entriesToDelete = [entryData, ...allDescendants].map(e => ({
+      id: e.id,
+      text: e.text,
+      position: e.position,
+      parentEntryId: e.parentEntryId,
+      mediaCardData: e.mediaCardData,
+      linkCardsData: e.linkCardsData
+    }));
+    saveUndoState('delete', { entries: entriesToDelete });
   }
-  
-  return false;
+
+  // Delete all descendants first (from DOM, Map, and server)
+  for (const desc of allDescendants) {
+    desc.element.classList.remove('editing', 'deadline-editing');
+    desc.element.remove();
+    entries.delete(desc.id);
+    await deleteEntryFromServer(desc.id);
+  }
+
+  // Delete the parent entry
+  entryData.element.classList.remove('editing', 'deadline-editing');
+  entryData.element.remove();
+  entries.delete(entryId);
+  await deleteEntryFromServer(entryId);
+  return true;
 }
 
 async function loadEntriesFromServer() {
@@ -1292,10 +1256,15 @@ async function loadEntriesFromServer() {
         entry.innerHTML = entryData.textHtml;
         const dt = entry.querySelector('.deadline-table');
         if (dt) setupDeadlineTableHandlers(dt);
+      } else if (entryData.textHtml && entryData.textHtml.includes('gcal-card')) {
+        entry.innerHTML = entryData.textHtml;
+        const card = entry.querySelector('.gcal-card');
+        if (card) setupCalendarCardHandlers(card);
       } else if (processedText) {
         if (entryData.textHtml && /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(entryData.textHtml)) {
           // Has formatting, use HTML version
           entry.innerHTML = meltifyHtml(entryData.textHtml);
+          applyEntryFontSize(entry, entryData.textHtml);
         } else {
           // No formatting, use regular meltify
           entry.innerHTML = meltify(processedText);
@@ -2535,6 +2504,10 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
         const table = editor.querySelector('.deadline-table');
         if (table) setupDeadlineTableHandlers(table);
       }
+      if (entryData.textHtml.includes('gcal-card')) {
+        const card = editor.querySelector('.gcal-card');
+        if (card) setupCalendarCardHandlers(card);
+      }
     } else {
       editor.textContent = text;
     }
@@ -2598,6 +2571,10 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
     const ed = entries.get(entryId);
     return ed && ed.textHtml && ed.textHtml.includes('deadline-table');
   })();
+  const isCalendarCard = entryId && (() => {
+    const ed = entries.get(entryId);
+    return ed && ed.textHtml && ed.textHtml.includes('gcal-card');
+  })();
 
   if (isDeadlineTable) {
     const firstCell = editor.querySelector('.deadline-table [contenteditable="true"]');
@@ -2612,6 +2589,10 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
     } else {
       editor.focus();
     }
+  } else if (isCalendarCard) {
+    const card = editor.querySelector('.gcal-card');
+    if (card) setupCalendarCardHandlers(card);
+    editor.focus();
   } else {
     editor.focus();
   }
@@ -2621,7 +2602,7 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
     editor.style.width = `${contentWidth}px`;
   });
 
-  if (!isDeadlineTable) {
+  if (!isDeadlineTable && !isCalendarCard) {
     const range = document.createRange();
     const sel = window.getSelection();
     if (text) {
@@ -2670,9 +2651,10 @@ async function commitEditor(){
   const raw = editor.innerText;
   const trimmedRight = raw.replace(/\s+$/g,'');
   
-  // Check if content is a deadline table or has formatting tags
+  // Check if content is a deadline table, calendar card, or has formatting tags
   const isDeadlineTable = htmlContent.includes('deadline-table');
-  const hasFormatting = isDeadlineTable || /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(htmlContent);
+  const isCalendarCard = htmlContent.includes('gcal-card');
+  const hasFormatting = isDeadlineTable || isCalendarCard || /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(htmlContent);
   const trimmedHtml = hasFormatting ? htmlContent : null;
   
   console.log('[COMMIT] HTML content length:', htmlContent.length, 'hasFormatting:', hasFormatting);
@@ -2695,22 +2677,8 @@ async function commitEditor(){
       return;
     }
     if(entryData){
-      // If editor text is empty, check whether deletion is appropriate
+      // If editor text is empty, delete the entry
       if(!trimmedRight){
-        // Safety: if entry has saved text but editor reads as empty, this is a
-        // DOM timing issue (blur/focus race, shift+drag, etc.) — not intentional
-        if(entryData.text && entryData.text.trim().length > 0) {
-          console.log('[COMMIT] Editor empty but entry has saved text — skipping delete');
-          entryData.element.classList.remove('editing', 'deadline-editing');
-          editingEntryId = null;
-          editor.removeEventListener('keydown', handleDeadlineTableKeydown);
-          editor.textContent = '';
-          editor.innerHTML = '';
-          showCursorInDefaultPosition();
-          isCommitting = false;
-          return;
-        }
-        // User intentionally cleared text and committed - delete the entry
         const deletedEntryId = editingEntryId; // Store before deletion
         const deletedEntryData = entries.get(deletedEntryId);
         let deletedEntryPos = null;
@@ -2795,9 +2763,13 @@ async function commitEditor(){
         // Clear latex data when latex mode is off
         entryData.latexData = null;
 
-      if (isDeadlineTable) {
-        // Deadline tables: use raw HTML directly, no melt animation
+      if (isDeadlineTable || isCalendarCard) {
+        // Deadline tables / calendar cards: use raw HTML directly, no melt animation
         entryData.element.innerHTML = trimmedHtml;
+        if (isCalendarCard) {
+          const card = entryData.element.querySelector('.gcal-card');
+          if (card) setupCalendarCardHandlers(card);
+        }
       } else {
         // Add melt class for animation
         entryData.element.classList.add('melt');
@@ -2814,6 +2786,7 @@ async function commitEditor(){
         } else {
           entryData.element.innerHTML = '';
         }
+        applyEntryFontSize(entryData.element, trimmedHtml);
       }
       } // end else (non-latex)
 
@@ -2963,7 +2936,7 @@ async function commitEditor(){
 
   const entryId = generateEntryId();
   const entry = document.createElement('div');
-  entry.className = isDeadlineTable ? 'entry' : 'entry melt';
+  entry.className = (isDeadlineTable || isCalendarCard) ? 'entry' : 'entry melt';
   entry.id = entryId;
 
   entry.style.left = `${editorWorldPos.x}px`;
@@ -2972,7 +2945,7 @@ async function commitEditor(){
   let newEntryLatexData = null;
 
   // LaTeX mode for new entries
-  if (latexModeEnabled && !isDeadlineTable) {
+  if (latexModeEnabled && !isDeadlineTable && !isCalendarCard) {
     entry.classList.remove('melt');
     entry.classList.add('latex-converting');
     world.appendChild(entry);
@@ -2992,6 +2965,11 @@ async function commitEditor(){
   // Only render text if there is any
   if (isDeadlineTable) {
     entry.innerHTML = trimmedHtml;
+  } else if (isCalendarCard) {
+    entry.innerHTML = trimmedHtml;
+    world.appendChild(entry);
+    const card = entry.querySelector('.gcal-card');
+    if (card) setupCalendarCardHandlers(card);
   } else if(processedText){
     if (trimmedHtml) {
       // Has formatting, process HTML with formatting preserved
@@ -3003,7 +2981,8 @@ async function commitEditor(){
   } else {
     entry.innerHTML = '';
   }
-  world.appendChild(entry);
+  applyEntryFontSize(entry, trimmedHtml);
+  if (!isCalendarCard) world.appendChild(entry);
   }
 
   // Update entry dimensions based on actual content after rendering
@@ -3121,6 +3100,16 @@ function updateEntryDimensions(entry) {
         const tableHeight = Math.max(deadlineTable.scrollHeight, deadlineTable.offsetHeight);
         entry.style.setProperty('width', `${tableWidth}px`, 'important');
         entry.style.setProperty('height', `${tableHeight}px`, 'important');
+        entry.style.setProperty('min-height', 'auto', 'important');
+        entry.style.setProperty('min-width', 'auto', 'important');
+        return;
+      }
+      const gcalCard = entry.querySelector('.gcal-card');
+      if (gcalCard) {
+        const w = Math.max(gcalCard.scrollWidth, gcalCard.offsetWidth);
+        const h = Math.max(gcalCard.scrollHeight, gcalCard.offsetHeight);
+        entry.style.setProperty('width', `${w}px`, 'important');
+        entry.style.setProperty('height', `${h}px`, 'important');
         entry.style.setProperty('min-height', 'auto', 'important');
         entry.style.setProperty('min-width', 'auto', 'important');
         return;
@@ -3527,6 +3516,27 @@ function renderLatex(latexSource, element) {
     }
   }
   doRender();
+}
+
+// Detect the primary font-size from an entry's textHtml and set it on the element.
+// This ensures text outside explicit font-size spans still renders at the correct size
+// (the entry CSS defaults to 16px, so entries with larger fonts would shrink on reload).
+function applyEntryFontSize(entry, textHtml) {
+  if (!textHtml) {
+    entry.style.fontSize = '';
+    return;
+  }
+  const match = textHtml.match(/style="[^"]*font-size:\s*(\d+(?:\.\d+)?)px/);
+  if (match) {
+    const size = parseFloat(match[1]);
+    if (size && size !== 16) {
+      entry.style.fontSize = size + 'px';
+    } else {
+      entry.style.fontSize = '';
+    }
+  } else {
+    entry.style.fontSize = '';
+  }
 }
 
 function escapeHtml(s){
@@ -4032,15 +4042,21 @@ viewport.addEventListener('mousedown', (e) => {
       entryData.element.classList.remove('editing', 'deadline-editing');
       if(trimmedRight) {
         const isDeadline = htmlContent.includes('deadline-table');
-        const hasFmt = isDeadline || /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(htmlContent);
+        const isCalendarCard = htmlContent.includes('gcal-card');
+        const hasFmt = isDeadline || isCalendarCard || /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(htmlContent);
         entryData.text = trimmedRight;
         entryData.textHtml = hasFmt ? htmlContent : null;
-        if(isDeadline) {
+        if (isDeadline) {
           entryData.element.innerHTML = htmlContent;
+        } else if (isCalendarCard) {
+          entryData.element.innerHTML = htmlContent;
+          const card = entryData.element.querySelector('.gcal-card');
+          if (card) setupCalendarCardHandlers(card);
         } else if (!hasCards) {
           const { processedText } = processTextWithLinks(trimmedRight);
           entryData.element.innerHTML = hasFmt ? meltifyHtml(htmlContent) : meltify(processedText || '');
         }
+        applyEntryFontSize(entryData.element, hasFmt ? htmlContent : null);
         updateEntryDimensions(entryData.element);
         updateEntryOnServer(entryData);
       }
@@ -4420,8 +4436,29 @@ window.addEventListener('mouseup', async (e) => {
         if(isClick && e.button !== 2 && draggingEntry.id !== 'anchor' && draggingEntry.id && !isReadOnly) {
           const entryData = entries.get(draggingEntry.id);
           if(entryData) {
-            if(isImageEntry(draggingEntry) || isFileEntry(draggingEntry)) {
+            // Cmd/Ctrl+click: toggle entry in multi-selection
+            if ((e.metaKey || e.ctrlKey) && !e.shiftKey) {
+              const eid = draggingEntry.id;
+              // Check if this entry has a URL — if so, open it (existing behavior)
+              const urls = extractUrls(entryData.text);
+              if (urls.length > 0) {
+                window.open(urls[0], '_blank');
+              } else {
+                // Toggle selection
+                if (selectedEntries.has(eid)) {
+                  selectedEntries.delete(eid);
+                  entryData.element.classList.remove('selected');
+                  if (selectedEntries.size === 0) showCursorInDefaultPosition();
+                } else {
+                  selectedEntries.add(eid);
+                  entryData.element.classList.add('selected');
+                  hideCursor();
+                }
+              }
+            } else if(isImageEntry(draggingEntry) || isFileEntry(draggingEntry)) {
               selectOnlyEntry(draggingEntry.id);
+            } else if(draggingEntry.querySelector('.gcal-card')) {
+              // Calendar card: no edit mode, do nothing on click
             } else if(draggingEntry.querySelector('.deadline-table')) {
               const alreadyEditing = editingEntryId === draggingEntry.id;
               if (!alreadyEditing) {
@@ -4619,7 +4656,7 @@ window.addEventListener('mouseup', async (e) => {
             const urls = extractUrls(entryData.text);
             if (urls.length > 0) window.open(urls[0], '_blank');
           }
-        } else if (entryEl.id !== 'anchor' && entryEl.id && !editingEntryId && !entryEl.querySelector('.deadline-table')) {
+        } else if (entryEl.id !== 'anchor' && entryEl.id && !editingEntryId && !entryEl.querySelector('.deadline-table') && !entryEl.querySelector('.gcal-card')) {
           navigateToEntry(entryEl.id);
         }
       }
@@ -4638,7 +4675,7 @@ viewport.addEventListener('dblclick', (e) => {
   }
   const entryEl = findEntryElement(e.target);
   if (e.target.closest('.link-card, .link-card-placeholder, .media-card')) return;
-  if (entryEl && entryEl.querySelector('.deadline-table')) return;
+  if (entryEl && (entryEl.querySelector('.deadline-table') || entryEl.querySelector('.gcal-card'))) return;
   if (entryEl && entryEl.id !== 'anchor' && entryEl.id && !editingEntryId) {
     e.preventDefault();
     e.stopPropagation();
@@ -4961,8 +4998,8 @@ editor.addEventListener('keydown', (e) => {
       }
     }
     
-    // Deadline tables handle Enter themselves via handleDeadlineTableKeydown
-    if (editor.querySelector('.deadline-table')) {
+    // Deadline tables handle Enter themselves; calendar cards don't commit on Enter
+    if (editor.querySelector('.deadline-table') || editor.querySelector('.gcal-card')) {
       return;
     }
 
@@ -5005,9 +5042,10 @@ editor.addEventListener('keydown', (e) => {
 function updateEditingBorderDimensions(entry) {
   if (!entry || !entry.classList.contains('editing')) return;
 
-  // Deadline tables: size border to match table dimensions
+  // Deadline tables / calendar cards: size border to match content dimensions
   const deadlineTable = entry.querySelector('.deadline-table');
-  if (deadlineTable) {
+  const gcalCard = entry.querySelector('.gcal-card');
+  if (deadlineTable || gcalCard) {
     entry.style.removeProperty('width');
     entry.style.removeProperty('height');
     return;
@@ -5156,7 +5194,7 @@ editor.addEventListener('blur', (e) => {
       }
     }, 0);
   } else if (trimmed.length === 0 && editingEntryId && editingEntryId !== 'anchor') {
-    // If editor is empty and editing existing entry, delete the entry
+    // If editor is empty and editing existing entry, consider deleting the entry
     // BUT: skip auto-delete for entries that are pure media/link cards (no text)
     setTimeout(async () => {
       const active = document.activeElement;
@@ -5164,6 +5202,20 @@ editor.addEventListener('blur', (e) => {
       if (active !== editor && !editor.contains(active) && !focusInFormatBar) {
         const entryData = entries.get(editingEntryId);
         if (!entryData) return;
+
+        // SAFETY: If the entry has saved text, the editor reading as empty is a
+        // DOM timing race (blur/focus race, shift+drag, rapid click, etc.).
+        // Never auto-delete an entry that has persisted text.
+        if (entryData.text && entryData.text.trim().length > 0) {
+          console.log('[BLUR] Editor empty but entry has saved text — skipping delete, entry:', editingEntryId);
+          entryData.element.classList.remove('editing', 'deadline-editing');
+          editingEntryId = null;
+          editor.removeEventListener('keydown', handleDeadlineTableKeydown);
+          editor.textContent = '';
+          editor.innerHTML = '';
+          showCursorInDefaultPosition();
+          return;
+        }
 
         const hasMediaOrLinks =
           !!entryData.mediaCardData ||
@@ -5180,7 +5232,7 @@ editor.addEventListener('blur', (e) => {
           return;
         }
 
-        // No media/link cards: user really cleared text, delete entry
+        // No saved text and no media/link cards: user really cleared text, delete entry
         const deletedEntryId = editingEntryId; // Store before deletion
         const deletedEntryData = entries.get(deletedEntryId);
         let deletedEntryPos = null;
@@ -5255,6 +5307,11 @@ viewport.addEventListener('contextmenu', (e) => {
       e.preventDefault();
       e.stopPropagation();
       selectOnlyEntry(entryEl.id);
+      return;
+    }
+    if(entryEl.querySelector('.gcal-card')){
+      e.preventDefault();
+      e.stopPropagation();
       return;
     }
     e.preventDefault();
@@ -5865,6 +5922,14 @@ if (helpModal) {
     if (e.target === helpModal) {
       helpModal.classList.add('hidden');
     }
+  });
+  // Help category toggles
+  helpModal.querySelectorAll('.help-category-toggle').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const cat = btn.closest('.help-category');
+      const isOpen = cat.getAttribute('data-open') === 'true';
+      cat.setAttribute('data-open', isOpen ? 'false' : 'true');
+    });
   });
 }
 
@@ -7230,11 +7295,16 @@ async function performUndo() {
             entry.innerHTML = entryData.textHtml;
             const dt = entry.querySelector('.deadline-table');
             if (dt) setupDeadlineTableHandlers(dt);
+          } else if (entryData.textHtml && entryData.textHtml.includes('gcal-card')) {
+            entry.innerHTML = entryData.textHtml;
+            const card = entry.querySelector('.gcal-card');
+            if (card) setupCalendarCardHandlers(card);
           } else if (processedText) {
             entry.innerHTML = meltify(processedText);
           } else {
             entry.innerHTML = '';
           }
+          applyEntryFontSize(entry, entryData.textHtml);
           if (entryData.linkCardsData && entryData.linkCardsData.length > 0) {
             entryData.linkCardsData.forEach((cardData) => {
               if (cardData) {
@@ -7319,6 +7389,10 @@ async function performUndo() {
         const { processedText, urls } = processTextWithLinks(state.data.oldText);
         if (editEntryData.textHtml && editEntryData.textHtml.includes('deadline-table')) {
           editEntryData.element.innerHTML = editEntryData.textHtml;
+        } else if (editEntryData.textHtml && editEntryData.textHtml.includes('gcal-card')) {
+          editEntryData.element.innerHTML = editEntryData.textHtml;
+          const card = editEntryData.element.querySelector('.gcal-card');
+          if (card) setupCalendarCardHandlers(card);
         } else if (processedText) {
           editEntryData.element.innerHTML = meltify(processedText);
         } else {
@@ -7566,6 +7640,10 @@ if (templateMenuButton && templateMenuDropdown) {
 async function insertTemplate(templateType) {
   if (templateType === 'deadlines') {
     await insertDeadlinesTemplate();
+  } else if (templateType === 'gcal-card') {
+    await insertCalendarTemplate();
+  } else if (templateType === 'google') {
+    handleGoogleConnection();
   }
 }
 
@@ -8080,6 +8158,261 @@ async function insertDeadlinesTemplate() {
   if (firstCell) {
     setTimeout(() => firstCell.focus(), 0);
   }
+}
+
+function formatMonthKey(date) {
+  return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0');
+}
+
+function parseGcalMonth(monthStr) {
+  if (!monthStr || !/^\d{4}-\d{2}$/.test(monthStr)) return new Date();
+  return new Date(monthStr + '-01T12:00:00');
+}
+
+async function fetchGcalCalendars() {
+  try {
+    const res = await fetch('/api/google/calendars', { credentials: 'include' });
+    if (!res.ok) {
+      if (res.status === 401) { gcalConnected = false; updateGoogleConnectButton(); }
+      return [];
+    }
+    const data = await res.json();
+    return data.calendars || [];
+  } catch (e) {
+    console.error('Fetch calendars error:', e);
+    return [];
+  }
+}
+
+async function fetchGcalEventsForMonth(viewDate) {
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+  const timeMin = new Date(year, month, 1).toISOString();
+  const timeMax = new Date(year, month + 2, 0).toISOString();
+  try {
+    const res = await fetch(`/api/google/calendar/events?timeMin=${encodeURIComponent(timeMin)}&timeMax=${encodeURIComponent(timeMax)}`, { credentials: 'include' });
+    if (!res.ok) {
+      if (res.status === 401) { gcalConnected = false; updateGoogleConnectButton(); }
+      return [];
+    }
+    const data = await res.json();
+    return data.events || [];
+  } catch (e) {
+    console.error('Fetch events error:', e);
+    return [];
+  }
+}
+
+function getEventsForDateFromList(dateStr, eventsList) {
+  return eventsList.filter(evt => {
+    const start = evt.start;
+    if (!start) return false;
+    const evtDate = start.length === 10 ? start : start.substring(0, 10);
+    if (evtDate === dateStr) return true;
+    if (evt.allDay && evt.end) {
+      const endDate = evt.end.length === 10 ? evt.end : evt.end.substring(0, 10);
+      return dateStr >= evtDate && dateStr < endDate;
+    }
+    return false;
+  });
+}
+
+function renderCalendarDayCell(day, dateStr, otherMonth, isToday, state) {
+  const events = getEventsForDateFromList(dateStr, state.events || []);
+  const maxChips = 3;
+  const shown = events.slice(0, maxChips);
+  const moreCount = events.length - maxChips;
+  let chipsHtml = '';
+  shown.forEach(evt => {
+    const cal = (state.calendars || []).find(c => c.id === evt.calendarId);
+    const color = cal?.backgroundColor || '#4285f4';
+    const title = (evt.summary || 'Event').substring(0, 30);
+    chipsHtml += `<div class="gcal-card-chip" style="border-left-color:${color}"><span class="gcal-card-chip-title">${escapeHtml(title)}</span></div>`;
+  });
+  if (moreCount > 0) {
+    chipsHtml += `<div class="gcal-card-more">+${moreCount} more</div>`;
+  }
+  const classes = ['gcal-card-day'];
+  if (otherMonth) classes.push('other-month');
+  if (isToday) classes.push('today');
+  return `<div class="${classes.join(' ')}" data-date="${escapeHtml(dateStr)}"><div class="gcal-card-day-num">${day}</div>${chipsHtml}</div>`;
+}
+
+function renderCalendarCard(card) {
+  const state = card._gcalState || {};
+  const viewDate = state.viewDate ? new Date(state.viewDate) : parseGcalMonth(card.dataset.gcalMonth || '');
+  const year = viewDate.getFullYear();
+  const month = viewDate.getMonth();
+  const today = new Date();
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  const startDow = firstDay.getDay();
+
+  const monthLabel = card.querySelector('.gcal-card-month-label');
+  if (monthLabel) monthLabel.textContent = firstDay.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+
+  const dayHeaders = card.querySelector('.gcal-card-day-headers');
+  if (dayHeaders) {
+    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    dayHeaders.innerHTML = days.map(d => `<span>${d}</span>`).join('');
+  }
+
+  const grid = card.querySelector('.gcal-card-grid');
+  if (!grid) return;
+
+  let html = '';
+  const prevLastDay = new Date(year, month, 0).getDate();
+  for (let i = startDow - 1; i >= 0; i--) {
+    const d = prevLastDay - i;
+    const dateStr = formatDateKey(new Date(year, month - 1, d));
+    html += renderCalendarDayCell(d, dateStr, true, false, state);
+  }
+  for (let d = 1; d <= lastDay.getDate(); d++) {
+    const dateStr = formatDateKey(new Date(year, month, d));
+    const isToday = today.getFullYear() === year && today.getMonth() === month && today.getDate() === d;
+    html += renderCalendarDayCell(d, dateStr, false, isToday, state);
+  }
+  const totalCells = startDow + lastDay.getDate();
+  const remaining = totalCells % 7 === 0 ? 0 : 7 - (totalCells % 7);
+  for (let d = 1; d <= remaining; d++) {
+    const dateStr = formatDateKey(new Date(year, month + 1, d));
+    html += renderCalendarDayCell(d, dateStr, true, false, state);
+  }
+  grid.innerHTML = html;
+
+  const loading = card.querySelector('.gcal-card-loading');
+  if (loading) loading.classList.add('hidden');
+}
+
+function saveCalendarCardState(card) {
+  const entry = card.closest('.entry');
+  if (!entry) return;
+  const entryData = entries.get(entry.id);
+  if (!entryData) return;
+  const clone = card.cloneNode(true);
+  const grid = clone.querySelector('.gcal-card-grid');
+  if (grid) grid.innerHTML = '';
+  const loading = clone.querySelector('.gcal-card-loading');
+  if (loading) loading.classList.add('hidden');
+  entryData.text = entry.innerText;
+  entryData.textHtml = clone.outerHTML;
+  updateEntryOnServer(entryData);
+}
+
+function setupCalendarCardHandlers(card) {
+  const monthStr = card.dataset.gcalMonth || formatMonthKey(new Date());
+  card.dataset.gcalMonth = monthStr;
+  const viewDate = parseGcalMonth(monthStr);
+  card._gcalState = { viewDate: viewDate.getTime(), calendars: [], events: [] };
+
+  const loading = card.querySelector('.gcal-card-loading');
+  if (loading) loading.classList.add('hidden');
+
+  renderCalendarCard(card);
+
+  (async () => {
+    const [calendars, events] = await Promise.all([
+      fetchGcalCalendars(),
+      fetchGcalEventsForMonth(viewDate)
+    ]);
+    if (!card._gcalState) return;
+    card._gcalState.calendars = calendars;
+    card._gcalState.events = events;
+    renderCalendarCard(card);
+    saveCalendarCardState(card);
+  })();
+
+  card.addEventListener('mousedown', (e) => {
+    if (e.target.closest('.gcal-card-nav-btn, .gcal-card-today-btn')) e.stopPropagation();
+  });
+
+  const prevBtn = card.querySelector('.gcal-card-prev');
+  const nextBtn = card.querySelector('.gcal-card-next');
+  const todayBtn = card.querySelector('.gcal-card-today-btn');
+
+  if (prevBtn) {
+    prevBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const state = card._gcalState || {};
+      const d = new Date(state.viewDate || Date.now());
+      d.setMonth(d.getMonth() - 1);
+      card._gcalState.viewDate = d.getTime();
+      card.dataset.gcalMonth = formatMonthKey(d);
+      card._gcalState.events = [];
+      renderCalendarCard(card);
+      fetchGcalEventsForMonth(d).then(events => {
+        if (!card._gcalState) return;
+        card._gcalState.events = events;
+        renderCalendarCard(card);
+        saveCalendarCardState(card);
+      });
+    });
+  }
+  if (nextBtn) {
+    nextBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const state = card._gcalState || {};
+      const d = new Date(state.viewDate || Date.now());
+      d.setMonth(d.getMonth() + 1);
+      card._gcalState.viewDate = d.getTime();
+      card.dataset.gcalMonth = formatMonthKey(d);
+      card._gcalState.events = [];
+      renderCalendarCard(card);
+      fetchGcalEventsForMonth(d).then(events => {
+        if (!card._gcalState) return;
+        card._gcalState.events = events;
+        renderCalendarCard(card);
+        saveCalendarCardState(card);
+      });
+    });
+  }
+  if (todayBtn) {
+    todayBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const d = new Date();
+      card._gcalState.viewDate = d.getTime();
+      card.dataset.gcalMonth = formatMonthKey(d);
+      card._gcalState.events = [];
+      renderCalendarCard(card);
+      fetchGcalEventsForMonth(d).then(events => {
+        if (!card._gcalState) return;
+        card._gcalState.events = events;
+        renderCalendarCard(card);
+        saveCalendarCardState(card);
+      });
+    });
+  }
+}
+
+async function insertCalendarTemplate() {
+  if (!gcalConnected) {
+    handleGoogleConnection();
+    return;
+  }
+  const now = new Date();
+  const monthStr = formatMonthKey(now);
+  const monthLabel = now.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  const cardHTML = `
+<div class="gcal-card" contenteditable="false" data-gcal-card="true" data-gcal-month="${escapeHtml(monthStr)}">
+  <div class="gcal-card-header">
+    <button type="button" class="gcal-card-nav-btn gcal-card-prev" aria-label="Previous month">‹</button>
+    <button type="button" class="gcal-card-nav-btn gcal-card-next" aria-label="Next month">›</button>
+    <span class="gcal-card-month-label">${escapeHtml(monthLabel)}</span>
+    <button type="button" class="gcal-card-today-btn">Today</button>
+  </div>
+  <div class="gcal-card-day-headers">
+    <span>Sun</span><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span>
+  </div>
+  <div class="gcal-card-grid"></div>
+  <div class="gcal-card-loading hidden" aria-hidden="true">Loading calendar…</div>
+</div>`;
+  editor.innerHTML = cardHTML;
+  editor.classList.add('has-content');
+  const card = editor.querySelector('.gcal-card');
+  if (card) setupCalendarCardHandlers(card);
 }
 
 function focusNearestDeadlineCell(table, clientX, clientY) {
@@ -9067,4 +9400,68 @@ navigateToRoot = function() {
   if (currentViewMode === 'article') setTimeout(() => renderArticleView(), 300);
 };
 
+// ——— Google Calendar Integration ———
+const googleConnectBtn = document.getElementById('google-connect-btn');
+const googleConnectLabel = document.getElementById('google-connect-label');
+const googleConnectDesc = document.getElementById('google-connect-desc');
+
+let gcalConnected = false;
+let gcalCalendarSettings = {};
+
+// Check Google connection on load
+async function checkGoogleStatus() {
+  try {
+    const res = await fetch('/api/oauth/google/status', { credentials: 'include' });
+    if (!res.ok) return;
+    const data = await res.json();
+    gcalConnected = data.connected;
+    gcalCalendarSettings = data.calendarSettings || {};
+    updateGoogleConnectButton();
+  } catch(e) { /* not connected */ }
+}
+
+function updateGoogleConnectButton() {
+  if (!googleConnectLabel) return;
+  const gcalCardBtn = document.querySelector('.gcal-card-btn');
+  if (gcalConnected) {
+    googleConnectLabel.innerHTML = 'Google Connected <span class="google-connected-badge"></span>';
+    if (googleConnectDesc) googleConnectDesc.textContent = 'GCal, Sheets, Docs';
+    if (gcalCardBtn) gcalCardBtn.classList.remove('hidden');
+  } else {
+    googleConnectLabel.textContent = 'Google Connection';
+    if (googleConnectDesc) googleConnectDesc.textContent = 'GCal, Sheets, Docs';
+    if (gcalCardBtn) gcalCardBtn.classList.add('hidden');
+  }
+}
+
+async function handleGoogleConnection() {
+  if (!currentUser) return;
+  if (gcalConnected) return;
+  try {
+    const res = await fetch('/api/oauth/google/auth', { credentials: 'include' });
+    if (!res.ok) throw new Error('Failed');
+    const data = await res.json();
+    window.location.href = data.url;
+  } catch (e) {
+    console.error('Google auth error:', e);
+  }
+}
+
+function formatDateKey(date) {
+  return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0') + '-' + String(date.getDate()).padStart(2, '0');
+}
+
+// Post-OAuth redirect: clean URL and refresh connection status
+if (window.location.search.includes('google=connected')) {
+  const url = new URL(window.location);
+  url.searchParams.delete('google');
+  window.history.replaceState({}, '', url.pathname);
+  setTimeout(() => checkGoogleStatus(), 500);
+}
+
 bootstrap();
+
+// Check Google status after auth loads
+setTimeout(() => {
+  if (currentUser) checkGoogleStatus();
+}, 2000);

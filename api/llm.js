@@ -304,15 +304,39 @@ IMPORTANT rules:
 - Use \\, for thin space between differential dx and the integrand: \\int f(x)\\,dx
 - For multi-line equations, use \\begin{aligned}...\\end{aligned} inside $$ delimiters
 - Never use \\displaystyle inside display mode (it's redundant)
-- Use \\text{} for non-math words within equations`
+- Use \\text{} for non-math words within equations
+
+PARENTHESES, BRACKETS, AND SCOPE (critical):
+- The user is writing in NATURAL LANGUAGE, not in LaTeX. Parentheses in their input are for grouping/clarity in English, NOT necessarily mathematical parentheses in the output.
+- Output should follow STANDARD MATHEMATICAL NOTATION. Only include parentheses/brackets where mathematically necessary or conventional:
+  - Function arguments: \\sin(x), \\cos(3x^2), \\log(x+1) — parentheses are standard here.
+  - Grouping for clarity when precedence is ambiguous: (x+1)(x-1), (a+b)^2.
+  - DO NOT add unnecessary parentheses around simple terms: "integral of (3x cubed)" → \\int 3x^3\\,dx (NOT \\int (3x^3)\\,dx). The parens in the input were just English grouping.
+  - DO NOT wrap single-factor integrands in parentheses: \\int 3x^3\\,dx, not \\int (3x^3)\\,dx.
+- When there are NO parentheses, infer the natural scope:
+  - "sin of 3x squared" → \\sin(3x^2) (parentheses needed for function argument clarity).
+  - "integral of 3x squared" → \\int 3x^2\\,dx (no parentheses needed).
+  - "integral of sin of 3x squared" → \\int \\sin(3x^2)\\,dx.
+- Use \\left( and \\right) for auto-sizing delimiters ONLY around tall expressions (fractions, sums, etc.).
+- INTEGRALS: "integral of X" or "integral of X dx" must always become \\int X \\,dx (or with bounds). The integrand goes directly after \\int without parentheses unless mathematically needed (e.g. multiple added terms: \\int (3x^2 + 2x)\\,dx). Examples: "integral of 3x squared" → $$\\int 3x^2\\,dx$$; "integral of sin x" → $$\\int \\sin x\\,dx$$; "integral of (3x cubed) times the square root of a billion times one twenty seventh" → $$\\int 3x^3 \\sqrt{10^9} \\cdot \\frac{1}{27}\\,dx$$. Never leave integrals as plain English.
+- FRACTIONS: Convert spoken fractions to \\frac{num}{den}. "one fifth" or "1/5" → \\frac{1}{5}; "x over 2" → \\frac{x}{2}; "one half" → \\frac{1}{2}; "two thirds" → \\frac{2}{3}; "one twenty seventh" → \\frac{1}{27}. "400 minus one fifth" → 400 - \\frac{1}{5}.
+- POLYNOMIALS AND EQUATIONS: "x squared" → x^2; "3x squared" → 3x^2; "plus" → +; "minus" → -; "equals" → =. Example: "3x squared plus 23 equals 400 minus one fifth" → $$3x^2 + 23 = 400 - \\frac{1}{5}$$. Always convert full equations to LaTeX, never leave as English.
+- Produce complete, valid LaTeX only. No partial or placeholder expressions. Output only the JSON with "latex" and "isFullMath" keys.`
         },
         {
           role: 'user',
-          content: `Convert the following text into LaTeX notation. Convert math expressions, equations, Greek letters, operations, fractions, integrals, summations, matrices, and any mathematical notation into proper KaTeX-compatible LaTeX.
+          content: `Convert the following text into LaTeX notation. Convert math expressions, equations, Greek letters, operations, fractions, integrals, summations, polynomials, and any mathematical notation into proper KaTeX-compatible LaTeX.
 
 If the text is primarily a math expression or equation, wrap it in display math mode ($$...$$).
 If the text contains inline math mixed with regular text, wrap math parts in inline math mode ($...$) and keep regular text as-is.
 For multiple equations or steps, use $$\\begin{aligned} ... \\end{aligned}$$ with & for alignment points and \\\\ for line breaks.
+
+CRITICAL: Convert ALL math to LaTeX. Never leave as English.
+- Integrals: "integral of 3x squared" → $$\\int 3x^2\\,dx$$
+- Fractions: "one fifth" → \\frac{1}{5}; "one twenty seventh" → \\frac{1}{27}
+- Equations: "3x squared plus 23 equals 400 minus one fifth" → $$3x^2 + 23 = 400 - \\frac{1}{5}$$
+- Parentheses in the input are English grouping, NOT necessarily math notation. Follow standard math conventions for when to use parens.
+- "integral of (3x cubed) times the square root of a billion times one twenty seventh" → $$\\int 3x^3 \\sqrt{10^9} \\cdot \\frac{1}{27}\\,dx$$
 
 Text to convert:
 "${text}"
@@ -338,7 +362,56 @@ Where "isFullMath" is true if the entire content is mathematical, false if it's 
       jsonStr = jsonMatch[1];
     }
 
-    return JSON.parse(jsonStr);
+    // LaTeX backslashes conflict with JSON escapes: \frac → \f (form feed) + "rac",
+    // \theta → \t (tab) + "heta", \nabla → \n (newline) + "abla", etc.
+    // Fix: inside JSON string values, double-escape ALL backslashes except
+    // \" (quote), \\ (already-escaped backslash), \/ (slash), and \uXXXX (unicode).
+    // This is applied ALWAYS, not just on parse failure, because valid JSON escapes
+    // like \f, \b, \n, \r, \t silently corrupt LaTeX commands.
+    function fixJsonLatexEscapes(raw) {
+      const out = [];
+      let inStr = false;
+      for (let i = 0; i < raw.length; i++) {
+        const c = raw[i];
+        if (!inStr) {
+          out.push(c);
+          if (c === '"') inStr = true;
+          continue;
+        }
+        // Inside a JSON string value
+        if (c === '\\') {
+          const next = raw[i + 1];
+          if (next === '"' || next === '/') {
+            // Preserve \" and \/ — these are valid JSON escapes we need
+            out.push(c, next);
+            i++;
+          } else if (next === '\\') {
+            // Already-escaped backslash — LLM correctly doubled it
+            out.push(c, next);
+            i++;
+          } else if (next === 'u' && /^[0-9a-fA-F]{4}$/.test(raw.substring(i + 2, i + 6))) {
+            // Unicode escape \uXXXX
+            out.push(raw.substring(i, i + 6));
+            i += 5;
+          } else {
+            // Everything else (\f, \b, \n, \r, \t, \i, \s, \, etc.)
+            // Double-escape so the backslash is literal in the parsed value
+            out.push('\\\\');
+            // Don't skip next char — it's processed in the next iteration
+          }
+        } else if (c === '"') {
+          out.push(c);
+          inStr = false;
+        } else {
+          out.push(c);
+        }
+      }
+      return out.join('');
+    }
+
+    jsonStr = fixJsonLatexEscapes(jsonStr);
+    const parsed = JSON.parse(jsonStr);
+    return parsed;
   } catch (error) {
     console.error('Error converting text to LaTeX:', error);
     return { latex: text, isFullMath: false, error: error.message };

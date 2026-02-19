@@ -1882,14 +1882,65 @@ body.has-bg-image::before {
   gap: 20px;
 }
 
+.help-category {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.help-category-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 14px 18px;
+  background: rgba(255, 255, 255, 0.04);
+  border: none;
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s;
+}
+
+.help-category-toggle:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.help-chevron {
+  font-size: 20px;
+  transition: transform 0.2s;
+  color: #888;
+}
+
+.help-category[data-open="true"] .help-chevron {
+  transform: rotate(90deg);
+}
+
+.help-category-items {
+  display: none;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 18px 16px;
+}
+
+.help-category[data-open="true"] .help-category-items {
+  display: flex;
+}
+
 .help-item {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  padding: 15px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  gap: 4px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.help-item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
 }
 
 .help-item strong {
@@ -3322,4 +3373,191 @@ body.article-mode #chat-panel {
 @keyframes research-pulse {
   0%, 100% { opacity: 0.3; transform: translateX(-50%) scale(1); }
   50% { opacity: 0.8; transform: translateX(-50%) scale(1.4); }
+}
+
+/* ——— Google Calendar Card (canvas-droppable) ——— */
+.gcal-card {
+  background: rgba(255,255,255,0.52);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(0,0,0,0.06);
+  border-radius: 10px;
+  min-width: 700px;
+  font-family: inherit;
+  user-select: none;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+.gcal-card-header {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  gap: 8px;
+}
+.gcal-card-nav-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 20px;
+  line-height: 1;
+  padding: 4px 8px;
+  color: var(--ink);
+  opacity: 0.5;
+  border-radius: 6px;
+  transition: opacity 0.15s, background 0.15s;
+}
+.gcal-card-nav-btn:hover { opacity: 1; background: rgba(0,0,0,0.06); }
+.gcal-card-month-label {
+  font-size: 15px;
+  font-weight: 600;
+  flex: 1;
+  letter-spacing: -0.01em;
+}
+.gcal-card-today-btn {
+  background: rgba(0,0,0,0.04);
+  border: none;
+  border-radius: 8px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  color: var(--ink);
+  transition: background 0.15s;
+}
+.gcal-card-today-btn:hover { background: rgba(0,0,0,0.08); }
+
+/* Day header row — equal columns that don't grow with content */
+.gcal-card-day-headers {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink);
+  opacity: 0.45;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 6px 2px 8px;
+  min-width: 0;
+}
+.gcal-card-day-headers span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Day grid — equal columns; cells cannot expand column width */
+.gcal-card-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 1px;
+  background: rgba(0,0,0,0.06);
+  border-radius: 0 0 10px 10px;
+  padding: 0 1px 1px;
+  min-width: 0;
+}
+.gcal-card-day {
+  background: rgba(255,255,255,0.7);
+  min-height: 88px;
+  min-width: 0;
+  overflow: hidden;
+  padding: 6px 6px;
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  position: relative;
+}
+.gcal-card-day.other-month {
+  opacity: 0.4;
+}
+.gcal-card-day-num {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
+  margin-bottom: 4px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.gcal-card-day.today .gcal-card-day-num {
+  background: var(--ink);
+  color: var(--paper);
+}
+
+/* Event chips — must not expand cell; truncate long text */
+.gcal-card-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  margin-bottom: 2px;
+  border-radius: 4px;
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  background: rgba(0,0,0,0.035);
+  border-left: 3px solid #4285f4;
+  cursor: default;
+  min-width: 0;
+}
+.gcal-card-chip-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+.gcal-card-more {
+  font-size: 10px;
+  font-weight: 500;
+  opacity: 0.55;
+  padding: 2px 6px;
+  cursor: default;
+}
+
+/* Loading: never shown (month renders first, then events load in background) */
+.gcal-card-loading {
+  display: none;
+  text-align: center;
+  padding: 24px 16px;
+  font-size: 13px;
+  opacity: 0.5;
+}
+.gcal-card-loading.hidden {
+  display: none !important;
+}
+
+/* Entry-level overrides for calendar cards (view only, no edit mode) */
+.entry:has(.gcal-card) {
+  white-space: normal;
+  overflow: visible;
+}
+#editor:has(.gcal-card) {
+  white-space: normal;
+  min-width: 700px;
+}
+
+/* Prevent melt animation on calendar card text */
+.gcal-card .melt-char {
+  display: inline;
+  position: static;
+  animation: none !important;
+  opacity: 1;
+  filter: none;
+  transform: none;
+  will-change: auto;
+}
+
+/* Google connected indicator on template button */
+.template-menu-item .google-connected-badge {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  background: #34a853;
+  border-radius: 50%;
+  margin-left: 6px;
+  vertical-align: middle;
 }
