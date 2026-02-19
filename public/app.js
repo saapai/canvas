@@ -2858,13 +2858,18 @@ async function commitEditor(){
         console.log('[COMMIT] About to updateEntryOnServer, entryData.textHtml:', entryData.textHtml ? entryData.textHtml.substring(0, 100) : 'null');
         await updateEntryOnServer(entryData);
         console.log('[COMMIT] Entry updated successfully:', entryData.id);
+        // Research mode: regenerate anchors if text changed
+        if (researchModeEnabled && oldText !== trimmedRight) {
+          clearAllResearchElements();
+          spawnResearchAnchors(entryData.id);
+        }
       } catch (error) {
         console.error('[COMMIT] Failed to update entry:', error);
         // Don't clear editing state on error - let user retry
         isCommitting = false;
         return;
       }
-      
+
       // Remove melt class after animation completes and reset styles
       const maxDuration = 1500; // Maximum animation duration
       setTimeout(() => {
@@ -3009,6 +3014,12 @@ async function commitEditor(){
   // Save to server (await to ensure it completes)
   console.log('[COMMIT] Saving new text entry:', entryData.id, entryData.text.substring(0, 50));
   await saveEntryToServer(entryData);
+
+  // Research mode: generate anchors from the new entry
+  if (researchModeEnabled) {
+    clearAllResearchElements();
+    spawnResearchAnchors(entryId);
+  }
 
   // Generate and add cards for URLs (async, after text is rendered)
   if(urls.length > 0){
@@ -4080,6 +4091,8 @@ viewport.addEventListener('mousedown', (e) => {
   if(e.target.closest('#breadcrumb')) return;
   // Don't handle clicks on background picker
   if(e.target.closest('#bg-picker-button, #bg-picker-dropdown, #bg-upload-input')) return;
+  // Don't handle clicks on research elements (they have their own click handlers)
+  if(e.target.closest('.research-anchor') || e.target.closest('.research-card')) return;
   
   // Set flag to prevent cursor updates during click handling
   // This prevents cursor from appearing in random spot when clicking
@@ -4575,6 +4588,8 @@ window.addEventListener('mouseup', async (e) => {
       console.log('[MOUSEUP] Dragging ended. dist:', dist, 'dt:', dt, 'isClick:', isClick);
       if(dist < 6 && dt < 350 && !isClick){
         console.log('[MOUSEUP] Detected as click on empty space');
+        // Clear research elements on empty space click
+        if (researchModeEnabled) clearAllResearchElements();
         // Clear selection if clicking on empty space (no shift key)
         if (!e.shiftKey && selectedEntries.size > 0) {
           clearSelection();
@@ -4652,6 +4667,8 @@ window.addEventListener('mouseup', async (e) => {
 
 viewport.addEventListener('dblclick', (e) => {
   if (isReadOnly) return;
+  // Block double-click navigation on research elements
+  if (e.target.closest('.research-anchor') || e.target.closest('.research-card')) return;
   if (pendingEditTimeout) {
     clearTimeout(pendingEditTimeout);
     pendingEditTimeout = null;
@@ -4996,6 +5013,9 @@ editor.addEventListener('keydown', (e) => {
 
   if(e.key === 'Escape'){
     e.preventDefault();
+
+    // Clear research elements on ESC
+    if (researchModeEnabled) clearAllResearchElements();
 
     // Remove editing class from entry
     if(editingEntryId && editingEntryId !== 'anchor'){
@@ -8842,6 +8862,585 @@ function handleDeadlineTableKeydown(e) {
   // Expose loadBg so bootstrap can call it after auth
   window._loadBgAfterAuth = loadBg;
 })();
+
+// ——— Article View Mode ———
+let currentViewMode = 'canvas';
+const articleView = document.getElementById('article-view');
+const articleHeader = document.getElementById('article-header');
+const articleContent = document.getElementById('article-content');
+const articleSidebarNav = document.getElementById('article-sidebar-nav');
+const articleAiSection = document.getElementById('article-ai-section');
+const articleAiContent = document.getElementById('article-ai-content');
+const viewToggleCanvas = document.getElementById('view-toggle-canvas');
+const viewToggleArticle = document.getElementById('view-toggle-article');
+const viewToggleResearch = document.getElementById('view-toggle-research');
+
+// ——— Research Mode State ———
+let researchModeEnabled = false;
+let researchGenerating = false;
+// researchState: { sourceEntryId, sourceText, anchors: { deeper: {...}, broader: {...}, lateral: {...} } }
+// Each anchor: { label, element, connectorEl, angle, x, y, chain: [{ card data }], chainElements: [DOM], chainLines: [DOM], loading }
+let researchState = null;
+
+// ——— Research Mode Functions ———
+
+function gatherResearchContext() {
+  const ctx = [];
+  entries.forEach((ed) => {
+    if (ed.id === 'anchor') return;
+    if (ed.parentEntryId !== currentViewEntryId) return;
+    ctx.push({ text: ed.text });
+  });
+  return ctx;
+}
+
+async function spawnResearchAnchors(sourceEntryId) {
+  if (!researchModeEnabled || isReadOnly) return;
+  const entryData = entries.get(sourceEntryId);
+  if (!entryData || !entryData.text || entryData.text.trim().length < 5) return;
+
+  // Clear previous research state
+  clearAllResearchElements();
+
+  researchGenerating = true;
+  if (entryData.element) entryData.element.classList.add('research-generating');
+
+  const canvasContext = gatherResearchContext();
+
+  try {
+    const res = await fetch('/api/research-suggestions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entryText: entryData.text, canvasContext })
+    });
+    if (!res.ok) throw new Error('API error');
+    const data = await res.json();
+    if (data.anchors && data.anchors.length > 0) {
+      renderResearchAnchors(sourceEntryId, data.anchors);
+    }
+  } catch (err) {
+    console.error('[RESEARCH] Failed to generate anchors:', err);
+  } finally {
+    researchGenerating = false;
+    if (entryData.element) entryData.element.classList.remove('research-generating');
+  }
+}
+
+function renderResearchAnchors(sourceEntryId, anchors) {
+  const entryData = entries.get(sourceEntryId);
+  if (!entryData || !entryData.element) return;
+
+  const el = entryData.element;
+  const srcX = parseFloat(el.style.left) || 0;
+  const srcY = parseFloat(el.style.top) || 0;
+  const srcW = el.offsetWidth || 100;
+  const srcH = el.offsetHeight || 20;
+  const centerX = srcX + srcW / 2;
+  const centerY = srcY + srcH / 2;
+
+  const anchorRadius = 180;
+  const startAngle = -Math.PI / 2;
+  const directions = ['deeper', 'broader', 'lateral'];
+
+  const state = {
+    sourceEntryId,
+    sourceText: entryData.text,
+    centerX, centerY,
+    anchors: {}
+  };
+
+  anchors.forEach((anchor, i) => {
+    const dir = anchor.direction || directions[i];
+    const angle = startAngle + (i * (2 * Math.PI / 3));
+    const ax = centerX + anchorRadius * Math.cos(angle);
+    const ay = centerY + anchorRadius * Math.sin(angle);
+
+    // Draw connector line from source center to anchor
+    const connectorEl = document.createElement('div');
+    connectorEl.className = 'research-connector';
+    const dist = Math.sqrt((ax - centerX) ** 2 + (ay - centerY) ** 2);
+    connectorEl.style.left = `${centerX}px`;
+    connectorEl.style.top = `${centerY}px`;
+    connectorEl.style.width = `${dist}px`;
+    connectorEl.style.transform = `rotate(${angle}rad)`;
+    world.appendChild(connectorEl);
+
+    // Create anchor label
+    const anchorEl = document.createElement('div');
+    anchorEl.className = `research-anchor ${dir}`;
+    anchorEl.style.animationDelay = `${i * 80}ms`;
+    anchorEl.textContent = anchor.label || dir;
+
+    // Position anchor centered on its point
+    anchorEl.style.left = `${ax}px`;
+    anchorEl.style.top = `${ay}px`;
+    anchorEl.style.transform = 'translate(-50%, -50%)';
+
+    anchorEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      e.preventDefault();
+      expandDirection(dir);
+    });
+    anchorEl.addEventListener('dblclick', (e) => { e.stopPropagation(); e.preventDefault(); });
+
+    world.appendChild(anchorEl);
+
+    state.anchors[dir] = {
+      label: anchor.label || dir,
+      element: anchorEl,
+      connectorEl,
+      angle,
+      x: ax,
+      y: ay,
+      chain: [],          // array of card data objects (title, explanation, references)
+      chainElements: [],  // DOM elements for cards
+      chainLines: [],     // DOM connector lines between cards
+      loading: false
+    };
+  });
+
+  researchState = state;
+}
+
+async function expandDirection(direction) {
+  if (!researchState || !researchState.anchors[direction]) return;
+  const anchor = researchState.anchors[direction];
+  if (anchor.loading) return;
+
+  anchor.loading = true;
+  anchor.element.classList.add('loading', 'active');
+
+  const chainHistory = anchor.chain.map(c => c.title);
+  const canvasContext = gatherResearchContext();
+
+  try {
+    const res = await fetch('/api/research-suggestions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        entryText: researchState.sourceText,
+        canvasContext,
+        direction,
+        chainHistory
+      })
+    });
+    if (!res.ok) throw new Error('API error');
+    const data = await res.json();
+    if (data.card) {
+      appendCardToChain(direction, data.card);
+    }
+  } catch (err) {
+    console.error(`[RESEARCH] Failed to expand ${direction}:`, err);
+  } finally {
+    anchor.loading = false;
+    anchor.element.classList.remove('loading');
+  }
+}
+
+function appendCardToChain(direction, cardData) {
+  if (!researchState || !researchState.anchors[direction]) return;
+  const anchor = researchState.anchors[direction];
+  const chainIndex = anchor.chain.length;
+
+  // Position: extend outward from anchor along the same angle
+  const cardSpacing = 200;
+  const cardOffset = 80; // initial offset from anchor
+  const totalDist = cardOffset + chainIndex * cardSpacing;
+  const cx = anchor.x + totalDist * Math.cos(anchor.angle);
+  const cy = anchor.y + totalDist * Math.sin(anchor.angle);
+
+  // Draw connector line from previous element to this card
+  const prevX = chainIndex === 0 ? anchor.x : anchor.x + (cardOffset + (chainIndex - 1) * cardSpacing) * Math.cos(anchor.angle) + 140;
+  const prevY = chainIndex === 0 ? anchor.y : anchor.y + (cardOffset + (chainIndex - 1) * cardSpacing) * Math.sin(anchor.angle);
+  const lineEl = document.createElement('div');
+  lineEl.className = `research-chain-line ${direction}`;
+  const dx = cx - prevX;
+  const dy = cy - prevY;
+  const lineDist = Math.sqrt(dx * dx + dy * dy);
+  const lineAngle = Math.atan2(dy, dx);
+  lineEl.style.left = `${prevX}px`;
+  lineEl.style.top = `${prevY}px`;
+  lineEl.style.width = `${lineDist}px`;
+  lineEl.style.transform = `rotate(${lineAngle}rad)`;
+  lineEl.style.transformOrigin = '0 50%';
+  world.appendChild(lineEl);
+  anchor.chainLines.push(lineEl);
+
+  // Create the rich content card
+  const card = document.createElement('div');
+  card.className = `research-card ${direction}`;
+  card.style.left = `${cx}px`;
+  card.style.top = `${cy}px`;
+  card.style.animationDelay = '0ms';
+
+  let html = `<div class="research-card-title">${escapeHtml(cardData.title || '')}</div>`;
+  html += `<div class="research-card-explanation">${escapeHtml(cardData.explanation || '')}</div>`;
+
+  if (cardData.references && cardData.references.length > 0) {
+    html += '<ul class="research-card-references">';
+    cardData.references.forEach(ref => {
+      html += `<li>${escapeHtml(ref)}</li>`;
+    });
+    html += '</ul>';
+  }
+
+  html += `<div class="research-card-continue">Continue ${direction} &rarr;</div>`;
+
+  card.innerHTML = html;
+
+  // "Continue" button generates next card in this direction
+  const continueBtn = card.querySelector('.research-card-continue');
+  continueBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    expandDirection(direction);
+  });
+
+  // Block propagation on the card itself
+  card.addEventListener('click', (e) => e.stopPropagation());
+  card.addEventListener('dblclick', (e) => { e.stopPropagation(); e.preventDefault(); });
+
+  world.appendChild(card);
+
+  anchor.chain.push(cardData);
+  anchor.chainElements.push(card);
+}
+
+function clearAllResearchElements() {
+  if (researchState) {
+    Object.values(researchState.anchors).forEach(anchor => {
+      if (anchor.element) anchor.element.remove();
+      if (anchor.connectorEl) anchor.connectorEl.remove();
+      anchor.chainElements.forEach(el => el.remove());
+      anchor.chainLines.forEach(el => el.remove());
+    });
+    researchState = null;
+  }
+  document.querySelectorAll('.research-generating').forEach(el => el.classList.remove('research-generating'));
+}
+
+function setViewMode(mode) {
+  if (mode === currentViewMode) return;
+
+  // Clean up research mode when leaving it
+  if (researchModeEnabled && mode !== 'research') {
+    researchModeEnabled = false;
+    clearAllResearchElements();
+  }
+
+  currentViewMode = mode;
+
+  viewToggleCanvas.classList.toggle('active', mode === 'canvas');
+  viewToggleArticle.classList.toggle('active', mode === 'article');
+  if (viewToggleResearch) viewToggleResearch.classList.toggle('active', mode === 'research');
+  document.body.classList.toggle('article-mode', mode === 'article');
+
+  if (mode === 'article') {
+    researchModeEnabled = false;
+    viewport.style.display = 'none';
+    if (editingEntryId) {
+      editor.blur();
+      hideCursor();
+    }
+    articleView.classList.remove('hidden');
+    renderArticleView();
+  } else if (mode === 'research') {
+    researchModeEnabled = true;
+    articleView.classList.add('hidden');
+    viewport.style.display = '';
+    // Recalculate entry dimensions when switching
+    setTimeout(() => {
+      entries.forEach((ed, id) => {
+        if (id === 'anchor') return;
+        if (ed.element && ed.element.style.display !== 'none') {
+          updateEntryDimensions(ed.element);
+        }
+      });
+    }, 50);
+  } else {
+    // canvas mode
+    researchModeEnabled = false;
+    articleView.classList.add('hidden');
+    viewport.style.display = '';
+    // Recalculate entry dimensions when switching back
+    setTimeout(() => {
+      entries.forEach((ed, id) => {
+        if (id === 'anchor') return;
+        if (ed.element && ed.element.style.display !== 'none') {
+          updateEntryDimensions(ed.element);
+        }
+      });
+    }, 50);
+  }
+}
+
+function getArticleCategory(ed) {
+  const mcd = ed.mediaCardData;
+  if (mcd && mcd.type === 'image') return 'images';
+  if (mcd && mcd.type === 'file') return 'files';
+  if (mcd && mcd.type === 'song') return 'songs';
+  if (mcd && mcd.type === 'movie') return 'movies';
+  if (ed.latexData && ed.latexData.enabled) return 'latex';
+  if (ed.textHtml && ed.textHtml.includes('deadline-table')) return 'deadlines';
+  if (ed.linkCardsData && ed.linkCardsData.length > 0 && ed.linkCardsData.some(c => c && c.url)) return 'links';
+  return 'notes';
+}
+
+function getFlattenedArticleEntries() {
+  const list = [];
+  entries.forEach((ed) => {
+    if (ed.id === 'anchor') return;
+    if (ed.parentEntryId !== currentViewEntryId) return;
+    const cat = getArticleCategory(ed);
+    list.push({ ed, category: cat });
+  });
+  list.sort((a, b) => {
+    const ay = a.ed.position?.y ?? 0;
+    const by = b.ed.position?.y ?? 0;
+    if (ay !== by) return ay - by;
+    return (a.ed.position?.x ?? 0) - (b.ed.position?.x ?? 0);
+  });
+  return list;
+}
+
+function renderArticleView() {
+  const flattened = getFlattenedArticleEntries();
+  const totalCount = flattened.length;
+
+  let titleText = 'Home';
+  if (currentViewEntryId) {
+    const parent = entries.get(currentViewEntryId);
+    if (parent) titleText = entryTitle(parent);
+  }
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  articleHeader.innerHTML = `<h1 class="article-header-title">${escapeHtml(titleText)}</h1><div class="article-header-meta">${totalCount} item${totalCount !== 1 ? 's' : ''} &middot; ${dateStr}</div>`;
+
+  if (articleSidebarNav) articleSidebarNav.innerHTML = '';
+
+  articleContent.innerHTML = '';
+  if (totalCount === 0) {
+    articleContent.innerHTML = '<div class="article-empty">No entries on this page yet.</div>';
+    articleAiSection.classList.add('hidden');
+    return;
+  }
+
+  const stream = document.createElement('div');
+  stream.className = 'article-stream';
+  flattened.forEach(({ ed, category }) => {
+    const el = renderArticleEntry(ed, category);
+    if (el) stream.appendChild(el);
+  });
+  articleContent.appendChild(stream);
+
+  fetchArticleRelated();
+}
+
+function renderArticleEntry(ed, category) {
+  switch (category) {
+    case 'notes': {
+      const card = document.createElement('div');
+      card.className = 'article-note-card';
+      if (ed.textHtml) {
+        card.innerHTML = ed.textHtml;
+      } else {
+        card.textContent = ed.text || '';
+      }
+      // Check if this entry has children
+      const hasChildren = Array.from(entries.values()).some(e => e.parentEntryId === ed.id);
+      if (hasChildren) {
+        card.classList.add('clickable');
+        const hint = document.createElement('div');
+        hint.className = 'article-note-children-hint';
+        hint.textContent = 'Open subpage \u2192';
+        card.appendChild(hint);
+        card.addEventListener('click', () => navigateToEntry(ed.id));
+      }
+      return card;
+    }
+    case 'links': {
+      const frag = document.createDocumentFragment();
+      (ed.linkCardsData || []).forEach(lc => {
+        if (!lc || !lc.url) return;
+        const a = document.createElement('a');
+        a.className = 'article-link-card';
+        a.href = lc.url;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.innerHTML = `${lc.image ? `<div class="article-link-thumb" style="background-image:url('${lc.image}')"></div>` : ''}
+          <div class="article-link-body">
+            <div class="article-link-site">${escapeHtml(lc.siteName || '')}</div>
+            <div class="article-link-title">${escapeHtml(lc.title || '')}</div>
+            ${lc.description ? `<div class="article-link-desc">${escapeHtml(lc.description)}</div>` : ''}
+            <div class="article-link-open">Open link \u2192</div>
+          </div>`;
+        frag.appendChild(a);
+      });
+      // Also show the text if any (above the link cards)
+      if (ed.text && ed.text.trim()) {
+        const wrapper = document.createElement('div');
+        const textDiv = document.createElement('div');
+        textDiv.className = 'article-note-card';
+        textDiv.style.marginBottom = '8px';
+        textDiv.textContent = ed.text;
+        wrapper.appendChild(textDiv);
+        wrapper.appendChild(frag);
+        return wrapper;
+      }
+      return frag.childNodes.length > 0 ? (() => { const d = document.createElement('div'); d.appendChild(frag); return d; })() : null;
+    }
+    case 'songs':
+    case 'movies': {
+      const mcd = ed.mediaCardData;
+      if (!mcd) return null;
+      const card = document.createElement('div');
+      card.className = 'article-media-card';
+      const imageUrl = mcd.image || mcd.poster || '';
+      const typeLabel = mcd.type === 'song' ? 'Song' : 'Movie';
+      const subtitle = mcd.type === 'song' ? (mcd.artist || '') : (mcd.year ? String(mcd.year) : '');
+      card.innerHTML = `${imageUrl ? `<div class="article-media-image" style="background-image:url('${imageUrl}')"></div>` : ''}
+        <div class="article-media-info">
+          <div class="article-media-type">${typeLabel}</div>
+          <div class="article-media-title">${escapeHtml(mcd.title || '')}</div>
+          ${subtitle ? `<div class="article-media-subtitle">${escapeHtml(subtitle)}</div>` : ''}
+        </div>`;
+      return card;
+    }
+    case 'images': {
+      const mcd = ed.mediaCardData;
+      if (!mcd || !mcd.url) return null;
+      const card = document.createElement('div');
+      card.className = 'article-image-card';
+      const img = document.createElement('img');
+      img.src = mcd.url;
+      img.alt = 'Image';
+      img.loading = 'lazy';
+      card.appendChild(img);
+      return card;
+    }
+    case 'files': {
+      const mcd = ed.mediaCardData;
+      if (!mcd) return null;
+      const card = document.createElement('div');
+      card.className = 'article-file-card';
+      card.innerHTML = `<span class="article-file-icon">${getFileIcon(mcd.mimetype || '')}</span>
+        <div>
+          <div class="article-file-name">${escapeHtml(mcd.name || 'File')}</div>
+          <div class="article-file-size">${formatFileSize(mcd.size || 0)}</div>
+        </div>`;
+      if (mcd.url) {
+        card.style.cursor = 'pointer';
+        card.addEventListener('click', () => window.open(mcd.url, '_blank'));
+      }
+      return card;
+    }
+    case 'latex': {
+      const card = document.createElement('div');
+      card.className = 'article-latex-card';
+      if (ed.latexData && ed.latexData.source) {
+        const container = document.createElement('div');
+        card.appendChild(container);
+        setTimeout(() => {
+          if (typeof renderMathInElement !== 'undefined') {
+            container.innerHTML = ed.latexData.source;
+            renderMathInElement(container, { delimiters: [
+              { left: '$$', right: '$$', display: true },
+              { left: '$', right: '$', display: false },
+              { left: '\\[', right: '\\]', display: true },
+              { left: '\\(', right: '\\)', display: false }
+            ], throwOnError: false });
+          } else if (typeof katex !== 'undefined') {
+            try { katex.render(ed.latexData.source, container, { displayMode: true, throwOnError: false }); }
+            catch(e) { container.textContent = ed.latexData.source; }
+          } else {
+            container.textContent = ed.latexData.source;
+          }
+        }, 100);
+      }
+      return card;
+    }
+    case 'deadlines': {
+      const card = document.createElement('div');
+      card.className = 'article-deadline-card';
+      if (ed.element) {
+        const dt = ed.element.querySelector('.deadline-table');
+        if (dt) {
+          card.appendChild(dt.cloneNode(true));
+        } else if (ed.textHtml) {
+          card.innerHTML = ed.textHtml;
+        }
+      } else if (ed.textHtml) {
+        card.innerHTML = ed.textHtml;
+      }
+      return card;
+    }
+    default:
+      return null;
+  }
+}
+
+function fetchArticleRelated() {
+  if (!currentUser) {
+    articleAiSection.classList.add('hidden');
+    return;
+  }
+  articleAiSection.classList.remove('hidden');
+  articleAiContent.innerHTML = '<div class="article-related-loading">Finding related content…</div>';
+
+  const payload = buildTrenchesPayload();
+  const body = {
+    ...payload,
+    userMessage: `RELATED CONTENT TASK: Suggest 3–5 real articles and books that fit the content and aesthetic of this page.
+
+Only recommend actual, well-known works: real book titles with authors, real essay/article titles with publications or authors. Never invent or make up titles. Draw from your knowledge of classic and notable works.
+
+Format: One line per item. "Title" by Author (or "Article Title" – Publication). No asterisks, no markdown, no links. Plain text only.
+
+Examples: "Bullshit Jobs" by David Graeber | "Consider the Lobster" – David Foster Wallace, The Atlantic`
+  };
+  fetch('/api/chat', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  })
+    .then(r => { if (!r.ok) throw new Error('Failed'); return r.json(); })
+    .then(data => {
+      let raw = (data.message || '').trim();
+      raw = raw.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1').replace(/_([^_]+)_/g, '$1').replace(/\*+/g, '').replace(/^#+\s*/gm, '');
+      articleAiContent.innerHTML = `<div class="article-related-card">${escapeHtml(raw)}</div>`;
+    })
+    .catch(() => {
+      articleAiContent.innerHTML = '<div class="article-related-loading">Could not load related content.</div>';
+    });
+}
+
+// Toggle event listeners
+if (viewToggleCanvas) viewToggleCanvas.addEventListener('click', () => setViewMode('canvas'));
+if (viewToggleArticle) viewToggleArticle.addEventListener('click', () => setViewMode('article'));
+if (viewToggleResearch) viewToggleResearch.addEventListener('click', () => setViewMode('research'));
+
+// Patch navigation functions to re-render article view and clear research suggestions
+const _origNavigateToEntry = navigateToEntry;
+navigateToEntry = function(entryId) {
+  clearAllResearchElements();
+  _origNavigateToEntry(entryId);
+  if (currentViewMode === 'article') setTimeout(() => renderArticleView(), 300);
+};
+
+const _origNavigateBack = navigateBack;
+navigateBack = function(level) {
+  clearAllResearchElements();
+  _origNavigateBack(level);
+  if (currentViewMode === 'article') setTimeout(() => renderArticleView(), 300);
+};
+
+const _origNavigateToRoot = navigateToRoot;
+navigateToRoot = function() {
+  clearAllResearchElements();
+  _origNavigateToRoot();
+  if (currentViewMode === 'article') setTimeout(() => renderArticleView(), 300);
+};
 
 // ——— Google Calendar Integration ———
 const googleConnectBtn = document.getElementById('google-connect-btn');
