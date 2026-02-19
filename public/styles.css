@@ -3384,42 +3384,29 @@ body.article-mode #chat-panel {
   display: none;
 }
 
-/* ——— Research v2: Answer card ——— */
-.research-answer-card {
-  width: 420px;
-  max-width: 420px;
+/* ——— Research v2: Fact card ——— */
+.research-fact-card {
+  width: 320px;
+  max-width: 320px;
   background: rgba(255,255,255,0.6);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(0,0,0,0.06);
   border-radius: 10px;
-  padding: 16px 18px;
-  font-size: 13.5px;
-  line-height: 1.6;
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.5;
   color: #1a1a1a;
   box-shadow: 0 1px 4px rgba(0,0,0,0.04);
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
 }
-.research-answer-icon {
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  margin-right: 6px;
-  vertical-align: middle;
+.research-fact-icon {
+  flex-shrink: 0;
+  font-size: 14px;
   opacity: 0.35;
-}
-.research-answer-label {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.5px;
-  text-transform: uppercase;
-  color: rgba(0,0,0,0.35);
-  margin-bottom: 8px;
-}
-.research-answer-card p {
-  margin: 0 0 8px 0;
-}
-.research-answer-card p:last-child {
-  margin-bottom: 0;
+  margin-top: 1px;
 }
 
 /* ——— Research v2: Web result card ——— */
@@ -3537,9 +3524,9 @@ body.article-mode #chat-panel {
 }
 
 /* ——— Research v2: Skeleton variants ——— */
-.research-skeleton-answer {
-  width: 420px;
-  min-height: 120px;
+.research-skeleton-fact {
+  width: 320px;
+  min-height: 50px;
 }
 .research-skeleton-web {
   width: 320px;

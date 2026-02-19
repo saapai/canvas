@@ -422,7 +422,7 @@ export async function generateResearchEntries(thoughtChain, canvasContext) {
   // Legacy wrapper — delegates to planResearch for backward compatibility
   const result = await planResearch(thoughtChain, canvasContext);
   const entries = [];
-  if (result.answer) entries.push(result.answer);
+  (result.facts || []).forEach(f => entries.push(f));
   result.webResults.forEach(r => entries.push(`${r.title}\n${r.snippet}`));
   result.followUps.forEach(q => entries.push(q));
   return { entries: entries.slice(0, 5) };
@@ -431,31 +431,41 @@ export async function generateResearchEntries(thoughtChain, canvasContext) {
 // Ask GPT-4o-mini for real, cited sources — no external search API needed
 async function searchWeb(query) {
   try {
-    const completion = await openai.chat.completions.create({
+    // Use OpenAI Responses API with web_search_preview for real, verified URLs
+    const response = await openai.responses.create({
       model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: 'You recommend real, authoritative web resources. ONLY suggest URLs you are highly confident exist and are stable — Wikipedia articles, official documentation, well-known educational sites (Stanford Encyclopedia, MIT OpenCourseWare, Khan Academy), major publications (Nature, NYT, BBC, The Atlantic), and government/org sites (.gov, .org). NEVER fabricate or guess URLs. If unsure a page exists, do not include it. Respond ONLY with valid JSON.' },
-        { role: 'user', content: `Cite 3 real, authoritative sources about: "${query}"
-
-Each source must have a real URL that definitely exists, the exact page title, and a 1-2 sentence summary of what the page covers.
-
-Respond ONLY with valid JSON:
-{"results":[{"title":"...","link":"https://...","snippet":"..."}]}` }
-      ],
-      temperature: 0.2,
-      max_tokens: 400
+      tools: [{ type: 'web_search_preview' }],
+      input: `Find the 3 most relevant and authoritative sources about: "${query}"\n\nFor each source, briefly describe what it covers in 1 sentence.`
     });
-    const content = completion.choices[0].message.content.trim();
-    let jsonStr = content;
-    const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
-    if (jsonMatch) jsonStr = jsonMatch[1];
-    const parsed = JSON.parse(jsonStr);
-    return (parsed.results || []).slice(0, 3).map(r => {
-      const link = r.link || r.url || '';
-      let favicon = '';
-      try { favicon = `https://www.google.com/s2/favicons?domain=${new URL(link).hostname}&sz=32`; } catch {}
-      return { title: r.title || '', link, snippet: r.snippet || r.description || '', favicon };
-    });
+
+    // Extract real URL citations from annotations
+    const results = [];
+    const seen = new Set();
+    for (const item of response.output) {
+      if (item.type === 'message') {
+        for (const block of (item.content || [])) {
+          if (block.type === 'output_text') {
+            const text = block.text || '';
+            for (const ann of (block.annotations || [])) {
+              if (ann.type === 'url_citation' && ann.url && !seen.has(ann.url)) {
+                seen.add(ann.url);
+                // Extract snippet from text near the citation
+                let snippet = '';
+                if (ann.start_index != null) {
+                  const before = text.substring(Math.max(0, ann.start_index - 300), ann.start_index);
+                  const sentences = before.split(/[.!?]\s+/);
+                  snippet = (sentences[sentences.length - 1] || '').trim().replace(/^\d+\.\s*\*\*.*?\*\*\s*[-–:]\s*/, '');
+                }
+                let favicon = '';
+                try { favicon = `https://www.google.com/s2/favicons?domain=${new URL(ann.url).hostname}&sz=32`; } catch {}
+                results.push({ title: ann.title || '', link: ann.url, snippet, favicon });
+              }
+            }
+          }
+        }
+      }
+    }
+    return results.slice(0, 3);
   } catch (e) {
     console.error('[RESEARCH] Web search failed:', e.message);
     return [];
@@ -527,49 +537,48 @@ Respond ONLY with valid JSON:
   }
 
   // Step 2: Fire 3 parallel requests
-  const answerPrompt = `The user is researching: "${currentFocus}"
+  const factsPrompt = `The user is researching: "${currentFocus}"
 ${thoughtChain.length > 1 ? `\nThought chain:\n${chainFormatted}\n` : ''}
 Other canvas context:
 ${contextSnippet || '(none)'}
 
-Write a comprehensive answer in 2–3 paragraphs (like a Google AI Overview). Be direct, specific, and informative. Do NOT use filler phrases. Use \\n between paragraphs.
+Generate exactly 3 distinct, specific facts about this topic. Each fact should be 1-2 sentences max. Cover different angles: a core definition/answer, a surprising detail or mechanism, and a real-world implication or example. Be direct and concrete — no filler.
 
 Respond ONLY with valid JSON:
-{"answer": "your answer here"}`;
+{"facts": ["fact 1", "fact 2", "fact 3"]}`;
 
-  const [answerResult, webResults, images] = await Promise.all([
-    // LLM answer synthesis
+  const [factsResult, webResults, images] = await Promise.all([
+    // LLM fact synthesis
     (async () => {
       try {
         const completion = await openai.chat.completions.create({
           model: 'gpt-4o-mini',
           messages: [
-            { role: 'system', content: 'You are a precise research assistant. Answer directly like a Google AI Overview. Respond ONLY with valid JSON.' },
-            { role: 'user', content: answerPrompt }
+            { role: 'system', content: 'You are a precise research assistant. Give short, specific facts. Respond ONLY with valid JSON.' },
+            { role: 'user', content: factsPrompt }
           ],
           temperature: 0.5,
-          max_tokens: 600
+          max_tokens: 400
         });
         const content = completion.choices[0].message.content.trim();
         let jsonStr = content;
         const jsonMatch = content.match(/```(?:json)?\s*(\{[\s\S]*?\})\s*```/);
         if (jsonMatch) jsonStr = jsonMatch[1];
         const parsed = JSON.parse(jsonStr);
-        return parsed.answer || '';
+        return Array.isArray(parsed.facts) ? parsed.facts.slice(0, 3) : [];
       } catch (e) {
-        console.error('[RESEARCH] Answer synthesis failed:', e.message);
-        return '';
+        console.error('[RESEARCH] Facts synthesis failed:', e.message);
+        return [];
       }
     })(),
-    // Serper web search
-    // Web search (Brave first, Serper fallback)
+    // Web search (real URLs via OpenAI web_search_preview)
     searchWeb(searchQuery),
     // Pexels image search
     searchPexels(searchQuery)
   ]);
 
   return {
-    answer: answerResult,
+    facts: factsResult,
     webResults,
     images,
     followUps,

@@ -8934,19 +8934,16 @@ function buildThoughtChain(entryId) {
 
 // ——— Research v2: Card Renderers ———
 
-function createResearchAnswerCard(answerText) {
+function createResearchFactCard(factText) {
   const card = document.createElement('div');
-  card.className = 'research-answer-card research-card-animate';
-  const label = document.createElement('div');
-  label.className = 'research-answer-label';
-  label.innerHTML = '<svg class="research-answer-icon" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0L10.2 5.3L16 6.2L11.8 10.1L12.8 16L8 13.3L3.2 16L4.2 10.1L0 6.2L5.8 5.3Z"/></svg> AI Overview';
-  card.appendChild(label);
-  const paragraphs = answerText.split(/\\n|\n/).filter(p => p.trim());
-  paragraphs.forEach(p => {
-    const para = document.createElement('p');
-    para.textContent = p.trim();
-    card.appendChild(para);
-  });
+  card.className = 'research-fact-card research-card-animate';
+  const icon = document.createElement('span');
+  icon.className = 'research-fact-icon';
+  icon.textContent = '\u2727';
+  card.appendChild(icon);
+  const textSpan = document.createElement('span');
+  textSpan.textContent = factText;
+  card.appendChild(textSpan);
   return card;
 }
 
@@ -9005,8 +9002,9 @@ function renderResearchCard(entry, entryData) {
   entry.innerHTML = '';
 
   switch (mcd.researchCardType) {
-    case 'answer':
-      entry.appendChild(createResearchAnswerCard(entryData.text));
+    case 'fact':
+    case 'answer': // backward compat with old answer cards
+      entry.appendChild(createResearchFactCard(entryData.text));
       break;
     case 'web': {
       const webData = mcd.webResultData || {};
@@ -9040,7 +9038,7 @@ function renderResearchCard(entry, entryData) {
 
 // Card dimension constants
 const CARD_DIMS = {
-  answer: { w: 440, h: 280 },
+  fact:   { w: 340, h: 64 },
   web:    { w: 340, h: 110 },
   image:  { w: 300, h: 220 },
   followup: { w: 340, h: 44 }
@@ -9086,8 +9084,14 @@ function computeResearchLayout(sourceEntryId) {
     { x: imgX, y: imgStartY + CARD_DIMS.image.h + margin }
   ];
 
-  // Answer: below source, centered
-  positions.answer = { x: cx - CARD_DIMS.answer.w / 2, y: cy + srcH / 2 + margin + 20 };
+  // Facts: below source, stacked vertically, centered
+  const factX = cx - CARD_DIMS.fact.w / 2;
+  const factStartY = cy + srcH / 2 + margin + 20;
+  positions.facts = [
+    { x: factX, y: factStartY },
+    { x: factX, y: factStartY + CARD_DIMS.fact.h + margin },
+    { x: factX, y: factStartY + (CARD_DIMS.fact.h + margin) * 2 }
+  ];
 
   return positions;
 }
@@ -9120,7 +9124,7 @@ function resolveCollisions(positions, sourceEntryId) {
 
   // Collect all new cards with their dimensions
   const cards = [];
-  if (positions.answer) cards.push({ pos: positions.answer, ...CARD_DIMS.answer, dir: 'down' });
+  (positions.facts || []).forEach(p => cards.push({ pos: p, ...CARD_DIMS.fact, dir: 'down' }));
   (positions.web || []).forEach(p => cards.push({ pos: p, ...CARD_DIMS.web, dir: 'down' }));
   (positions.images || []).forEach(p => cards.push({ pos: p, ...CARD_DIMS.image, dir: 'down' }));
   (positions.followUps || []).forEach(p => cards.push({ pos: p, ...CARD_DIMS.followup, dir: 'up' }));
@@ -9237,7 +9241,7 @@ async function spawnResearchEntries(sourceEntryId) {
     }, skeletonDelay);
     skeletonDelay += 80;
   };
-  if (positions.answer) addSkeleton(positions.answer, 'research-skeleton-answer');
+  (positions.facts || []).forEach(p => addSkeleton(p, 'research-skeleton-fact'));
   (positions.web || []).forEach(p => addSkeleton(p, 'research-skeleton-web'));
   (positions.images || []).forEach(p => addSkeleton(p, 'research-skeleton-image'));
   (positions.followUps || []).forEach(p => addSkeleton(p, 'research-skeleton-followup'));
@@ -9393,9 +9397,11 @@ async function placeResearchResults(sourceEntryId, data, positions, skeletons) {
     return entryId;
   };
 
-  // Place answer card
-  if (data.answer && positions.answer) {
-    await placeOne(positions.answer, data.answer, 'answer', {});
+  // Place fact cards
+  const facts = data.facts || [];
+  const factPositions = positions.facts || [];
+  for (let i = 0; i < Math.min(facts.length, factPositions.length); i++) {
+    await placeOne(factPositions[i], facts[i], 'fact', {});
   }
 
   // Place web results
