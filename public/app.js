@@ -9249,17 +9249,22 @@ async function spawnResearchEntries(sourceEntryId) {
 
   const thoughtChain = buildThoughtChain(sourceEntryId);
   const canvasContext = [];
+  const existingFacts = [];
   entries.forEach((ed) => {
     if (ed.id === 'anchor' || ed.id === sourceEntryId) return;
     if (ed.parentEntryId !== currentViewEntryId) return;
     canvasContext.push({ text: ed.text });
+    // Collect existing research facts to avoid repetition
+    if (ed.mediaCardData && (ed.mediaCardData.researchCardType === 'fact' || ed.mediaCardData.researchCardType === 'answer')) {
+      existingFacts.push(ed.text);
+    }
   });
 
   try {
     const res = await fetch('/api/research', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ thoughtChain, canvasContext })
+      body: JSON.stringify({ thoughtChain, canvasContext, existingFacts })
     });
     if (!res.ok) throw new Error('API error');
     const data = await res.json();

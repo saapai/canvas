@@ -1112,14 +1112,15 @@ app.post('/api/research-suggestions', requireAuth, async (req, res) => {
 
 app.post('/api/research', requireAuth, async (req, res) => {
   try {
-    const { thoughtChain, canvasContext } = req.body;
+    const { thoughtChain, canvasContext, existingFacts } = req.body;
     if (!Array.isArray(thoughtChain) || thoughtChain.length === 0) {
       return res.status(400).json({ error: 'thoughtChain must be a non-empty array' });
     }
     const chain = thoughtChain.filter(t => typeof t === 'string' && t.trim().length > 0).slice(0, 15);
     if (chain.length === 0) return res.status(400).json({ error: 'thoughtChain must contain valid strings' });
     const context = Array.isArray(canvasContext) ? canvasContext.slice(0, 20) : [];
-    const result = await planResearch(chain, context);
+    const facts = Array.isArray(existingFacts) ? existingFacts.filter(f => typeof f === 'string').slice(0, 30) : [];
+    const result = await planResearch(chain, context, facts);
     res.json(result);
   } catch (error) {
     console.error('Error in research:', error);

@@ -492,11 +492,13 @@ async function searchPexels(query) {
   }
 }
 
-export async function planResearch(thoughtChain, canvasContext) {
+export async function planResearch(thoughtChain, canvasContext, existingFacts) {
   const contextSnippet = (canvasContext || [])
     .slice(0, 20)
     .map(c => `- "${c.text}"`)
     .join('\n');
+
+  const existingFactsList = (existingFacts || []).slice(0, 30);
 
   const chainFormatted = thoughtChain
     .map((t, i) => `  ${i + 1}. "${t}"`)
@@ -537,12 +539,13 @@ Respond ONLY with valid JSON:
   }
 
   // Step 2: Fire 3 parallel requests
-  const factsPrompt = `The user is researching: "${currentFocus}"
-${thoughtChain.length > 1 ? `\nThought chain:\n${chainFormatted}\n` : ''}
-Other canvas context:
-${contextSnippet || '(none)'}
+  const existingFactsBlock = existingFactsList.length > 0
+    ? `\nALREADY GENERATED (DO NOT REPEAT or paraphrase these — generate completely new information):\n${existingFactsList.map(f => `- "${f}"`).join('\n')}\n`
+    : '';
 
-Generate exactly 3 distinct, specific facts about this topic. Each fact should be 1-2 sentences max. Cover different angles: a core definition/answer, a surprising detail or mechanism, and a real-world implication or example. Be direct and concrete — no filler.
+  const factsPrompt = `The user is researching: "${currentFocus}"
+${thoughtChain.length > 1 ? `\nThought chain:\n${chainFormatted}\n` : ''}${existingFactsBlock}
+Generate exactly 3 NEW, distinct facts about this topic that have NOT been covered above. Each fact should be 1-2 sentences max. Go deeper — cover lesser-known details, specific numbers/dates, mechanisms, notable studies, controversies, or real-world examples. Be specific and surprising — avoid generic definitions or obvious statements.
 
 Respond ONLY with valid JSON:
 {"facts": ["fact 1", "fact 2", "fact 3"]}`;
@@ -554,10 +557,10 @@ Respond ONLY with valid JSON:
         const completion = await openai.chat.completions.create({
           model: 'gpt-4o-mini',
           messages: [
-            { role: 'system', content: 'You are a precise research assistant. Give short, specific facts. Respond ONLY with valid JSON.' },
+            { role: 'system', content: 'You are a precise research assistant. Give short, specific, surprising facts that go beyond surface-level knowledge. Respond ONLY with valid JSON.' },
             { role: 'user', content: factsPrompt }
           ],
-          temperature: 0.5,
+          temperature: 0.7,
           max_tokens: 400
         });
         const content = completion.choices[0].message.content.trim();
