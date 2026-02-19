@@ -4518,12 +4518,15 @@ window.addEventListener('mouseup', async (e) => {
                   focusNearestDeadlineCell(table, cx, cy);
                 }
               });
+            } else if (researchModeEnabled) {
+              // Research mode: just spawn research, don't open editor
+              spawnResearchEntries(draggingEntry.id);
             } else {
               // If currently editing, commit first and wait for it to complete
               if (editor && (editor.textContent.trim() || editingEntryId)) {
                 await commitEditor();
               }
-              
+
               const rect = draggingEntry.getBoundingClientRect();
               const worldPos = screenToWorld(rect.left, rect.top);
               const entryIdToEdit = draggingEntry.id;
@@ -4537,11 +4540,6 @@ window.addEventListener('mouseup', async (e) => {
                   placeEditorAtWorld(worldPos.x, worldPos.y, textToEdit, entryIdToEdit);
                 }
               }, 300);
-
-              // Research mode: generate related entries when clicking any entry
-              if (researchModeEnabled && entryIdToEdit !== 'anchor') {
-                spawnResearchEntries(entryIdToEdit);
-              }
             }
           }
         }
@@ -9040,6 +9038,14 @@ function renderResearchCard(entry, entryData) {
 
 // ——— Research v2: Layout Engine ———
 
+// Card dimension constants
+const CARD_DIMS = {
+  answer: { w: 440, h: 280 },
+  web:    { w: 340, h: 110 },
+  image:  { w: 300, h: 220 },
+  followup: { w: 340, h: 44 }
+};
+
 function computeResearchLayout(sourceEntryId) {
   const sourceData = entries.get(sourceEntryId);
   if (!sourceData || !sourceData.element) return {};
@@ -9052,52 +9058,92 @@ function computeResearchLayout(sourceEntryId) {
   const cx = srcX + srcW / 2;
   const cy = srcY + srcH / 2;
 
-  const gap = 40;
+  const margin = 30; // gap between cards
   const positions = {};
 
-  // Answer: below source, centered
-  positions.answer = { x: cx - 210, y: cy + srcH / 2 + gap + 20 };
-
-  // Web results: right of source, stacked vertically
-  const webX = cx + srcW / 2 + gap + 40;
-  positions.web = [
-    { x: webX, y: cy - 100 },
-    { x: webX, y: cy + 10 },
-    { x: webX, y: cy + 120 }
-  ];
-
-  // Images: left of source, stacked vertically
-  const imgX = cx - srcW / 2 - gap - 320;
-  positions.images = [
-    { x: imgX, y: cy - 80 },
-    { x: imgX, y: cy + 130 }
-  ];
-
-  // Follow-ups: above source, spread horizontally
-  const fuY = cy - srcH / 2 - gap - 50;
+  // Follow-ups: above source, spread horizontally with gap
+  const fuH = CARD_DIMS.followup.h;
+  const fuY = cy - srcH / 2 - margin - fuH;
   positions.followUps = [
-    { x: cx - 220, y: fuY },
-    { x: cx + 30, y: fuY }
+    { x: cx - CARD_DIMS.followup.w - margin / 2, y: fuY },
+    { x: cx + margin / 2, y: fuY }
   ];
+
+  // Web results: right of source, stacked vertically with gaps
+  const webX = cx + srcW / 2 + margin + 60;
+  const webStartY = cy - (CARD_DIMS.web.h * 1.5 + margin);
+  positions.web = [
+    { x: webX, y: webStartY },
+    { x: webX, y: webStartY + CARD_DIMS.web.h + margin },
+    { x: webX, y: webStartY + (CARD_DIMS.web.h + margin) * 2 }
+  ];
+
+  // Images: left of source, stacked vertically with gaps
+  const imgX = cx - srcW / 2 - margin - CARD_DIMS.image.w - 60;
+  const imgStartY = cy - (CARD_DIMS.image.h + margin / 2);
+  positions.images = [
+    { x: imgX, y: imgStartY },
+    { x: imgX, y: imgStartY + CARD_DIMS.image.h + margin }
+  ];
+
+  // Answer: below source, centered
+  positions.answer = { x: cx - CARD_DIMS.answer.w / 2, y: cy + srcH / 2 + margin + 20 };
 
   return positions;
 }
 
-// Simple collision nudge — push entries apart if overlapping
-function nudgeIfOverlapping(positions) {
-  const allPos = [];
-  if (positions.answer) allPos.push({ pos: positions.answer, w: 420, h: 140 });
-  (positions.web || []).forEach(p => allPos.push({ pos: p, w: 320, h: 90 }));
-  (positions.images || []).forEach(p => allPos.push({ pos: p, w: 280, h: 200 }));
-  (positions.followUps || []).forEach(p => allPos.push({ pos: p, w: 220, h: 40 }));
+// Collect bounding boxes of all visible entries on the canvas
+function getExistingEntryBounds(excludeSourceId) {
+  const bounds = [];
+  entries.forEach((ed, id) => {
+    if (id === 'anchor' || id === excludeSourceId) return;
+    if (ed.parentEntryId !== currentViewEntryId) return;
+    if (!ed.element || ed.element.style.display === 'none') return;
+    const x = ed.position?.x ?? (parseFloat(ed.element.style.left) || 0);
+    const y = ed.position?.y ?? (parseFloat(ed.element.style.top) || 0);
+    const w = ed.element.offsetWidth || 160;
+    const h = ed.element.offsetHeight || 40;
+    bounds.push({ x, y, w, h });
+  });
+  return bounds;
+}
 
-  for (let i = 0; i < allPos.length; i++) {
-    for (let j = i + 1; j < allPos.length; j++) {
-      const a = allPos[i], b = allPos[j];
-      const overlapX = (a.pos.x + a.w > b.pos.x) && (b.pos.x + b.w > a.pos.x);
-      const overlapY = (a.pos.y + a.h > b.pos.y) && (b.pos.y + b.h > a.pos.y);
-      if (overlapX && overlapY) {
-        b.pos.y += 20;
+function rectsOverlap(ax, ay, aw, ah, bx, by, bw, bh, pad) {
+  return ax < bx + bw + pad && ax + aw + pad > bx &&
+         ay < by + bh + pad && ay + ah + pad > by;
+}
+
+// Push a position away from all existing entries and other new positions
+function resolveCollisions(positions, sourceEntryId) {
+  const existing = getExistingEntryBounds(sourceEntryId);
+  const pad = 20; // minimum gap between any two cards
+
+  // Collect all new cards with their dimensions
+  const cards = [];
+  if (positions.answer) cards.push({ pos: positions.answer, ...CARD_DIMS.answer, dir: 'down' });
+  (positions.web || []).forEach(p => cards.push({ pos: p, ...CARD_DIMS.web, dir: 'down' }));
+  (positions.images || []).forEach(p => cards.push({ pos: p, ...CARD_DIMS.image, dir: 'down' }));
+  (positions.followUps || []).forEach(p => cards.push({ pos: p, ...CARD_DIMS.followup, dir: 'up' }));
+
+  // Multiple passes to resolve
+  for (let pass = 0; pass < 5; pass++) {
+    for (let i = 0; i < cards.length; i++) {
+      const c = cards[i];
+      // Check against existing entries
+      for (const b of existing) {
+        if (rectsOverlap(c.pos.x, c.pos.y, c.w, c.h, b.x, b.y, b.w, b.h, pad)) {
+          // Push in the card's primary direction
+          if (c.dir === 'down') c.pos.y = b.y + b.h + pad;
+          else c.pos.y = b.y - c.h - pad;
+        }
+      }
+      // Check against other new cards
+      for (let j = 0; j < i; j++) {
+        const o = cards[j];
+        if (rectsOverlap(c.pos.x, c.pos.y, c.w, c.h, o.pos.x, o.pos.y, o.w, o.h, pad)) {
+          if (c.dir === 'down') c.pos.y = o.pos.y + o.h + pad;
+          else c.pos.y = o.pos.y - c.h - pad;
+        }
       }
     }
   }
@@ -9180,7 +9226,7 @@ async function spawnResearchEntries(sourceEntryId) {
   if (entryData.element) entryData.element.classList.add('research-generating');
 
   const positions = computeResearchLayout(sourceEntryId);
-  nudgeIfOverlapping(positions);
+  resolveCollisions(positions, sourceEntryId);
 
   // Show skeleton placeholders at all positions with staggered timing
   const skeletons = [];
