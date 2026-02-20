@@ -5839,11 +5839,14 @@ async function organizeCanvasLayout() {
         type = 'media';
       }
 
+      // Store positions as centers (not top-left) for correct overlap math
+      const topLeftX = parseFloat(el.style.left) || 0;
+      const topLeftY = parseFloat(el.style.top) || 0;
       items.push({
         id: ed.id, element: el, data: ed, w, h, type,
         hue, sat, lum, hasColor,
-        oldX: parseFloat(el.style.left) || 0,
-        oldY: parseFloat(el.style.top) || 0,
+        oldX: topLeftX + w / 2,
+        oldY: topLeftY + h / 2,
         x: 0, y: 0, vx: 0, vy: 0
       });
     }
@@ -6028,12 +6031,13 @@ async function organizeCanvasLayout() {
           if (elapsed < 0) { allDone = false; continue; }
           const t = Math.min(1, elapsed / duration);
           const ease = 1 - Math.pow(1 - t, 3);
-          const cx = item.oldX + (item.x - item.oldX) * ease;
-          const cy = item.oldY + (item.y - item.oldY) * ease;
-          item.element.style.left = `${cx}px`;
-          item.element.style.top = `${cy}px`;
+          // Interpolate centers, then convert to top-left for rendering
+          const animCX = item.oldX + (item.x - item.oldX) * ease;
+          const animCY = item.oldY + (item.y - item.oldY) * ease;
+          item.element.style.left = `${animCX - item.w / 2}px`;
+          item.element.style.top = `${animCY - item.h / 2}px`;
           if (t < 1) allDone = false;
-          if (t >= 1) item.data.position = { x: item.x, y: item.y };
+          if (t >= 1) item.data.position = { x: item.x - item.w / 2, y: item.y - item.h / 2 };
         }
         if (!allDone) requestAnimationFrame(animate);
         else resolve();
@@ -6042,11 +6046,11 @@ async function organizeCanvasLayout() {
     });
     console.log('[ORGANIZE] Animation complete');
 
-    // Step 8: Batch save positions
+    // Step 8: Batch save positions (convert centers to top-left for storage)
     const entriesToSave = items.map(item => ({
       id: item.id,
       text: item.data.text,
-      position: { x: item.x, y: item.y },
+      position: { x: item.x - item.w / 2, y: item.y - item.h / 2 },
       parentEntryId: item.data.parentEntryId || null
     }));
     try {
