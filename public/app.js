@@ -790,6 +790,8 @@ async function loadUserEntries(username, editable) {
     isReadOnly = !editable;
     const dz = document.getElementById('drop-zone');
     if (dz) dz.style.display = isReadOnly ? 'none' : '';
+    const orgBtn = document.getElementById('organize-button');
+    if (orgBtn) orgBtn.style.display = isReadOnly ? 'none' : '';
 
     // Search button removed - using autocomplete instead
     
@@ -3153,6 +3155,21 @@ function updateEntryDimensions(entry) {
       if (entry.classList.contains('canvas-image')) {
         const img = entry.querySelector('img');
         if (img) {
+          // Check for persisted custom size
+          const entryData = entries.get(entry.id);
+          const cw = entryData && entryData.mediaCardData && entryData.mediaCardData.customWidth;
+          const ch = entryData && entryData.mediaCardData && entryData.mediaCardData.customHeight;
+          if (cw && ch) {
+            img.style.width = `${cw}px`;
+            img.style.height = `${ch}px`;
+            img.style.maxWidth = 'none';
+            img.style.maxHeight = 'none';
+            entry.style.setProperty('width', `${cw}px`, 'important');
+            entry.style.setProperty('height', `${ch}px`, 'important');
+            entry.style.setProperty('min-width', 'auto', 'important');
+            entry.style.setProperty('min-height', 'auto', 'important');
+            return;
+          }
           const maxW = 320;
           const maxH = 240;
           let w = img.naturalWidth || img.offsetWidth || 0;
@@ -4014,6 +4031,97 @@ function selectOnlyEntry(entryId) {
   }
 }
 
+// ——— Image Resize Handle System ———
+let resizeSelectedEntry = null;
+let resizeState = null;
+
+function showResizeHandles(entryEl) {
+  if (resizeSelectedEntry === entryEl) return;
+  hideResizeHandles();
+  resizeSelectedEntry = entryEl;
+  entryEl.classList.add('resize-selected');
+  ['nw', 'ne', 'sw', 'se'].forEach(corner => {
+    const h = document.createElement('div');
+    h.className = `resize-handle ${corner}`;
+    h.dataset.corner = corner;
+    entryEl.appendChild(h);
+  });
+}
+
+function hideResizeHandles() {
+  if (!resizeSelectedEntry) return;
+  resizeSelectedEntry.classList.remove('resize-selected');
+  resizeSelectedEntry.querySelectorAll('.resize-handle').forEach(h => h.remove());
+  resizeSelectedEntry = null;
+  resizeState = null;
+}
+
+function initResizeDrag(e, handle, entryEl) {
+  e.preventDefault();
+  e.stopPropagation();
+  const img = entryEl.querySelector('img');
+  if (!img) return;
+  const aspect = (img.naturalWidth || img.offsetWidth) / (img.naturalHeight || img.offsetHeight) || 1;
+  const rect = entryEl.getBoundingClientRect();
+  resizeState = {
+    entry: entryEl,
+    img: img,
+    corner: handle.dataset.corner,
+    startX: e.clientX,
+    startY: e.clientY,
+    startW: rect.width / cam.z,
+    startH: rect.height / cam.z,
+    aspect: aspect,
+    startLeft: parseFloat(entryEl.style.left) || 0,
+    startTop: parseFloat(entryEl.style.top) || 0
+  };
+  document.addEventListener('mousemove', onResizeMove);
+  document.addEventListener('mouseup', onResizeEnd);
+}
+
+function onResizeMove(e) {
+  if (!resizeState) return;
+  const { entry, img, corner, startX, startY, startW, startH, aspect, startLeft, startTop } = resizeState;
+  const dx = (e.clientX - startX) / cam.z;
+  const dy = (e.clientY - startY) / cam.z;
+  let newW = startW;
+  if (corner === 'se' || corner === 'ne') newW = startW + dx;
+  else newW = startW - dx;
+  newW = Math.max(60, newW);
+  const newH = newW / aspect;
+  img.style.width = `${newW}px`;
+  img.style.height = `${newH}px`;
+  img.style.maxWidth = 'none';
+  img.style.maxHeight = 'none';
+  entry.style.setProperty('width', `${newW}px`, 'important');
+  entry.style.setProperty('height', `${newH}px`, 'important');
+  if (corner === 'nw' || corner === 'sw') {
+    entry.style.left = `${startLeft + (startW - newW)}px`;
+  }
+  if (corner === 'nw' || corner === 'ne') {
+    entry.style.top = `${startTop + (startH - newH)}px`;
+  }
+}
+
+function onResizeEnd() {
+  document.removeEventListener('mousemove', onResizeMove);
+  document.removeEventListener('mouseup', onResizeEnd);
+  if (!resizeState) return;
+  const { entry, img } = resizeState;
+  const finalW = parseFloat(img.style.width);
+  const finalH = parseFloat(img.style.height);
+  updateEntryDimensions(entry);
+  const entryData = entries.get(entry.id);
+  if (entryData) {
+    entryData.position = { x: parseFloat(entry.style.left) || 0, y: parseFloat(entry.style.top) || 0 };
+    if (!entryData.mediaCardData) entryData.mediaCardData = {};
+    entryData.mediaCardData.customWidth = finalW;
+    entryData.mediaCardData.customHeight = finalH;
+    updateEntryOnServer(entryData);
+  }
+  resizeState = null;
+}
+
 async function createImageEntryAtWorld(worldX, worldY, imageUrl) {
   const entryId = generateEntryId();
   const entry = document.createElement('div');
@@ -4053,6 +4161,16 @@ let dragThreshold = 5; // Pixels to move before starting drag
 let hasMoved = false;
 
 viewport.addEventListener('mousedown', (e) => {
+  // Resize handle: intercept before anything else
+  const resizeHandle = e.target.closest('.resize-handle');
+  if (resizeHandle && resizeSelectedEntry) {
+    initResizeDrag(e, resizeHandle, resizeSelectedEntry);
+    return;
+  }
+  // Click outside resize-selected image: deselect handles
+  if (resizeSelectedEntry && !e.target.closest('.resize-selected')) {
+    hideResizeHandles();
+  }
   // Shift+drag to select: if in edit mode, save & close editor then start selection.
   // We handle this inline instead of calling commitEditor() to avoid the
   // delete-on-empty logic which can misfire when e.preventDefault() disrupts
@@ -4488,7 +4606,10 @@ window.addEventListener('mouseup', async (e) => {
                   hideCursor();
                 }
               }
-            } else if(isImageEntry(draggingEntry) || isFileEntry(draggingEntry)) {
+            } else if(isImageEntry(draggingEntry)) {
+              selectOnlyEntry(draggingEntry.id);
+              showResizeHandles(draggingEntry);
+            } else if(isFileEntry(draggingEntry)) {
               selectOnlyEntry(draggingEntry.id);
             } else if(draggingEntry.querySelector('.gcal-card')) {
               // Calendar card: no edit mode, do nothing on click
@@ -5048,6 +5169,12 @@ editor.addEventListener('keydown', (e) => {
   if(e.key === 'Escape'){
     e.preventDefault();
 
+    // Dismiss resize handles if active
+    if (resizeSelectedEntry) {
+      hideResizeHandles();
+      return;
+    }
+
     // Research entries are real — no special cleanup on ESC
 
     // Remove editing class from entry
@@ -5425,32 +5552,35 @@ viewport.addEventListener('drop', async (e) => {
     return;
   }
 
-  const file = e.dataTransfer.files[0];
-  if(!file) return;
+  const files = Array.from(e.dataTransfer.files);
+  if(!files.length) return;
 
-  // Image files: upload and create image entry (existing behavior)
-  if (file.type.startsWith('image/')) {
-    const worldPos = screenToWorld(e.clientX, e.clientY);
-    try {
-      const compressed = await compressImageFile(file);
-      const form = new FormData();
-      form.append('file', compressed);
-      const res = await fetch('/api/upload-image', { method: 'POST', credentials: 'include', body: form });
-      if(!res.ok){
-        const err = await res.json().catch(() => ({}));
-        throw new Error(err.error || 'Upload failed');
+  const baseWorldPos = screenToWorld(e.clientX, e.clientY);
+
+  for (let i = 0; i < files.length; i++) {
+    const file = files[i];
+    const offset = files.length > 1 ? goldenAngleSpiralPosition(i, 60) : { x: 0, y: 0 };
+    const pos = { x: baseWorldPos.x + offset.x, y: baseWorldPos.y + offset.y };
+
+    if (file.type.startsWith('image/')) {
+      try {
+        const compressed = await compressImageFile(file);
+        const form = new FormData();
+        form.append('file', compressed);
+        const res = await fetch('/api/upload-image', { method: 'POST', credentials: 'include', body: form });
+        if(!res.ok){
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || 'Upload failed');
+        }
+        const { url } = await res.json();
+        await createImageEntryAtWorld(pos.x, pos.y, url);
+      } catch(err){
+        console.error('Image upload failed:', err);
       }
-      const { url } = await res.json();
-      await createImageEntryAtWorld(worldPos.x, worldPos.y, url);
-    } catch(err){
-      console.error('Image upload failed:', err);
+    } else {
+      await createFileEntryAtWorld(pos.x, pos.y, file);
     }
-    return;
   }
-
-  // Non-image files: upload and create file entry
-  const worldPos = screenToWorld(e.clientX, e.clientY);
-  await createFileEntryAtWorld(worldPos.x, worldPos.y, file);
 });
 
 function formatFileSize(bytes) {
@@ -5619,6 +5749,204 @@ window.addEventListener('popstate', (event) => {
     }
   }
 });
+
+// ——— Organize Canvas Layout ———
+async function organizeCanvasLayout() {
+  const organizeBtn = document.getElementById('organize-button');
+  if (organizeBtn) organizeBtn.classList.add('organizing');
+
+  try {
+    // Step 1: Collect visible entries
+    const visibleEntries = Array.from(entries.values()).filter(e => {
+      if (e.id === 'anchor') return false;
+      return e.element && e.element.style.display !== 'none';
+    });
+    if (visibleEntries.length === 0) return;
+
+    // Step 2: Measure each entry and extract dominant color
+    const measured = [];
+    for (const ed of visibleEntries) {
+      const el = ed.element;
+      const rect = el.getBoundingClientRect();
+      const w = rect.width / cam.z;
+      const h = rect.height / cam.z;
+      let hue = -1, sat = 0, lum = 0.5;
+      let type = 'text';
+
+      if (el.classList.contains('canvas-image')) {
+        type = 'image';
+        const img = el.querySelector('img');
+        if (img && img.complete && img.naturalWidth > 0) {
+          const hsl = extractDominantHSL(img);
+          hue = hsl.h; sat = hsl.s; lum = hsl.l;
+        }
+      } else if (el.querySelector('.link-card')) {
+        type = 'link';
+        const thumb = el.querySelector('.link-card-image, .link-card-yt-thumb');
+        if (thumb) {
+          const bg = thumb.style.backgroundImage;
+          const urlMatch = bg && bg.match(/url\(["']?(.+?)["']?\)/);
+          if (urlMatch) {
+            try {
+              const tmpImg = await loadImageForColor(urlMatch[1]);
+              const hsl = extractDominantHSL(tmpImg);
+              hue = hsl.h; sat = hsl.s; lum = hsl.l;
+            } catch(ex) { /* ignore */ }
+          }
+        }
+      } else if (el.querySelector('.media-card')) {
+        type = 'media';
+      }
+
+      measured.push({
+        id: ed.id,
+        element: el,
+        data: ed,
+        w, h, type, hue, sat, lum,
+        oldX: parseFloat(el.style.left) || 0,
+        oldY: parseFloat(el.style.top) || 0
+      });
+    }
+
+    // Step 3: Sort — images by hue, links by hue, media, then text by length
+    const images = measured.filter(m => m.type === 'image').sort((a, b) => a.hue - b.hue);
+    const links = measured.filter(m => m.type === 'link').sort((a, b) => a.hue - b.hue);
+    const media = measured.filter(m => m.type === 'media');
+    const texts = measured.filter(m => m.type === 'text').sort((a, b) => {
+      const tA = (a.data.text || '').length;
+      const tB = (b.data.text || '').length;
+      return tA - tB;
+    });
+    const sorted = [...images, ...links, ...media, ...texts];
+
+    // Step 4: Compute layout grid
+    const avgW = sorted.reduce((s, m) => s + m.w, 0) / sorted.length || 200;
+    const avgH = sorted.reduce((s, m) => s + m.h, 0) / sorted.length || 80;
+    const cols = Math.max(2, Math.ceil(Math.sqrt(sorted.length * (avgW / avgH))));
+    const rowMaxW = cols * (avgW + 40);
+    const gapX = 40;
+    const gapY = 35;
+
+    // Flowing masonry layout
+    let curX = 0, curY = 0, rowH = 0;
+    const positions = [];
+    for (const item of sorted) {
+      if (curX + item.w > rowMaxW && curX > 0) {
+        curX = 0;
+        curY += rowH + gapY;
+        rowH = 0;
+      }
+      positions.push({ item, x: curX, y: curY });
+      curX += item.w + gapX;
+      rowH = Math.max(rowH, item.h);
+    }
+    const totalH = curY + rowH;
+
+    // Center grid around viewport center
+    const vpRect = viewport.getBoundingClientRect();
+    const vpCenter = screenToWorld(vpRect.width / 2, vpRect.height / 2);
+    const gridW = Math.max(...positions.map(p => p.x + p.item.w), rowMaxW);
+    const offsetX = vpCenter.x - gridW / 2;
+    const offsetY = vpCenter.y - totalH / 2;
+
+    // Step 5: Apply jitter + assign final positions
+    for (const p of positions) {
+      const jx = (Math.random() - 0.5) * 16;
+      const jy = (Math.random() - 0.5) * 16;
+      p.finalX = p.x + offsetX + jx;
+      p.finalY = p.y + offsetY + jy;
+    }
+
+    // Step 6: Animate
+    const duration = 800;
+    const stagger = 20;
+    const startTime = performance.now();
+
+    await new Promise(resolve => {
+      function animate(now) {
+        let allDone = true;
+        for (let i = 0; i < positions.length; i++) {
+          const p = positions[i];
+          const elapsed = now - startTime - i * stagger;
+          if (elapsed < 0) { allDone = false; continue; }
+          const t = Math.min(1, elapsed / duration);
+          const ease = 1 - Math.pow(1 - t, 3); // cubic ease-out
+          const cx = p.item.oldX + (p.finalX - p.item.oldX) * ease;
+          const cy = p.item.oldY + (p.finalY - p.item.oldY) * ease;
+          p.item.element.style.left = `${cx}px`;
+          p.item.element.style.top = `${cy}px`;
+          if (t < 1) allDone = false;
+          if (t >= 1) {
+            p.item.data.position = { x: p.finalX, y: p.finalY };
+          }
+        }
+        if (!allDone) requestAnimationFrame(animate);
+        else resolve();
+      }
+      requestAnimationFrame(animate);
+    });
+
+    // Step 7: Save positions
+    const entriesToSave = positions.map(p => ({
+      id: p.item.id,
+      text: p.item.data.text,
+      position: { x: p.finalX, y: p.finalY },
+      parentEntryId: p.item.data.parentEntryId || null
+    }));
+    try {
+      await fetch('/api/entries/batch', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entries: entriesToSave })
+      });
+    } catch (err) {
+      console.error('Error saving organized positions:', err);
+    }
+
+    // Step 8: Zoom to fit
+    setTimeout(() => zoomToFitEntries(), 100);
+
+  } finally {
+    if (organizeBtn) organizeBtn.classList.remove('organizing');
+  }
+}
+
+function extractDominantHSL(img) {
+  try {
+    const c = document.createElement('canvas');
+    const size = 32;
+    c.width = size; c.height = size;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(img, 0, 0, size, size);
+    const data = ctx.getImageData(0, 0, size, size).data;
+    let rSum = 0, gSum = 0, bSum = 0, count = 0;
+    for (let i = 0; i < data.length; i += 16) { // sample every 4th pixel
+      rSum += data[i]; gSum += data[i+1]; bSum += data[i+2]; count++;
+    }
+    const r = rSum / count / 255, g = gSum / count / 255, b = bSum / count / 255;
+    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+    let h = 0, s = 0, l = (max + min) / 2;
+    if (max !== min) {
+      const d = max - min;
+      s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+      if (max === r) h = ((g - b) / d + (g < b ? 6 : 0)) / 6;
+      else if (max === g) h = ((b - r) / d + 2) / 6;
+      else h = ((r - g) / d + 4) / 6;
+    }
+    return { h: Math.round(h * 360), s: Math.round(s * 100), l: Math.round(l * 100) };
+  } catch(e) { return { h: 0, s: 0, l: 50 }; }
+}
+
+function loadImageForColor(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
 
 // Gentle alignment algorithm - local, visual-only refinement
 async function organizeEntriesIntoHubs() {
@@ -6692,6 +7020,15 @@ function executePlacements(placements) {
   }
 
   updateEntryVisibility();
+}
+
+// Organize button
+const organizeButton = document.getElementById('organize-button');
+if (organizeButton) {
+  organizeButton.addEventListener('click', () => {
+    if (isReadOnly) return;
+    organizeCanvasLayout();
+  });
 }
 
 // Drop zone event listeners

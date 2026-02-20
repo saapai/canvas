@@ -3417,6 +3417,7 @@ body.article-mode .bg-picker-button,
 body.article-mode #bg-picker-dropdown,
 body.article-mode .help-button,
 body.article-mode .drop-zone,
+body.article-mode .organize-button,
 body.article-mode #format-bar,
 body.article-mode #drop-dialog {
   display: none !important;
@@ -3877,3 +3878,56 @@ body.article-mode #drop-dialog {
   margin-left: 6px;
   vertical-align: middle;
 }
+
+/* Organize button — bottom-left */
+.organize-button {
+  position: fixed;
+  bottom: 24px;
+  left: 24px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid rgba(0, 0, 0, 0.08);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  line-height: 1;
+  transition: all 0.25s cubic-bezier(0.22, 1, 0.36, 1);
+  z-index: 999;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06), 0 4px 12px rgba(0, 0, 0, 0.04);
+  opacity: 0.6;
+}
+.organize-button:hover {
+  opacity: 1;
+  transform: scale(1.08);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08), 0 8px 24px rgba(0, 0, 0, 0.06);
+  border-color: rgba(0, 0, 0, 0.14);
+}
+.organize-button.organizing {
+  opacity: 1;
+  animation: drop-spin 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+/* Image resize handles */
+.entry.canvas-image.resize-selected {
+  outline: 2px solid rgba(0, 0, 0, 0.2);
+  outline-offset: 0px;
+}
+.resize-handle {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  background: var(--paper);
+  border: 1.5px solid rgba(0, 0, 0, 0.3);
+  border-radius: 50%;
+  z-index: 10;
+  pointer-events: auto;
+}
+.resize-handle.nw { top: -5px; left: -5px; cursor: nwse-resize; }
+.resize-handle.ne { top: -5px; right: -5px; cursor: nesw-resize; }
+.resize-handle.sw { bottom: -5px; left: -5px; cursor: nesw-resize; }
+.resize-handle.se { bottom: -5px; right: -5px; cursor: nwse-resize; }
