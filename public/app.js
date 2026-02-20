@@ -5750,7 +5750,40 @@ window.addEventListener('popstate', (event) => {
   }
 });
 
-// ——— Organize Canvas Layout ———
+// ——— Simplex 2D Noise (deterministic, no dependencies) ———
+const _organizeNoise = (function() {
+  const perm = new Uint8Array(512);
+  const grad = [[1,1],[-1,1],[1,-1],[-1,-1],[1,0],[-1,0],[0,1],[0,-1]];
+  let s = 42;
+  function rng() { s = (s * 1664525 + 1013904223) & 0xFFFFFFFF; return (s >>> 0) / 0xFFFFFFFF; }
+  const p = Array.from({ length: 256 }, (_, i) => i);
+  for (let i = 255; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [p[i], p[j]] = [p[j], p[i]]; }
+  for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
+  const F2 = 0.5 * (Math.sqrt(3) - 1), G2 = (3 - Math.sqrt(3)) / 6;
+  return function(x, y) {
+    const sk = (x + y) * F2, i = Math.floor(x + sk), j = Math.floor(y + sk);
+    const t = (i + j) * G2, x0 = x - (i - t), y0 = y - (j - t);
+    const i1 = x0 > y0 ? 1 : 0, j1 = x0 > y0 ? 0 : 1;
+    const x1 = x0 - i1 + G2, y1 = y0 - j1 + G2, x2 = x0 - 1 + 2 * G2, y2 = y0 - 1 + 2 * G2;
+    const ii = i & 255, jj = j & 255;
+    const gi0 = perm[ii + perm[jj]] % 8, gi1 = perm[ii + i1 + perm[jj + j1]] % 8, gi2 = perm[ii + 1 + perm[jj + 1]] % 8;
+    let n0 = 0, n1 = 0, n2 = 0;
+    let t0 = 0.5 - x0*x0 - y0*y0; if (t0 >= 0) { t0 *= t0; n0 = t0*t0*(grad[gi0][0]*x0+grad[gi0][1]*y0); }
+    let t1 = 0.5 - x1*x1 - y1*y1; if (t1 >= 0) { t1 *= t1; n1 = t1*t1*(grad[gi1][0]*x1+grad[gi1][1]*y1); }
+    let t2 = 0.5 - x2*x2 - y2*y2; if (t2 >= 0) { t2 *= t2; n2 = t2*t2*(grad[gi2][0]*x2+grad[gi2][1]*y2); }
+    return 70 * (n0 + n1 + n2);
+  };
+})();
+
+// ——— HSL color distance with hue wraparound ———
+function _colorDist(a, b) {
+  const dH = Math.min(Math.abs(a.hue - b.hue), 360 - Math.abs(a.hue - b.hue)) / 180;
+  const dS = Math.abs((a.sat || 0) / 100 - (b.sat || 0) / 100);
+  const dL = Math.abs((a.lum || 50) / 100 - (b.lum || 50) / 100);
+  return Math.sqrt(dH * dH * 4.0 + dS * dS * 1.0 + dL * dL * 0.5);
+}
+
+// ——— Organize Canvas Layout: Force-directed + Multi-spiral ———
 async function organizeCanvasLayout() {
   const organizeBtn = document.getElementById('organize-button');
   if (organizeBtn) organizeBtn.classList.add('organizing');
@@ -5764,13 +5797,14 @@ async function organizeCanvasLayout() {
     if (visibleEntries.length === 0) return;
 
     // Step 2: Measure each entry and extract dominant color
-    const measured = [];
+    const items = [];
     for (const ed of visibleEntries) {
       const el = ed.element;
       const rect = el.getBoundingClientRect();
       const w = rect.width / cam.z;
       const h = rect.height / cam.z;
-      let hue = -1, sat = 0, lum = 0.5;
+      let hue = 0, sat = 0, lum = 50;
+      let hasColor = false;
       let type = 'text';
 
       if (el.classList.contains('canvas-image')) {
@@ -5778,7 +5812,7 @@ async function organizeCanvasLayout() {
         const img = el.querySelector('img');
         if (img && img.complete && img.naturalWidth > 0) {
           const hsl = extractDominantHSL(img);
-          hue = hsl.h; sat = hsl.s; lum = hsl.l;
+          hue = hsl.h; sat = hsl.s; lum = hsl.l; hasColor = true;
         }
       } else if (el.querySelector('.link-card')) {
         type = 'link';
@@ -5790,95 +5824,208 @@ async function organizeCanvasLayout() {
             try {
               const tmpImg = await loadImageForColor(urlMatch[1]);
               const hsl = extractDominantHSL(tmpImg);
-              hue = hsl.h; sat = hsl.s; lum = hsl.l;
-            } catch(ex) { /* ignore */ }
+              hue = hsl.h; sat = hsl.s; lum = hsl.l; hasColor = true;
+            } catch(ex) { /* cross-origin, ignore */ }
           }
         }
       } else if (el.querySelector('.media-card')) {
         type = 'media';
       }
 
-      measured.push({
-        id: ed.id,
-        element: el,
-        data: ed,
-        w, h, type, hue, sat, lum,
+      items.push({
+        id: ed.id, element: el, data: ed, w, h, type,
+        hue, sat, lum, hasColor,
         oldX: parseFloat(el.style.left) || 0,
-        oldY: parseFloat(el.style.top) || 0
+        oldY: parseFloat(el.style.top) || 0,
+        x: 0, y: 0, vx: 0, vy: 0
       });
     }
 
-    // Step 3: Sort — images by hue, links by hue, media, then text by length
-    const images = measured.filter(m => m.type === 'image').sort((a, b) => a.hue - b.hue);
-    const links = measured.filter(m => m.type === 'link').sort((a, b) => a.hue - b.hue);
-    const media = measured.filter(m => m.type === 'media');
-    const texts = measured.filter(m => m.type === 'text').sort((a, b) => {
-      const tA = (a.data.text || '').length;
-      const tB = (b.data.text || '').length;
-      return tA - tB;
-    });
-    const sorted = [...images, ...links, ...media, ...texts];
+    const n = items.length;
+    if (n === 0) return;
 
-    // Step 4: Compute layout grid
-    const avgW = sorted.reduce((s, m) => s + m.w, 0) / sorted.length || 200;
-    const avgH = sorted.reduce((s, m) => s + m.h, 0) / sorted.length || 80;
-    const cols = Math.max(2, Math.ceil(Math.sqrt(sorted.length * (avgW / avgH))));
-    const rowMaxW = cols * (avgW + 40);
-    const gapX = 40;
-    const gapY = 35;
+    // Step 3: Cluster by color similarity using simple greedy clustering
+    // Group items whose colors are within threshold into the same cluster
+    const COLOR_THRESHOLD = 0.45;
+    const clusters = [];
+    const assigned = new Set();
+    // Sort items with color first, then without
+    const colorItems = items.filter(m => m.hasColor).sort((a, b) => a.hue - b.hue);
+    const noColorItems = items.filter(m => !m.hasColor);
 
-    // Flowing masonry layout
-    let curX = 0, curY = 0, rowH = 0;
-    const positions = [];
-    for (const item of sorted) {
-      if (curX + item.w > rowMaxW && curX > 0) {
-        curX = 0;
-        curY += rowH + gapY;
-        rowH = 0;
+    for (const item of colorItems) {
+      if (assigned.has(item.id)) continue;
+      const cluster = [item];
+      assigned.add(item.id);
+      for (const other of colorItems) {
+        if (assigned.has(other.id)) continue;
+        if (_colorDist(item, other) < COLOR_THRESHOLD) {
+          cluster.push(other);
+          assigned.add(other.id);
+        }
       }
-      positions.push({ item, x: curX, y: curY });
-      curX += item.w + gapX;
-      rowH = Math.max(rowH, item.h);
+      clusters.push(cluster);
     }
-    const totalH = curY + rowH;
+    // Non-color items form their own cluster
+    if (noColorItems.length > 0) {
+      clusters.push(noColorItems);
+      noColorItems.forEach(m => assigned.add(m.id));
+    }
 
-    // Center grid around viewport center
+    // Step 4: Initialize positions on MULTIPLE GOLDEN SPIRALS
+    // Each color cluster gets its own spiral arm emanating from center
     const vpRect = viewport.getBoundingClientRect();
-    const vpCenter = screenToWorld(vpRect.width / 2, vpRect.height / 2);
-    const gridW = Math.max(...positions.map(p => p.x + p.item.w), rowMaxW);
-    const offsetX = vpCenter.x - gridW / 2;
-    const offsetY = vpCenter.y - totalH / 2;
+    const center = screenToWorld(vpRect.width / 2, vpRect.height / 2);
+    const goldenAngle = Math.PI * (3 - Math.sqrt(5)); // ~137.508°
+    const avgDiag = items.reduce((s, m) => s + Math.sqrt(m.w * m.w + m.h * m.h), 0) / n;
+    const spiralSpacing = avgDiag * 0.9;
 
-    // Step 5: Apply jitter + assign final positions
-    for (const p of positions) {
-      const jx = (Math.random() - 0.5) * 16;
-      const jy = (Math.random() - 0.5) * 16;
-      p.finalX = p.x + offsetX + jx;
-      p.finalY = p.y + offsetY + jy;
+    // Assign each cluster a base angle offset (evenly around the circle)
+    const clusterAngles = clusters.map((_, ci) => (ci / clusters.length) * Math.PI * 2);
+
+    for (let ci = 0; ci < clusters.length; ci++) {
+      const cluster = clusters[ci];
+      const baseAngle = clusterAngles[ci];
+      for (let i = 0; i < cluster.length; i++) {
+        const item = cluster[i];
+        const angle = baseAngle + i * goldenAngle * 0.6; // tighter spiral per cluster
+        const radius = spiralSpacing * Math.sqrt(i + 1) * (1 + ci * 0.3);
+        // Simplex noise perturbation for asymmetry
+        const nx = _organizeNoise(ci * 7.3 + i * 0.5, i * 0.3) * avgDiag * 0.6;
+        const ny = _organizeNoise(ci * 7.3 + i * 0.5 + 99, i * 0.3 + 99) * avgDiag * 0.6;
+        item.x = center.x + radius * Math.cos(angle) + nx;
+        item.y = center.y + radius * Math.sin(angle) + ny;
+      }
     }
 
-    // Step 6: Animate
-    const duration = 800;
-    const stagger = 20;
+    // Step 5: Force-directed simulation
+    // Fruchterman-Reingold with color attraction + AABB collision
+    const REPULSION = 1200;
+    const COLOR_ATTRACT = 0.35;
+    const DAMPING = 0.85;
+    let temp = avgDiag * 1.5;
+    const COOLING = 0.94;
+    const MIN_TEMP = 0.5;
+    const ITERATIONS = 150;
+    const BASE_PAD = 28;
+
+    // Precompute color distance matrix + variable padding
+    const cDistMatrix = [];
+    const padMatrix = [];
+    for (let i = 0; i < n; i++) {
+      cDistMatrix[i] = [];
+      padMatrix[i] = [];
+      for (let j = 0; j < n; j++) {
+        cDistMatrix[i][j] = _colorDist(items[i], items[j]);
+        // Similar colors get tighter padding, dissimilar get looser
+        const colorFactor = cDistMatrix[i][j] < COLOR_THRESHOLD ? 0.75 : 1.1;
+        const noiseVal = _organizeNoise(i * 0.7, j * 0.7);
+        padMatrix[i][j] = Math.max(12, (BASE_PAD + noiseVal * 18) * colorFactor);
+      }
+    }
+
+    for (let iter = 0; iter < ITERATIONS && temp > MIN_TEMP; iter++) {
+      const fx = new Float64Array(n);
+      const fy = new Float64Array(n);
+
+      for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+          const dx = items[i].x - items[j].x;
+          const dy = items[i].y - items[j].y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
+          const ux = dx / dist, uy = dy / dist;
+
+          // Size-aware repulsion
+          const combinedDiag = (Math.sqrt(items[i].w**2 + items[i].h**2) + Math.sqrt(items[j].w**2 + items[j].h**2)) / 2;
+          const k = combinedDiag + BASE_PAD;
+          const repF = (k * k) / dist * (REPULSION / 1000);
+          fx[i] += ux * repF; fy[i] += uy * repF;
+          fx[j] -= ux * repF; fy[j] -= uy * repF;
+
+          // Color attraction (similar colors pull together)
+          const cDist = cDistMatrix[i][j];
+          if (cDist < COLOR_THRESHOLD && items[i].hasColor && items[j].hasColor) {
+            const similarity = 1 - cDist / COLOR_THRESHOLD;
+            const attrF = (dist / k) * COLOR_ATTRACT * similarity;
+            fx[i] -= ux * attrF; fy[i] -= uy * attrF;
+            fx[j] += ux * attrF; fy[j] += uy * attrF;
+          }
+        }
+
+        // Gentle centering force (prevents drift)
+        const cx = items[i].x - center.x, cy = items[i].y - center.y;
+        const cMag = Math.sqrt(cx * cx + cy * cy) || 0.1;
+        fx[i] -= (cx / cMag) * cMag * 0.008;
+        fy[i] -= (cy / cMag) * cMag * 0.008;
+      }
+
+      // Apply forces with temperature clamping
+      for (let i = 0; i < n; i++) {
+        const fMag = Math.sqrt(fx[i] * fx[i] + fy[i] * fy[i]) || 0.1;
+        const disp = Math.min(fMag, temp);
+        items[i].vx = (items[i].vx + (fx[i] / fMag) * disp) * DAMPING;
+        items[i].vy = (items[i].vy + (fy[i] / fMag) * disp) * DAMPING;
+        items[i].x += items[i].vx;
+        items[i].y += items[i].vy;
+      }
+
+      // AABB collision resolution (3 passes for convergence)
+      for (let pass = 0; pass < 3; pass++) {
+        for (let i = 0; i < n; i++) {
+          for (let j = i + 1; j < n; j++) {
+            const pad = padMatrix[i][j];
+            const hw_i = items[i].w / 2 + pad / 2, hh_i = items[i].h / 2 + pad / 2;
+            const hw_j = items[j].w / 2 + pad / 2, hh_j = items[j].h / 2 + pad / 2;
+            const overlapX = (hw_i + hw_j) - Math.abs(items[i].x - items[j].x);
+            const overlapY = (hh_i + hh_j) - Math.abs(items[i].y - items[j].y);
+            if (overlapX > 0 && overlapY > 0) {
+              const area_i = items[i].w * items[i].h;
+              const area_j = items[j].w * items[j].h;
+              const total = area_i + area_j;
+              const wi = area_j / total, wj = area_i / total;
+              if (overlapX < overlapY) {
+                const sign = items[i].x > items[j].x ? 1 : -1;
+                items[i].x += sign * overlapX * wi;
+                items[j].x -= sign * overlapX * wj;
+              } else {
+                const sign = items[i].y > items[j].y ? 1 : -1;
+                items[i].y += sign * overlapY * wi;
+                items[j].y -= sign * overlapY * wj;
+              }
+            }
+          }
+        }
+      }
+
+      temp *= COOLING;
+    }
+
+    // Step 6: Final micro-noise for organic imperfection
+    for (let i = 0; i < n; i++) {
+      items[i].x += _organizeNoise(items[i].x * 0.008, items[i].y * 0.008) * 8;
+      items[i].y += _organizeNoise(items[i].x * 0.008 + 50, items[i].y * 0.008 + 50) * 8;
+    }
+
+    // Step 7: Animate from old to new positions
+    const duration = 900;
+    const stagger = 25;
     const startTime = performance.now();
 
     await new Promise(resolve => {
       function animate(now) {
         let allDone = true;
-        for (let i = 0; i < positions.length; i++) {
-          const p = positions[i];
+        for (let i = 0; i < n; i++) {
+          const item = items[i];
           const elapsed = now - startTime - i * stagger;
           if (elapsed < 0) { allDone = false; continue; }
           const t = Math.min(1, elapsed / duration);
-          const ease = 1 - Math.pow(1 - t, 3); // cubic ease-out
-          const cx = p.item.oldX + (p.finalX - p.item.oldX) * ease;
-          const cy = p.item.oldY + (p.finalY - p.item.oldY) * ease;
-          p.item.element.style.left = `${cx}px`;
-          p.item.element.style.top = `${cy}px`;
+          const ease = 1 - Math.pow(1 - t, 3);
+          const cx = item.oldX + (item.x - item.oldX) * ease;
+          const cy = item.oldY + (item.y - item.oldY) * ease;
+          item.element.style.left = `${cx}px`;
+          item.element.style.top = `${cy}px`;
           if (t < 1) allDone = false;
-          if (t >= 1) {
-            p.item.data.position = { x: p.finalX, y: p.finalY };
-          }
+          if (t >= 1) item.data.position = { x: item.x, y: item.y };
         }
         if (!allDone) requestAnimationFrame(animate);
         else resolve();
@@ -5886,12 +6033,12 @@ async function organizeCanvasLayout() {
       requestAnimationFrame(animate);
     });
 
-    // Step 7: Save positions
-    const entriesToSave = positions.map(p => ({
-      id: p.item.id,
-      text: p.item.data.text,
-      position: { x: p.finalX, y: p.finalY },
-      parentEntryId: p.item.data.parentEntryId || null
+    // Step 8: Batch save positions
+    const entriesToSave = items.map(item => ({
+      id: item.id,
+      text: item.data.text,
+      position: { x: item.x, y: item.y },
+      parentEntryId: item.data.parentEntryId || null
     }));
     try {
       await fetch('/api/entries/batch', {
@@ -5904,8 +6051,8 @@ async function organizeCanvasLayout() {
       console.error('Error saving organized positions:', err);
     }
 
-    // Step 8: Zoom to fit
-    setTimeout(() => zoomToFitEntries(), 100);
+    // Step 9: Zoom to fit
+    setTimeout(() => zoomToFitEntries(), 150);
 
   } finally {
     if (organizeBtn) organizeBtn.classList.remove('organizing');
@@ -5921,7 +6068,7 @@ function extractDominantHSL(img) {
     ctx.drawImage(img, 0, 0, size, size);
     const data = ctx.getImageData(0, 0, size, size).data;
     let rSum = 0, gSum = 0, bSum = 0, count = 0;
-    for (let i = 0; i < data.length; i += 16) { // sample every 4th pixel
+    for (let i = 0; i < data.length; i += 16) {
       rSum += data[i]; gSum += data[i+1]; bSum += data[i+2]; count++;
     }
     const r = rSum / count / 255, g = gSum / count / 255, b = bSum / count / 255;
