@@ -5360,6 +5360,48 @@ viewport.addEventListener('contextmenu', (e) => {
   }
 });
 
+// Compress image files client-side to stay under Vercel's 4.5MB body limit
+const MAX_UPLOAD_SIZE = 4 * 1024 * 1024; // 4MB target (leave headroom)
+async function compressImageFile(file) {
+  if (file.size <= MAX_UPLOAD_SIZE) return file;
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let { width, height } = img;
+      // Scale down to fit within reasonable dimensions
+      const maxDim = 2048;
+      if (width > maxDim || height > maxDim) {
+        const scale = maxDim / Math.max(width, height);
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      // Try quality levels until under size limit
+      let quality = 0.85;
+      const tryCompress = () => {
+        canvas.toBlob(blob => {
+          if (!blob) { resolve(file); return; }
+          if (blob.size <= MAX_UPLOAD_SIZE || quality <= 0.3) {
+            resolve(new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' }));
+          } else {
+            quality -= 0.15;
+            tryCompress();
+          }
+        }, 'image/jpeg', quality);
+      };
+      tryCompress();
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(file); };
+    img.src = url;
+  });
+}
+
 // Drag-and-drop files onto canvas
 viewport.addEventListener('dragover', (e) => {
   if(isReadOnly) return;
@@ -5390,8 +5432,9 @@ viewport.addEventListener('drop', async (e) => {
   if (file.type.startsWith('image/')) {
     const worldPos = screenToWorld(e.clientX, e.clientY);
     try {
+      const compressed = await compressImageFile(file);
       const form = new FormData();
-      form.append('file', file);
+      form.append('file', compressed);
       const res = await fetch('/api/upload-image', { method: 'POST', credentials: 'include', body: form });
       if(!res.ok){
         const err = await res.json().catch(() => ({}));
@@ -6404,8 +6447,9 @@ async function collectDroppedItems(dataTransfer) {
     for (const file of dataTransfer.files) {
       if (file.type.startsWith('image/')) {
         try {
+          const compressed = await compressImageFile(file);
           const form = new FormData();
-          form.append('file', file);
+          form.append('file', compressed);
           const res = await fetch('/api/upload-image', { method: 'POST', credentials: 'include', body: form });
           if (res.ok) {
             const data = await res.json();
