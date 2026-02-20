@@ -923,16 +923,18 @@ async function saveEntriesBatch(entriesToSave) {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        entries: entriesToSave.map(entryData => ({
-          id: entryData.id,
-          text: entryData.text,
-          textHtml: entryData.textHtml || null,
-          position: entryData.position,
-          parentEntryId: entryData.parentEntryId,
-          linkCardsData: entryData.linkCardsData || null,
-          mediaCardData: entryData.mediaCardData || null,
-          latexData: entryData.latexData || null
-        })),
+        entries: entriesToSave
+          .filter(entryData => entryData.position && entryData.position.x != null && entryData.position.y != null)
+          .map(entryData => ({
+            id: entryData.id,
+            text: entryData.text,
+            textHtml: entryData.textHtml || null,
+            position: entryData.position,
+            parentEntryId: entryData.parentEntryId,
+            linkCardsData: entryData.linkCardsData || null,
+            mediaCardData: entryData.mediaCardData || null,
+            latexData: entryData.latexData || null
+          })),
         pageOwnerId: window.PAGE_OWNER_ID
       })
     });
@@ -5789,12 +5791,17 @@ async function organizeCanvasLayout() {
   if (organizeBtn) organizeBtn.classList.add('organizing');
 
   try {
+    console.log('[ORGANIZE] Starting organizeCanvasLayout');
     // Step 1: Collect visible entries
     const visibleEntries = Array.from(entries.values()).filter(e => {
       if (e.id === 'anchor') return false;
       return e.element && e.element.style.display !== 'none';
     });
-    if (visibleEntries.length === 0) return;
+    console.log('[ORGANIZE] Visible entries:', visibleEntries.length);
+    if (visibleEntries.length === 0) {
+      console.log('[ORGANIZE] No visible entries, returning');
+      return;
+    }
 
     // Step 2: Measure each entry and extract dominant color
     const items = [];
@@ -5842,7 +5849,11 @@ async function organizeCanvasLayout() {
     }
 
     const n = items.length;
-    if (n === 0) return;
+    console.log('[ORGANIZE] Items measured:', n, 'types:', items.map(i => i.type));
+    if (n === 0) {
+      console.log('[ORGANIZE] No items after measurement, returning');
+      return;
+    }
 
     // Step 3: Cluster by color similarity using simple greedy clustering
     // Group items whose colors are within threshold into the same cluster
@@ -5874,11 +5885,14 @@ async function organizeCanvasLayout() {
 
     // Step 4: Initialize positions on MULTIPLE GOLDEN SPIRALS
     // Each color cluster gets its own spiral arm emanating from center
+    console.log('[ORGANIZE] Clusters:', clusters.length, 'sizes:', clusters.map(c => c.length));
     const vpRect = viewport.getBoundingClientRect();
     const center = screenToWorld(vpRect.width / 2, vpRect.height / 2);
+    console.log('[ORGANIZE] Center:', center, 'cam:', {x: cam.x, y: cam.y, z: cam.z}, 'viewport:', vpRect.width, 'x', vpRect.height);
     const goldenAngle = Math.PI * (3 - Math.sqrt(5)); // ~137.508°
     const avgDiag = items.reduce((s, m) => s + Math.sqrt(m.w * m.w + m.h * m.h), 0) / n;
     const spiralSpacing = avgDiag * 0.9;
+    console.log('[ORGANIZE] avgDiag:', avgDiag, 'spiralSpacing:', spiralSpacing);
 
     // Assign each cluster a base angle offset (evenly around the circle)
     const clusterAngles = clusters.map((_, ci) => (ci / clusters.length) * Math.PI * 2);
@@ -5999,6 +6013,7 @@ async function organizeCanvasLayout() {
 
       temp *= COOLING;
     }
+    console.log('[ORGANIZE] Force simulation done. Sample positions:', items.slice(0, 3).map(i => ({id: i.id, x: Math.round(i.x), y: Math.round(i.y), oldX: Math.round(i.oldX), oldY: Math.round(i.oldY)})));
 
     // Step 6: Final micro-noise for organic imperfection
     for (let i = 0; i < n; i++) {
@@ -6021,6 +6036,8 @@ async function organizeCanvasLayout() {
       items[i].x += shiftX;
       items[i].y += shiftY;
     }
+    console.log('[ORGANIZE] Re-centered. centroid was:', {x: Math.round(centroidX), y: Math.round(centroidY)}, 'shift:', {x: Math.round(shiftX), y: Math.round(shiftY)});
+    console.log('[ORGANIZE] Final positions:', items.slice(0, 5).map(i => ({id: i.id, x: Math.round(i.x), y: Math.round(i.y), oldX: Math.round(i.oldX), oldY: Math.round(i.oldY)})));
 
     // Step 7: Animate from old to new positions
     const duration = 900;
@@ -6048,6 +6065,7 @@ async function organizeCanvasLayout() {
       }
       requestAnimationFrame(animate);
     });
+    console.log('[ORGANIZE] Animation complete');
 
     // Step 8: Batch save positions
     const entriesToSave = items.map(item => ({
@@ -6064,14 +6082,19 @@ async function organizeCanvasLayout() {
         body: JSON.stringify({ entries: entriesToSave })
       });
     } catch (err) {
-      console.error('Error saving organized positions:', err);
+      console.error('[ORGANIZE] Error saving organized positions:', err);
     }
+    console.log('[ORGANIZE] Batch save sent for', entriesToSave.length, 'entries');
 
     // Step 9: Zoom to fit
+    console.log('[ORGANIZE] Calling zoomToFitEntries');
     setTimeout(() => zoomToFitEntries(), 150);
 
+  } catch (err) {
+    console.error('[ORGANIZE] Error during organize:', err);
   } finally {
     if (organizeBtn) organizeBtn.classList.remove('organizing');
+    console.log('[ORGANIZE] Done');
   }
 }
 

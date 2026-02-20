@@ -454,6 +454,13 @@ export async function saveAllEntries(entries, userId) {
       await client.query('BEGIN');
       
       for (const entry of entries) {
+        // Skip entries with null/undefined positions to prevent NOT NULL constraint violations
+        const posX = entry.position && entry.position.x != null ? entry.position.x : null;
+        const posY = entry.position && entry.position.y != null ? entry.position.y : null;
+        if (posX == null || posY == null) {
+          console.warn('[DB] Skipping entry with null position:', entry.id);
+          continue;
+        }
         const linkCardsData = entry.linkCardsData ? JSON.stringify(entry.linkCardsData) : null;
         const mediaCardData = entry.mediaCardData ? JSON.stringify(entry.mediaCardData) : null;
         const latexData = entry.latexData ? JSON.stringify(entry.latexData) : null;
@@ -472,7 +479,7 @@ export async function saveAllEntries(entries, userId) {
              latex_data = EXCLUDED.latex_data,
              deleted_at = NULL,
              updated_at = CURRENT_TIMESTAMP`,
-          [entry.id, entry.text, entry.position.x, entry.position.y, entry.parentEntryId || null, userId, linkCardsData, mediaCardData, latexData]
+          [entry.id, entry.text, posX, posY, entry.parentEntryId || null, userId, linkCardsData, mediaCardData, latexData]
         );
       }
       
