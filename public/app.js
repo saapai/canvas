@@ -1452,8 +1452,8 @@ function zoomToFitEntries() {
     const rect = element.getBoundingClientRect();
     const worldX = parseFloat(element.style.left) || 0;
     const worldY = parseFloat(element.style.top) || 0;
-    const worldWidth = rect.width;
-    const worldHeight = rect.height;
+    const worldWidth = rect.width / cam.z;
+    const worldHeight = rect.height / cam.z;
 
     minX = Math.min(minX, worldX);
     minY = Math.min(minY, worldY);
@@ -5889,7 +5889,7 @@ async function organizeCanvasLayout() {
       for (let i = 0; i < cluster.length; i++) {
         const item = cluster[i];
         const angle = baseAngle + i * goldenAngle * 0.6; // tighter spiral per cluster
-        const radius = spiralSpacing * Math.sqrt(i + 1) * (1 + ci * 0.3);
+        const radius = spiralSpacing * Math.sqrt(i + 1) * (1 + ci * 0.15);
         // Simplex noise perturbation for asymmetry
         const nx = _organizeNoise(ci * 7.3 + i * 0.5, i * 0.3) * avgDiag * 0.6;
         const ny = _organizeNoise(ci * 7.3 + i * 0.5 + 99, i * 0.3 + 99) * avgDiag * 0.6;
@@ -5908,6 +5908,7 @@ async function organizeCanvasLayout() {
     const MIN_TEMP = 0.5;
     const ITERATIONS = 150;
     const BASE_PAD = 28;
+    const CENTER_FORCE = 0.04;
 
     // Precompute color distance matrix + variable padding
     const cDistMatrix = [];
@@ -5952,11 +5953,10 @@ async function organizeCanvasLayout() {
           }
         }
 
-        // Gentle centering force (prevents drift)
+        // Centering force (keeps layout around viewport center)
         const cx = items[i].x - center.x, cy = items[i].y - center.y;
-        const cMag = Math.sqrt(cx * cx + cy * cy) || 0.1;
-        fx[i] -= (cx / cMag) * cMag * 0.008;
-        fy[i] -= (cy / cMag) * cMag * 0.008;
+        fx[i] -= cx * CENTER_FORCE;
+        fy[i] -= cy * CENTER_FORCE;
       }
 
       // Apply forces with temperature clamping
@@ -6004,6 +6004,22 @@ async function organizeCanvasLayout() {
     for (let i = 0; i < n; i++) {
       items[i].x += _organizeNoise(items[i].x * 0.008, items[i].y * 0.008) * 8;
       items[i].y += _organizeNoise(items[i].x * 0.008 + 50, items[i].y * 0.008 + 50) * 8;
+    }
+
+    // Step 6b: Re-center layout on viewport center
+    // Compute centroid of all items and shift so it aligns with the viewport center
+    let centroidX = 0, centroidY = 0;
+    for (let i = 0; i < n; i++) {
+      centroidX += items[i].x;
+      centroidY += items[i].y;
+    }
+    centroidX /= n;
+    centroidY /= n;
+    const shiftX = center.x - centroidX;
+    const shiftY = center.y - centroidY;
+    for (let i = 0; i < n; i++) {
+      items[i].x += shiftX;
+      items[i].y += shiftY;
     }
 
     // Step 7: Animate from old to new positions
