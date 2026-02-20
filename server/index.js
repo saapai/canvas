@@ -12,7 +12,7 @@ import heicConvert from 'heic-convert';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 import { processTextWithLLM, fetchLinkMetadata, generateLinkCard, extractDeadlinesFromFile, convertTextToLatex, generateResearchEntries, planResearch } from './llm.js';
-import { chatWithCanvas } from './chat.js';
+import { chatWithCanvas, organizeDroppedContent } from './chat.js';
 import {
   initDatabase,
   getAllEntries,
@@ -1533,6 +1533,37 @@ app.post('/api/chat', requireAuth, async (req, res) => {
   } catch (error) {
     console.error('[CHAT] /api/chat error:', error);
     res.status(500).json({ error: error.message || 'Chat failed' });
+  }
+});
+
+app.post('/api/drop-organize', requireAuth, async (req, res) => {
+  try {
+    if (!req.user) {
+      return res.status(401).json({ error: 'Authentication required' });
+    }
+    const { content, trenches, currentViewEntryId, focusedTrench, userReply, previousPlacements } = req.body || {};
+    if (!content || !content.type || !Array.isArray(content.items) || content.items.length === 0) {
+      return res.status(400).json({ error: 'content.type and content.items[] are required' });
+    }
+    if (content.items.length > 50) {
+      return res.status(400).json({ error: 'Maximum 50 items per drop' });
+    }
+    const payload = {
+      content,
+      trenches: Array.isArray(trenches) ? trenches : [],
+      currentViewEntryId: typeof currentViewEntryId === 'string' ? currentViewEntryId : null,
+      focusedTrench: focusedTrench && typeof focusedTrench === 'object' ? focusedTrench : null,
+      userReply: typeof userReply === 'string' ? userReply.trim() || null : null,
+      previousPlacements: Array.isArray(previousPlacements) ? previousPlacements : null
+    };
+    const result = await organizeDroppedContent(payload);
+    if (!result.ok) {
+      return res.status(500).json({ error: result.error || 'Organization failed' });
+    }
+    res.json({ action: result.action, placements: result.placements, trenchName: result.trenchName, message: result.message });
+  } catch (error) {
+    console.error('[DROP] /api/drop-organize error:', error);
+    res.status(500).json({ error: error.message || 'Organization failed' });
   }
 });
 

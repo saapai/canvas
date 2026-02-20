@@ -45,6 +45,8 @@ function buildTrenchContext(trench, depth = 0, indent = '') {
         desc = `link: "${p.title}" | ${p.url || ''}`;
         if (p.description) desc += ` | ${p.description.slice(0, 120)}`;
         if (p.siteName) desc += ` (${p.siteName})`;
+      } else if (p.type === 'media' && p.url) {
+        desc = `image: ${p.url}`;
       } else if (p.text) {
         desc = `text: "${p.text.slice(0, 300)}${p.text.length > 300 ? '…' : ''}"`;
       } else {
@@ -127,6 +129,132 @@ Return ONLY a JSON array, e.g. [{"entry":"...","externalContext":"...","synthesi
     console.log('[CHAT] Enrichment parse/run failed (non-critical):', e.message);
   }
   return [];
+}
+
+// Collect image URLs from trench tree for vision context
+function collectTrenchImageUrls(trenches, limit = 8) {
+  const urls = [];
+  function walk(trench) {
+    if (urls.length >= limit) return;
+    for (const p of (trench.dataPoints || [])) {
+      if (p.type === 'media' && p.url && urls.length < limit) {
+        urls.push({ url: p.url, trenchId: trench.id, trenchTitle: trench.title });
+      }
+    }
+    for (const st of (trench.subTrenches || [])) walk(st);
+  }
+  for (const t of (trenches || [])) walk(t);
+  return urls;
+}
+
+export async function organizeDroppedContent(payload) {
+  const { content, userReply, previousPlacements } = payload;
+
+  console.log('[DROP] organizeDroppedContent called:', {
+    contentType: content?.type,
+    itemCount: content?.items?.length,
+    hasUserReply: !!userReply
+  });
+
+  const context = buildContextBlock(payload);
+  const items = (content?.items || []).map((it, i) => `${i + 1}. [${it.type}] ${it.url || it.text || it.name || '(empty)'}`).join('\n');
+
+  // Collect image URLs for vision: dropped items + existing trench images
+  const droppedImageUrls = (content?.items || []).filter(it => it.type === 'image' && it.url).map(it => it.url);
+  const trenchImages = collectTrenchImageUrls(payload.trenches || []);
+
+  // Build multimodal user content parts
+  const userParts = [];
+
+  let textContent;
+  if (userReply) {
+    const prev = previousPlacements ? JSON.stringify(previousPlacements) : '[]';
+    textContent = `Canvas structure:\n${context}\n\nDropped items:\n${items}\n\nYou previously suggested placements: ${prev}\nUser replied: "${userReply}"\n\nBased on the user's reply, decide where to place the items.`;
+  } else {
+    textContent = `Canvas structure:\n${context}\n\nThe user dropped the following items onto the canvas:\n${items}\n\nAnalyze the visual content/vibe of the dropped images and the images already in each trench. Place items in the trench whose images match the same aesthetic or theme. If no existing trench matches, create a new one with a descriptive name.`;
+  }
+  userParts.push({ type: 'text', text: textContent });
+
+  // Add existing trench images for visual comparison (sample up to 6)
+  if (trenchImages.length > 0) {
+    userParts.push({ type: 'text', text: `\nExisting trench images for visual reference (compare vibe/aesthetic):` });
+    for (const img of trenchImages.slice(0, 6)) {
+      userParts.push({ type: 'text', text: `[Trench "${img.trenchTitle}" (${img.trenchId})]:` });
+      userParts.push({ type: 'image_url', image_url: { url: img.url, detail: 'low' } });
+    }
+  }
+
+  // Add dropped images for the model to see
+  if (droppedImageUrls.length > 0) {
+    userParts.push({ type: 'text', text: `\nDropped images to categorize:` });
+    for (const url of droppedImageUrls.slice(0, 4)) {
+      userParts.push({ type: 'image_url', image_url: { url, detail: 'low' } });
+    }
+  }
+
+  // Use vision model when images are involved, otherwise mini
+  const hasImages = droppedImageUrls.length > 0 || trenchImages.length > 0;
+  const model = hasImages ? 'gpt-4o' : 'gpt-4o-mini';
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model,
+      messages: [
+        {
+          role: 'system',
+          content: `You are a canvas organization assistant with vision. The canvas has "trenches" (nested pages/folders). Each trench has an id and may contain images, text, links, and sub-trenches.
+
+Your job: Given dropped items and the canvas structure, decide which trench each item belongs in by ANALYZING THE VISUAL CONTENT. For images, look at the actual image content, mood, aesthetic, and vibe to match them with the right trench.
+
+RULES:
+- NEVER place items at root level. Always place inside an existing trench or create a new one.
+- If an existing trench's images share the same vibe/aesthetic/theme as the dropped image, place it there.
+- If NO existing trench matches, use action "create_and_place" to create a new trench with a short descriptive name based on the image content.
+- When the user replies to a question, follow their instructions.
+
+RESPOND WITH ONLY valid JSON matching one of these shapes:
+
+Place in existing trench:
+{"action":"place","placements":[{"targetPageId":"trench-id","content":{"type":"image|link|text|file","url":"...","text":"...","name":"..."}}],"message":"Brief explanation of why this trench matches"}
+
+Create new trench and place inside it:
+{"action":"create_and_place","trenchName":"descriptive name","placements":[{"content":{"type":"image|link|text|file","url":"...","text":"...","name":"..."}}],"message":"Brief explanation"}
+
+Ask the user:
+{"action":"ask","message":"Your question","placements":[]}
+
+Keep messages concise. Be decisive—only ask when truly ambiguous between multiple equally good options.`
+        },
+        { role: 'user', content: userParts }
+      ],
+      temperature: 0.3,
+      max_tokens: 800
+    });
+
+    const raw = completion.choices[0]?.message?.content?.trim();
+    console.log('[DROP] LLM response:', raw?.substring(0, 300));
+
+    try {
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        return {
+          ok: true,
+          action: parsed.action || 'ask',
+          placements: Array.isArray(parsed.placements) ? parsed.placements : [],
+          trenchName: parsed.trenchName || null,
+          message: parsed.message || ''
+        };
+      }
+    } catch (parseErr) {
+      console.log('[DROP] JSON parse failed, falling back to ask:', parseErr.message);
+    }
+
+    return { ok: true, action: 'ask', placements: [], message: raw || 'Where should I place these items?' };
+  } catch (err) {
+    console.error('[DROP] OpenAI error:', err.message);
+    return { ok: false, error: err.message || 'Organization failed' };
+  }
 }
 
 export async function chatWithCanvas(payload) {
