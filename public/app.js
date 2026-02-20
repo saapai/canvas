@@ -5883,15 +5883,15 @@ async function organizeCanvasLayout() {
       noColorItems.forEach(m => assigned.add(m.id));
     }
 
-    // Step 4: Greedy tight-packing
+    // Step 4: Greedy tight-packing with asymmetry
     // Sort by area (largest first) so big items anchor the layout, small items fill gaps
-    // For each item, find the closest-to-center position adjacent to an already-placed item
+    // For each item, find a position adjacent to placed items, biased toward center + noise
     console.log('[ORGANIZE] Clusters:', clusters.length, 'sizes:', clusters.map(c => c.length));
     const vpRect = viewport.getBoundingClientRect();
     const center = screenToWorld(vpRect.width / 2, vpRect.height / 2);
     console.log('[ORGANIZE] Center:', center, 'cam:', {x: cam.x, y: cam.y, z: cam.z}, 'viewport:', vpRect.width, 'x', vpRect.height);
     const avgDiag = items.reduce((s, m) => s + Math.sqrt(m.w * m.w + m.h * m.h), 0) / n;
-    const PAD = 16;
+    const PAD = 22; // generous padding to prevent visual overlap (shadows, borders)
     const goldenAngle = Math.PI * (3 - Math.sqrt(5));
     console.log('[ORGANIZE] avgDiag:', avgDiag, 'PAD:', PAD);
 
@@ -5907,7 +5907,9 @@ async function organizeCanvasLayout() {
     for (let i = 1; i < n; i++) {
       const item = items[i];
       let bestX = center.x, bestY = center.y;
-      let bestDist = Infinity;
+      let bestScore = Infinity;
+      // Golden-angle offset per item — ensures each item samples different angles first
+      const angleOffset = i * goldenAngle;
 
       // Generate candidate positions adjacent to each already-placed item
       for (let j = 0; j < i; j++) {
@@ -5915,20 +5917,17 @@ async function organizeCanvasLayout() {
         const gapX = p.w / 2 + item.w / 2 + PAD;
         const gapY = p.h / 2 + item.h / 2 + PAD;
 
-        // 16 candidates around the perimeter of each placed item
-        const NUM_ANGLES = 16;
+        // 20 candidates around the perimeter, offset by golden angle per item
+        const NUM_ANGLES = 20;
         for (let a = 0; a < NUM_ANGLES; a++) {
-          const angle = (a / NUM_ANGLES) * Math.PI * 2;
+          const angle = angleOffset + (a / NUM_ANGLES) * Math.PI * 2;
           const dx = Math.cos(angle), dy = Math.sin(angle);
           // Minimum AABB separation distance along this angle
           const tX = Math.abs(dx) > 0.01 ? gapX / Math.abs(dx) : 1e9;
           const tY = Math.abs(dy) > 0.01 ? gapY / Math.abs(dy) : 1e9;
           const t = Math.min(tX, tY);
-          // Small noise offset for organic variation
-          const nx = _organizeNoise(i * 3.1 + a * 0.5, j * 2.3) * 6;
-          const ny = _organizeNoise(i * 3.1 + a * 0.5 + 50, j * 2.3 + 50) * 6;
-          const cx = p.x + t * dx + nx;
-          const cy = p.y + t * dy + ny;
+          const cx = p.x + t * dx;
+          const cy = p.y + t * dy;
 
           // Check no overlap with any placed item
           let valid = true;
@@ -5943,8 +5942,11 @@ async function organizeCanvasLayout() {
 
           if (valid) {
             const dist = Math.sqrt((cx - center.x) ** 2 + (cy - center.y) ** 2);
-            if (dist < bestDist) {
-              bestDist = dist;
+            // Add noise bias to break grid symmetry — nearby candidates compete randomly
+            const noiseBias = _organizeNoise(i * 2.7 + a * 0.4, j * 1.9) * avgDiag * 0.12;
+            const score = dist + noiseBias;
+            if (score < bestScore) {
+              bestScore = score;
               bestX = cx;
               bestY = cy;
             }
@@ -5953,7 +5955,7 @@ async function organizeCanvasLayout() {
       }
 
       // Fallback: if no valid position found, use golden spiral outward
-      if (bestDist === Infinity) {
+      if (bestScore === Infinity) {
         const angle = i * goldenAngle;
         const radius = avgDiag * 0.5 * Math.sqrt(i);
         bestX = center.x + radius * Math.cos(angle);
@@ -5962,6 +5964,35 @@ async function organizeCanvasLayout() {
 
       item.x = bestX;
       item.y = bestY;
+    }
+
+    // Step 5: Post-placement overlap resolution safety pass
+    // Fixes any remaining overlaps (visual overflow, edge cases)
+    for (let pass = 0; pass < 10; pass++) {
+      let hasOverlap = false;
+      for (let i = 0; i < n; i++) {
+        for (let j = i + 1; j < n; j++) {
+          const overlapX = (items[i].w / 2 + items[j].w / 2 + PAD) - Math.abs(items[i].x - items[j].x);
+          const overlapY = (items[i].h / 2 + items[j].h / 2 + PAD) - Math.abs(items[i].y - items[j].y);
+          if (overlapX > 0 && overlapY > 0) {
+            hasOverlap = true;
+            const area_i = items[i].w * items[i].h || 1;
+            const area_j = items[j].w * items[j].h || 1;
+            const total = area_i + area_j;
+            const wi = area_j / total, wj = area_i / total;
+            if (overlapX < overlapY) {
+              const sign = items[i].x > items[j].x ? 1 : -1;
+              items[i].x += sign * overlapX * wi;
+              items[j].x -= sign * overlapX * wj;
+            } else {
+              const sign = items[i].y > items[j].y ? 1 : -1;
+              items[i].y += sign * overlapY * wi;
+              items[j].y -= sign * overlapY * wj;
+            }
+          }
+        }
+      }
+      if (!hasOverlap) break;
     }
     console.log('[ORGANIZE] Packing done. Sample positions:', items.slice(0, 5).map(i => ({id: i.id, w: Math.round(i.w), h: Math.round(i.h), x: Math.round(i.x), y: Math.round(i.y)})));
 
