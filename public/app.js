@@ -6337,7 +6337,11 @@ function handleDropDialogSend() {
           addDropDialogMessage(data.error, 'bot');
           return;
         }
-        if (data.action === 'place' && data.placements?.length) {
+        if (data.action === 'create_and_place' && data.trenchName && data.placements?.length) {
+          createTrenchAndPlace(data.trenchName, data.placements);
+          addDropDialogMessage(data.message || `Created "${data.trenchName}" and placed items.`, 'bot');
+          dropOrganizeContext = null;
+        } else if (data.action === 'place' && data.placements?.length) {
           executePlacements(data.placements);
           addDropDialogMessage(data.message || 'Done! Items placed.', 'bot');
           dropOrganizeContext = null;
@@ -6476,7 +6480,11 @@ async function processDroppedItems(items) {
       return;
     }
 
-    if (data.action === 'place' && data.placements?.length) {
+    if (data.action === 'create_and_place' && data.trenchName && data.placements?.length) {
+      createTrenchAndPlace(data.trenchName, data.placements);
+      addDropDialogMessage(data.message || `Created "${data.trenchName}" and placed items.`, 'bot');
+      dropOrganizeContext = null;
+    } else if (data.action === 'place' && data.placements?.length) {
       executePlacements(data.placements);
       addDropDialogMessage(data.message || 'Done! Items placed on your canvas.', 'bot');
       dropOrganizeContext = null;
@@ -6491,6 +6499,41 @@ async function processDroppedItems(items) {
     if (sysMsg) sysMsg.remove();
     addDropDialogMessage(err.message || 'Something went wrong.', 'bot');
   }
+}
+
+// Create a new trench (parent entry) and place items inside it
+async function createTrenchAndPlace(trenchName, placements) {
+  // Create the trench entry at a good spot on the current page
+  const rect = viewport.getBoundingClientRect();
+  const wc = screenToWorld(rect.width / 2, rect.height / 2);
+  const pos = findNonOverlappingPosition(wc.x, wc.y);
+
+  const trenchId = generateEntryId();
+  const trenchEl = document.createElement('div');
+  trenchEl.className = 'entry';
+  trenchEl.id = trenchId;
+  trenchEl.style.left = `${pos.x}px`;
+  trenchEl.style.top = `${pos.y}px`;
+  trenchEl.innerHTML = meltify(trenchName);
+  world.appendChild(trenchEl);
+
+  const trenchData = {
+    id: trenchId,
+    element: trenchEl,
+    text: trenchName,
+    position: { x: pos.x, y: pos.y },
+    parentEntryId: currentViewEntryId
+  };
+  entries.set(trenchId, trenchData);
+  updateEntryDimensions(trenchEl);
+  await saveEntryToServer(trenchData);
+
+  // Now place items inside this trench
+  const placementsWithTarget = placements.map(p => ({
+    targetPageId: trenchId,
+    content: p.content || p
+  }));
+  executePlacements(placementsWithTarget);
 }
 
 // Execute placements from the LLM

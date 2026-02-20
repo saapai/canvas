@@ -1560,7 +1560,7 @@ app.post('/api/drop-organize', requireAuth, async (req, res) => {
     if (!result.ok) {
       return res.status(500).json({ error: result.error || 'Organization failed' });
     }
-    res.json({ action: result.action, placements: result.placements, message: result.message });
+    res.json({ action: result.action, placements: result.placements, trenchName: result.trenchName, message: result.message });
   } catch (error) {
     console.error('[DROP] /api/drop-organize error:', error);
     res.status(500).json({ error: error.message || 'Organization failed' });
