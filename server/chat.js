@@ -129,6 +129,80 @@ Return ONLY a JSON array, e.g. [{"entry":"...","externalContext":"...","synthesi
   return [];
 }
 
+export async function organizeDroppedContent(payload) {
+  const { content, userReply, previousPlacements } = payload;
+
+  console.log('[DROP] organizeDroppedContent called:', {
+    contentType: content?.type,
+    itemCount: content?.items?.length,
+    hasUserReply: !!userReply
+  });
+
+  const context = buildContextBlock(payload);
+
+  const items = (content?.items || []).map((it, i) => `${i + 1}. [${it.type}] ${it.url || it.text || it.name || '(empty)'}`).join('\n');
+
+  let userContent;
+  if (userReply) {
+    const prev = previousPlacements ? JSON.stringify(previousPlacements) : '[]';
+    userContent = `Canvas structure:\n${context}\n\nDropped items:\n${items}\n\nYou previously suggested placements: ${prev}\nUser replied: "${userReply}"\n\nBased on the user's reply, decide where to place the items.`;
+  } else {
+    userContent = `Canvas structure:\n${context}\n\nThe user dropped the following items onto the canvas:\n${items}\n\nDecide where to place each item. If the structure makes it obvious (e.g. an image dropped and there's an "images" trench), place it directly. If ambiguous, ask the user.`;
+  }
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: `You are a canvas organization assistant. The canvas has "trenches" (nested pages). Each trench has an id and may contain data points and sub-trenches.
+
+Your job: Given dropped items and the canvas structure, decide which trench (page) each item belongs in.
+
+RESPOND WITH ONLY valid JSON matching one of these shapes:
+
+If you can decide placement:
+{"action":"place","placements":[{"targetPageId":"trench-id-or-null","content":{"type":"image|link|text|file","url":"...","text":"...","name":"..."}}],"message":"Brief explanation"}
+
+Use targetPageId: null to place at root level.
+
+If you need to ask the user:
+{"action":"ask","message":"Your question to the user","placements":[]}
+
+Keep messages concise. Prefer placing items when the intent is clear.`
+        },
+        { role: 'user', content: userContent }
+      ],
+      temperature: 0.3,
+      max_tokens: 800
+    });
+
+    const raw = completion.choices[0]?.message?.content?.trim();
+    console.log('[DROP] LLM response:', raw?.substring(0, 200));
+
+    try {
+      const jsonMatch = raw.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        const parsed = JSON.parse(jsonMatch[0]);
+        return {
+          ok: true,
+          action: parsed.action || 'ask',
+          placements: Array.isArray(parsed.placements) ? parsed.placements : [],
+          message: parsed.message || ''
+        };
+      }
+    } catch (parseErr) {
+      console.log('[DROP] JSON parse failed, falling back to ask:', parseErr.message);
+    }
+
+    return { ok: true, action: 'ask', placements: [], message: raw || 'Where should I place these items?' };
+  } catch (err) {
+    console.error('[DROP] OpenAI error:', err.message);
+    return { ok: false, error: err.message || 'Organization failed' };
+  }
+}
+
 export async function chatWithCanvas(payload) {
   const { userMessage } = payload;
   

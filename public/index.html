@@ -84,7 +84,10 @@
       </div>
     </div>
   </div>
-  <button id="chat-button" class="chat-button" title="Canvas chat">◇</button>
+  <div id="drop-zone" class="drop-zone" title="Drop content or click to chat">
+    <span class="drop-zone-icon">◇</span>
+    <span class="drop-zone-pulse"></span>
+  </div>
   <button id="bg-picker-button" class="bg-picker-button" title="Background image">
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/>
@@ -301,15 +304,18 @@
       </div>
     </div>
   </div>
-  <div id="chat-panel" class="chat-panel hidden">
-    <div class="chat-panel-header">
-      <span class="chat-panel-title">Canvas</span>
-      <button id="chat-close" class="chat-close" title="Close">×</button>
-    </div>
-    <div id="chat-messages" class="chat-messages"></div>
-    <div class="chat-input-wrap">
-      <input id="chat-input" class="chat-input" type="text" placeholder="Reply…" autocomplete="off" />
-      <button id="chat-send" class="chat-send" title="Send">→</button>
+  <div id="drop-dialog" class="drop-dialog hidden">
+    <div class="drop-dialog-backdrop"></div>
+    <div class="drop-dialog-content">
+      <div class="drop-dialog-header">
+        <button id="drop-dialog-close" class="drop-dialog-close" title="Close">×</button>
+        <span class="drop-dialog-title">Canvas</span>
+      </div>
+      <div id="drop-dialog-messages" class="drop-dialog-messages"></div>
+      <div class="drop-dialog-input-wrap">
+        <input id="drop-dialog-input" class="drop-dialog-input" type="text" placeholder="Reply..." autocomplete="off" />
+        <button id="drop-dialog-send" class="drop-dialog-send" title="Send">→</button>
+      </div>
     </div>
   </div>
   <div id="viewport">

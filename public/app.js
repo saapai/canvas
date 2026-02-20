@@ -788,6 +788,8 @@ async function loadUserEntries(username, editable) {
 
     // Set read-only mode
     isReadOnly = !editable;
+    const dz = document.getElementById('drop-zone');
+    if (dz) dz.style.display = isReadOnly ? 'none' : '';
 
     // Search button removed - using autocomplete instead
     
@@ -2268,7 +2270,7 @@ function showCursorAtWorld(wx, wy, force = false) {
   if (isReadOnly) {
     return;
   }
-  if (isFocusInChatPanel()) {
+  if (isFocusInDropDialog()) {
     return;
   }
   
@@ -2351,7 +2353,7 @@ function showCursorInDefaultPosition(entryId = null) {
   if (isReadOnly) {
     return;
   }
-  if (isFocusInChatPanel()) {
+  if (isFocusInDropDialog()) {
     return;
   }
   
@@ -5295,9 +5297,9 @@ editor.addEventListener('blur', (e) => {
     }, 0);
   } else if (trimmed.length === 0 && (!editingEntryId || editingEntryId === 'anchor')) {
     // If empty and creating new entry, show cursor in default position
-    // Skip when focus moved to chat panel so we don't steal focus back
+    // Skip when focus moved to drop dialog so we don't steal focus back
     setTimeout(() => {
-      if (document.activeElement !== editor && !isFocusInChatPanel()) {
+      if (document.activeElement !== editor && !isFocusInDropDialog()) {
         showCursorInDefaultPosition();
         editingEntryId = null;
       }
@@ -6233,25 +6235,43 @@ function buildTrenchesPayload() {
   return { trenches: payload, currentViewEntryId, focusedTrench };
 }
 
-const chatPanel = document.getElementById('chat-panel');
-const chatMessages = document.getElementById('chat-messages');
-const chatInput = document.getElementById('chat-input');
-const chatSend = document.getElementById('chat-send');
-const chatClose = document.getElementById('chat-close');
-const chatButton = document.getElementById('chat-button');
+// ——— Drop zone + dialog ———
+const dropZone = document.getElementById('drop-zone');
+const dropDialog = document.getElementById('drop-dialog');
+const dropDialogMessages = document.getElementById('drop-dialog-messages');
+const dropDialogInput = document.getElementById('drop-dialog-input');
+const dropDialogSend = document.getElementById('drop-dialog-send');
+const dropDialogClose = document.getElementById('drop-dialog-close');
+const dropDialogBackdrop = dropDialog ? dropDialog.querySelector('.drop-dialog-backdrop') : null;
 
-function isFocusInChatPanel() {
-  const p = document.getElementById('chat-panel');
-  return p && !p.classList.contains('hidden') && p.contains(document.activeElement);
+let dropOrganizeContext = null; // { content, previousPlacements } for follow-up replies
+let dropDialogMode = null; // 'chat' | 'organize'
+
+function isFocusInDropDialog() {
+  return dropDialog && !dropDialog.classList.contains('hidden') && dropDialog.contains(document.activeElement);
 }
 
-function addChatMessage(text, role, loading = false) {
+function addDropDialogMessage(text, role, loading = false) {
+  if (!dropDialogMessages) return null;
   const div = document.createElement('div');
-  div.className = `chat-msg ${role}` + (loading ? ' loading' : '');
+  div.className = `drop-dialog-msg ${role}` + (loading ? ' loading' : '');
   div.textContent = text;
-  chatMessages.appendChild(div);
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+  dropDialogMessages.appendChild(div);
+  dropDialogMessages.scrollTop = dropDialogMessages.scrollHeight;
   return div;
+}
+
+function openDropDialog() {
+  if (!dropDialog) return;
+  dropDialog.classList.remove('hidden');
+  if (dropDialogInput) dropDialogInput.focus();
+}
+
+function closeDropDialog() {
+  if (!dropDialog) return;
+  dropDialog.classList.add('hidden');
+  dropOrganizeContext = null;
+  dropDialogMode = null;
 }
 
 async function sendChatRequest(userMessage = null) {
@@ -6271,54 +6291,391 @@ async function sendChatRequest(userMessage = null) {
   return data.message;
 }
 
-function openChatAndFetchOpener() {
-  if (!chatPanel || !chatMessages) return;
-  chatPanel.classList.remove('hidden');
-  chatMessages.innerHTML = '';
-  const loader = addChatMessage('…', 'bot', true);
+function openDropDialogAsChat() {
+  if (!dropDialog || !dropDialogMessages) return;
+  dropDialogMode = 'chat';
+  dropOrganizeContext = null;
+  dropDialogMessages.innerHTML = '';
+  openDropDialog();
+  if (!currentUser) {
+    addDropDialogMessage('Sign in to use canvas chat.', 'bot');
+    return;
+  }
+  const loader = addDropDialogMessage('…', 'bot', true);
   sendChatRequest(null)
-    .then(msg => {
-      loader.remove();
-      addChatMessage(msg, 'bot');
-    })
-    .catch(err => {
-      loader.remove();
-      addChatMessage(err.message || 'Something went wrong.', 'bot');
-    });
+    .then(msg => { loader.remove(); addDropDialogMessage(msg, 'bot'); })
+    .catch(err => { loader.remove(); addDropDialogMessage(err.message || 'Something went wrong.', 'bot'); });
 }
 
-function handleChatSend() {
+function handleDropDialogSend() {
   if (!currentUser) return;
-  const raw = (chatInput?.value || '').trim();
+  const raw = (dropDialogInput?.value || '').trim();
   if (!raw) return;
-  chatInput.value = '';
-  addChatMessage(raw, 'user');
-  const loader = addChatMessage('…', 'bot', true);
-  sendChatRequest(raw)
-    .then(msg => {
-      loader.remove();
-      addChatMessage(msg, 'bot');
+  dropDialogInput.value = '';
+  addDropDialogMessage(raw, 'user');
+
+  if (dropDialogMode === 'organize' && dropOrganizeContext) {
+    // Follow-up reply for drop organize
+    const loader = addDropDialogMessage('…', 'bot', true);
+    const payload = buildTrenchesPayload();
+    const body = {
+      ...payload,
+      content: dropOrganizeContext.content,
+      userReply: raw,
+      previousPlacements: dropOrganizeContext.previousPlacements
+    };
+    fetch('/api/drop-organize', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
     })
-    .catch(err => {
-      loader.remove();
-      addChatMessage(err.message || 'Something went wrong.', 'bot');
-    });
+      .then(r => r.json())
+      .then(data => {
+        loader.remove();
+        if (data.error) {
+          addDropDialogMessage(data.error, 'bot');
+          return;
+        }
+        if (data.action === 'place' && data.placements?.length) {
+          executePlacements(data.placements);
+          addDropDialogMessage(data.message || 'Done! Items placed.', 'bot');
+          dropOrganizeContext = null;
+        } else if (data.action === 'ask') {
+          addDropDialogMessage(data.message || 'Could you clarify?', 'bot');
+          dropOrganizeContext.previousPlacements = data.placements;
+        }
+      })
+      .catch(err => { loader.remove(); addDropDialogMessage(err.message || 'Something went wrong.', 'bot'); });
+  } else {
+    // Chat mode
+    const loader = addDropDialogMessage('…', 'bot', true);
+    sendChatRequest(raw)
+      .then(msg => { loader.remove(); addDropDialogMessage(msg, 'bot'); })
+      .catch(err => { loader.remove(); addDropDialogMessage(err.message || 'Something went wrong.', 'bot'); });
+  }
 }
 
-if (chatButton) {
-  chatButton.addEventListener('click', () => {
-    if (currentUser) openChatAndFetchOpener();
-    else if (chatPanel) { chatPanel.classList.remove('hidden'); chatMessages.innerHTML = ''; addChatMessage('Sign in to use canvas chat.', 'bot'); }
+// Golden angle spiral layout
+const GOLDEN_ANGLE_DEG = 137.508;
+
+function goldenAngleSpiralPosition(n, baseRadius = 80) {
+  const angle = n * GOLDEN_ANGLE_DEG * (Math.PI / 180);
+  const r = baseRadius * Math.sqrt(n + 1);
+  const jitterX = (Math.random() - 0.5) * 30;
+  const jitterY = (Math.random() - 0.5) * 30;
+  return { x: Math.cos(angle) * r + jitterX, y: Math.sin(angle) * r + jitterY };
+}
+
+function computeSpiralCenter(targetPageId) {
+  let sumX = 0, sumY = 0, count = 0;
+  for (const [, ed] of entries) {
+    if ((ed.parentEntryId || null) === (targetPageId || null)) {
+      if (ed.position) { sumX += ed.position.x; sumY += ed.position.y; count++; }
+    }
+  }
+  if (count > 0) return { x: sumX / count, y: sumY / count };
+  // Fallback: viewport center in world coords
+  const rect = viewport.getBoundingClientRect();
+  const wc = screenToWorld(rect.width / 2, rect.height / 2);
+  return { x: wc.x, y: wc.y };
+}
+
+function findNonOverlappingPosition(baseX, baseY) {
+  let x = baseX, y = baseY;
+  let attempts = 0;
+  while (positionOverlapsEntry(x, y) && attempts < 20) {
+    x += 40 + Math.random() * 20;
+    y += 20 + Math.random() * 10;
+    attempts++;
+  }
+  return { x, y };
+}
+
+// Collect dropped items from DataTransfer
+async function collectDroppedItems(dataTransfer) {
+  const items = [];
+  // Check files first
+  if (dataTransfer.files && dataTransfer.files.length > 0) {
+    for (const file of dataTransfer.files) {
+      if (file.type.startsWith('image/')) {
+        try {
+          const form = new FormData();
+          form.append('image', file);
+          const res = await fetch('/api/upload-image', { method: 'POST', credentials: 'include', body: form });
+          if (res.ok) {
+            const data = await res.json();
+            items.push({ type: 'image', url: data.url, name: file.name });
+          }
+        } catch (e) { console.error('Image upload failed:', e); }
+      } else {
+        try {
+          const form = new FormData();
+          form.append('file', file);
+          const res = await fetch('/api/upload-file', { method: 'POST', credentials: 'include', body: form });
+          if (res.ok) {
+            const data = await res.json();
+            items.push({ type: 'file', url: data.url, name: data.name, size: data.size, mimetype: data.mimetype });
+          }
+        } catch (e) { console.error('File upload failed:', e); }
+      }
+    }
+  }
+  // Check text/URI
+  if (items.length === 0) {
+    const uriList = dataTransfer.getData('text/uri-list');
+    const plainText = dataTransfer.getData('text/plain');
+    const textToCheck = uriList || plainText || '';
+    if (textToCheck) {
+      // Check if it's a URL
+      const lines = textToCheck.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#'));
+      for (const line of lines) {
+        try {
+          new URL(line);
+          items.push({ type: 'link', url: line });
+        } catch {
+          items.push({ type: 'text', text: line });
+        }
+      }
+    }
+  }
+  return items;
+}
+
+// Process dropped items through the organize API
+async function processDroppedItems(items) {
+  if (!items.length) return;
+  dropDialogMode = 'organize';
+  dropDialogMessages.innerHTML = '';
+  openDropDialog();
+  addDropDialogMessage('Processing...', 'system');
+
+  const contentType = items.length === 1 ? items[0].type : 'mixed';
+  const content = { type: contentType, items };
+  dropOrganizeContext = { content, previousPlacements: null };
+
+  try {
+    if (dropZone) dropZone.classList.add('processing');
+    const payload = buildTrenchesPayload();
+    const body = { ...payload, content };
+    const res = await fetch('/api/drop-organize', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (dropZone) dropZone.classList.remove('processing');
+
+    // Remove processing message
+    const sysMsg = dropDialogMessages.querySelector('.drop-dialog-msg.system');
+    if (sysMsg) sysMsg.remove();
+
+    if (data.error) {
+      addDropDialogMessage(data.error, 'bot');
+      return;
+    }
+
+    if (data.action === 'place' && data.placements?.length) {
+      executePlacements(data.placements);
+      addDropDialogMessage(data.message || 'Done! Items placed on your canvas.', 'bot');
+      dropOrganizeContext = null;
+    } else if (data.action === 'ask') {
+      addDropDialogMessage(data.message || 'Where should I place these?', 'bot');
+      dropOrganizeContext.previousPlacements = data.placements;
+      if (dropDialogInput) dropDialogInput.focus();
+    }
+  } catch (err) {
+    if (dropZone) dropZone.classList.remove('processing');
+    const sysMsg = dropDialogMessages.querySelector('.drop-dialog-msg.system');
+    if (sysMsg) sysMsg.remove();
+    addDropDialogMessage(err.message || 'Something went wrong.', 'bot');
+  }
+}
+
+// Execute placements from the LLM
+function executePlacements(placements) {
+  const grouped = {};
+  for (const p of placements) {
+    const target = p.targetPageId || null;
+    if (!grouped[target]) grouped[target] = [];
+    grouped[target].push(p.content);
+  }
+
+  for (const [targetPageId, contentItems] of Object.entries(grouped)) {
+    const resolvedTarget = targetPageId === 'null' ? null : targetPageId;
+    const center = computeSpiralCenter(resolvedTarget);
+
+    contentItems.forEach((item, i) => {
+      const offset = goldenAngleSpiralPosition(i, 80);
+      const base = { x: center.x + offset.x, y: center.y + offset.y };
+      const pos = findNonOverlappingPosition(base.x, base.y);
+
+      if (item.type === 'image' && item.url) {
+        const entryId = generateEntryId();
+        const entry = document.createElement('div');
+        entry.className = 'entry canvas-image';
+        entry.id = entryId;
+        entry.style.left = `${pos.x}px`;
+        entry.style.top = `${pos.y}px`;
+        entry.style.width = '200px';
+        entry.style.height = '150px';
+        const img = document.createElement('img');
+        img.src = item.url;
+        img.alt = 'Canvas image';
+        img.draggable = false;
+        img.onload = () => updateEntryDimensions(entry);
+        img.onerror = () => updateEntryDimensions(entry);
+        entry.appendChild(img);
+        world.appendChild(entry);
+        const entryData = {
+          id: entryId, element: entry, text: '',
+          position: { x: pos.x, y: pos.y },
+          parentEntryId: resolvedTarget,
+          mediaCardData: { type: 'image', url: item.url }
+        };
+        entries.set(entryId, entryData);
+        saveEntryToServer(entryData);
+      } else if (item.type === 'file' && item.url) {
+        const entryId = generateEntryId();
+        const entry = document.createElement('div');
+        entry.className = 'entry canvas-file';
+        entry.id = entryId;
+        entry.style.left = `${pos.x}px`;
+        entry.style.top = `${pos.y}px`;
+        const mediaData = { type: 'file', url: item.url, name: item.name || 'File', size: item.size || 0, mimetype: item.mimetype || '' };
+        entry.appendChild(createFileCard(mediaData));
+        world.appendChild(entry);
+        const entryData = {
+          id: entryId, element: entry, text: item.name || 'File',
+          position: { x: pos.x, y: pos.y },
+          parentEntryId: resolvedTarget,
+          mediaCardData: mediaData
+        };
+        entries.set(entryId, entryData);
+        updateEntryDimensions(entry);
+        saveEntryToServer(entryData);
+      } else if (item.type === 'link' && item.url) {
+        const entryId = generateEntryId();
+        const entry = document.createElement('div');
+        entry.className = 'entry';
+        entry.id = entryId;
+        entry.style.left = `${pos.x}px`;
+        entry.style.top = `${pos.y}px`;
+        entry.innerHTML = meltify(item.url);
+        world.appendChild(entry);
+        const entryData = {
+          id: entryId, element: entry, text: item.url,
+          position: { x: pos.x, y: pos.y },
+          parentEntryId: resolvedTarget
+        };
+        entries.set(entryId, entryData);
+        updateEntryDimensions(entry);
+        saveEntryToServer(entryData);
+        generateLinkCard(item.url).then(cardData => {
+          if (cardData) {
+            entryData.linkCardsData = [cardData];
+            entry.appendChild(createLinkCard(cardData));
+            updateEntryDimensions(entry);
+            saveEntryToServer(entryData);
+          }
+        }).catch(() => {});
+      } else {
+        // Text entry
+        const text = item.text || item.url || '';
+        if (!text) return;
+        const entryId = generateEntryId();
+        const entry = document.createElement('div');
+        entry.className = 'entry';
+        entry.id = entryId;
+        entry.style.left = `${pos.x}px`;
+        entry.style.top = `${pos.y}px`;
+        entry.innerHTML = meltify(text);
+        world.appendChild(entry);
+        const entryData = {
+          id: entryId, element: entry, text: text,
+          position: { x: pos.x, y: pos.y },
+          parentEntryId: resolvedTarget
+        };
+        entries.set(entryId, entryData);
+        updateEntryDimensions(entry);
+        saveEntryToServer(entryData);
+      }
+    });
+  }
+
+  updateEntryVisibility();
+}
+
+// Drop zone event listeners
+if (dropZone) {
+  dropZone.addEventListener('click', () => {
+    if (isReadOnly) return;
+    openDropDialogAsChat();
+  });
+
+  dropZone.addEventListener('dragenter', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('drag-over');
+  });
+
+  dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    dropZone.classList.add('drag-over');
+  });
+
+  dropZone.addEventListener('dragleave', (e) => {
+    // Only remove if truly leaving the drop zone
+    if (!dropZone.contains(e.relatedTarget)) {
+      dropZone.classList.remove('drag-over');
+    }
+  });
+
+  dropZone.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dropZone.classList.remove('drag-over');
+    if (isReadOnly || !currentUser) return;
+    const items = await collectDroppedItems(e.dataTransfer);
+    if (items.length > 0) processDroppedItems(items);
   });
 }
-if (chatClose && chatPanel) chatClose.addEventListener('click', () => chatPanel.classList.add('hidden'));
-if (chatSend) chatSend.addEventListener('click', handleChatSend);
-if (chatInput) {
-  chatInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); handleChatSend(); } });
+
+// Dialog event listeners
+if (dropDialogClose) dropDialogClose.addEventListener('click', closeDropDialog);
+if (dropDialogBackdrop) dropDialogBackdrop.addEventListener('click', closeDropDialog);
+if (dropDialogSend) dropDialogSend.addEventListener('click', handleDropDialogSend);
+if (dropDialogInput) {
+  dropDialogInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); handleDropDialogSend(); }
+    if (e.key === 'Escape') { e.preventDefault(); closeDropDialog(); }
+  });
 }
-if (chatPanel) {
-  chatPanel.addEventListener('mousedown', (e) => e.stopPropagation());
+if (dropDialog) {
+  dropDialog.addEventListener('mousedown', (e) => e.stopPropagation());
+  dropDialog.addEventListener('keydown', (e) => e.stopPropagation());
 }
+
+// Global drag awareness — highlight drop zone when anything is dragged over the window
+let dragCounter = 0;
+document.addEventListener('dragenter', (e) => {
+  if (isReadOnly || !dropZone) return;
+  dragCounter++;
+  if (dragCounter === 1) dropZone.classList.add('drag-over');
+});
+document.addEventListener('dragleave', (e) => {
+  if (!dropZone) return;
+  dragCounter--;
+  if (dragCounter <= 0) { dragCounter = 0; dropZone.classList.remove('drag-over'); }
+});
+document.addEventListener('drop', () => {
+  dragCounter = 0;
+  if (dropZone) dropZone.classList.remove('drag-over');
+});
+
+// Hide drop zone in read-only mode
+if (isReadOnly && dropZone) dropZone.style.display = 'none';
 
 // User menu functionality
 const userMenuButton = document.getElementById('user-menu-button');
