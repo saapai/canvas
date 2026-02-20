@@ -6401,7 +6401,7 @@ async function collectDroppedItems(dataTransfer) {
       if (file.type.startsWith('image/')) {
         try {
           const form = new FormData();
-          form.append('image', file);
+          form.append('file', file);
           const res = await fetch('/api/upload-image', { method: 'POST', credentials: 'include', body: form });
           if (res.ok) {
             const data = await res.json();
