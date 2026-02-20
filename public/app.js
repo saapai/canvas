@@ -5883,15 +5883,15 @@ async function organizeCanvasLayout() {
       noColorItems.forEach(m => assigned.add(m.id));
     }
 
-    // Step 4: Initialize positions on MULTIPLE GOLDEN SPIRALS
-    // Each color cluster gets its own spiral arm emanating from center
+    // Step 4: Tight golden-spiral placement
+    // Items start close/overlapping; overlap resolution separates them just enough
     console.log('[ORGANIZE] Clusters:', clusters.length, 'sizes:', clusters.map(c => c.length));
     const vpRect = viewport.getBoundingClientRect();
     const center = screenToWorld(vpRect.width / 2, vpRect.height / 2);
     console.log('[ORGANIZE] Center:', center, 'cam:', {x: cam.x, y: cam.y, z: cam.z}, 'viewport:', vpRect.width, 'x', vpRect.height);
     const goldenAngle = Math.PI * (3 - Math.sqrt(5)); // ~137.508°
     const avgDiag = items.reduce((s, m) => s + Math.sqrt(m.w * m.w + m.h * m.h), 0) / n;
-    const spiralSpacing = avgDiag * 0.9;
+    const spiralSpacing = avgDiag * 0.3; // tight — items will overlap, overlap resolution fixes it
     console.log('[ORGANIZE] avgDiag:', avgDiag, 'spiralSpacing:', spiralSpacing);
 
     // Assign each cluster a base angle offset (evenly around the circle)
@@ -5902,123 +5902,65 @@ async function organizeCanvasLayout() {
       const baseAngle = clusterAngles[ci];
       for (let i = 0; i < cluster.length; i++) {
         const item = cluster[i];
-        const angle = baseAngle + i * goldenAngle * 0.6; // tighter spiral per cluster
-        const radius = spiralSpacing * Math.sqrt(i + 1) * (1 + ci * 0.15);
-        // Simplex noise perturbation for asymmetry
-        const nx = _organizeNoise(ci * 7.3 + i * 0.5, i * 0.3) * avgDiag * 0.6;
-        const ny = _organizeNoise(ci * 7.3 + i * 0.5 + 99, i * 0.3 + 99) * avgDiag * 0.6;
+        const angle = baseAngle + i * goldenAngle * 0.6;
+        const radius = spiralSpacing * Math.sqrt(i + 1) * (1 + ci * 0.1);
+        // Small noise perturbation for asymmetry
+        const nx = _organizeNoise(ci * 7.3 + i * 0.5, i * 0.3) * 15;
+        const ny = _organizeNoise(ci * 7.3 + i * 0.5 + 99, i * 0.3 + 99) * 15;
         item.x = center.x + radius * Math.cos(angle) + nx;
         item.y = center.y + radius * Math.sin(angle) + ny;
       }
     }
 
-    // Step 5: Force-directed simulation
-    // Fruchterman-Reingold with color attraction + AABB collision
-    const REPULSION = 1200;
-    const COLOR_ATTRACT = 0.35;
-    const DAMPING = 0.85;
-    let temp = avgDiag * 1.5;
-    const COOLING = 0.94;
-    const MIN_TEMP = 0.5;
-    const ITERATIONS = 150;
-    const BASE_PAD = 28;
-    const CENTER_FORCE = 0.04;
+    // Step 5: Overlap resolution only (no force-directed repulsion)
+    // Items pack tightly — we only push apart what actually overlaps
+    const BASE_PAD = 18;
 
-    // Precompute color distance matrix + variable padding
-    const cDistMatrix = [];
+    // Precompute variable padding per pair (organic variation in gaps)
     const padMatrix = [];
     for (let i = 0; i < n; i++) {
-      cDistMatrix[i] = [];
       padMatrix[i] = [];
       for (let j = 0; j < n; j++) {
-        cDistMatrix[i][j] = _colorDist(items[i], items[j]);
-        // Similar colors get tighter padding, dissimilar get looser
-        const colorFactor = cDistMatrix[i][j] < COLOR_THRESHOLD ? 0.75 : 1.1;
+        const cDist = _colorDist(items[i], items[j]);
+        const colorFactor = cDist < COLOR_THRESHOLD ? 0.8 : 1.0;
         const noiseVal = _organizeNoise(i * 0.7, j * 0.7);
-        padMatrix[i][j] = Math.max(12, (BASE_PAD + noiseVal * 18) * colorFactor);
+        padMatrix[i][j] = Math.max(10, (BASE_PAD + noiseVal * 10) * colorFactor);
       }
     }
 
-    for (let iter = 0; iter < ITERATIONS && temp > MIN_TEMP; iter++) {
-      const fx = new Float64Array(n);
-      const fy = new Float64Array(n);
-
+    // 25 passes of AABB overlap resolution — converges to tight packing
+    for (let pass = 0; pass < 25; pass++) {
       for (let i = 0; i < n; i++) {
         for (let j = i + 1; j < n; j++) {
-          const dx = items[i].x - items[j].x;
-          const dy = items[i].y - items[j].y;
-          const dist = Math.sqrt(dx * dx + dy * dy) || 0.1;
-          const ux = dx / dist, uy = dy / dist;
-
-          // Size-aware repulsion
-          const combinedDiag = (Math.sqrt(items[i].w**2 + items[i].h**2) + Math.sqrt(items[j].w**2 + items[j].h**2)) / 2;
-          const k = combinedDiag + BASE_PAD;
-          const repF = (k * k) / dist * (REPULSION / 1000);
-          fx[i] += ux * repF; fy[i] += uy * repF;
-          fx[j] -= ux * repF; fy[j] -= uy * repF;
-
-          // Color attraction (similar colors pull together)
-          const cDist = cDistMatrix[i][j];
-          if (cDist < COLOR_THRESHOLD && items[i].hasColor && items[j].hasColor) {
-            const similarity = 1 - cDist / COLOR_THRESHOLD;
-            const attrF = (dist / k) * COLOR_ATTRACT * similarity;
-            fx[i] -= ux * attrF; fy[i] -= uy * attrF;
-            fx[j] += ux * attrF; fy[j] += uy * attrF;
-          }
-        }
-
-        // Centering force (keeps layout around viewport center)
-        const cx = items[i].x - center.x, cy = items[i].y - center.y;
-        fx[i] -= cx * CENTER_FORCE;
-        fy[i] -= cy * CENTER_FORCE;
-      }
-
-      // Apply forces with temperature clamping
-      for (let i = 0; i < n; i++) {
-        const fMag = Math.sqrt(fx[i] * fx[i] + fy[i] * fy[i]) || 0.1;
-        const disp = Math.min(fMag, temp);
-        items[i].vx = (items[i].vx + (fx[i] / fMag) * disp) * DAMPING;
-        items[i].vy = (items[i].vy + (fy[i] / fMag) * disp) * DAMPING;
-        items[i].x += items[i].vx;
-        items[i].y += items[i].vy;
-      }
-
-      // AABB collision resolution (3 passes for convergence)
-      for (let pass = 0; pass < 3; pass++) {
-        for (let i = 0; i < n; i++) {
-          for (let j = i + 1; j < n; j++) {
-            const pad = padMatrix[i][j];
-            const hw_i = items[i].w / 2 + pad / 2, hh_i = items[i].h / 2 + pad / 2;
-            const hw_j = items[j].w / 2 + pad / 2, hh_j = items[j].h / 2 + pad / 2;
-            const overlapX = (hw_i + hw_j) - Math.abs(items[i].x - items[j].x);
-            const overlapY = (hh_i + hh_j) - Math.abs(items[i].y - items[j].y);
-            if (overlapX > 0 && overlapY > 0) {
-              const area_i = items[i].w * items[i].h;
-              const area_j = items[j].w * items[j].h;
-              const total = area_i + area_j;
-              const wi = area_j / total, wj = area_i / total;
-              if (overlapX < overlapY) {
-                const sign = items[i].x > items[j].x ? 1 : -1;
-                items[i].x += sign * overlapX * wi;
-                items[j].x -= sign * overlapX * wj;
-              } else {
-                const sign = items[i].y > items[j].y ? 1 : -1;
-                items[i].y += sign * overlapY * wi;
-                items[j].y -= sign * overlapY * wj;
-              }
+          const pad = padMatrix[i][j];
+          const hw_i = items[i].w / 2 + pad / 2, hh_i = items[i].h / 2 + pad / 2;
+          const hw_j = items[j].w / 2 + pad / 2, hh_j = items[j].h / 2 + pad / 2;
+          const overlapX = (hw_i + hw_j) - Math.abs(items[i].x - items[j].x);
+          const overlapY = (hh_i + hh_j) - Math.abs(items[i].y - items[j].y);
+          if (overlapX > 0 && overlapY > 0) {
+            const area_i = items[i].w * items[i].h;
+            const area_j = items[j].w * items[j].h;
+            const total = area_i + area_j;
+            const wi = area_j / total, wj = area_i / total;
+            if (overlapX < overlapY) {
+              const sign = items[i].x > items[j].x ? 1 : -1;
+              items[i].x += sign * overlapX * wi;
+              items[j].x -= sign * overlapX * wj;
+            } else {
+              const sign = items[i].y > items[j].y ? 1 : -1;
+              items[i].y += sign * overlapY * wi;
+              items[j].y -= sign * overlapY * wj;
             }
           }
         }
       }
-
-      temp *= COOLING;
     }
-    console.log('[ORGANIZE] Force simulation done. Sample positions:', items.slice(0, 3).map(i => ({id: i.id, x: Math.round(i.x), y: Math.round(i.y), oldX: Math.round(i.oldX), oldY: Math.round(i.oldY)})));
+    console.log('[ORGANIZE] Overlap resolution done. Sample positions:', items.slice(0, 3).map(i => ({id: i.id, x: Math.round(i.x), y: Math.round(i.y), oldX: Math.round(i.oldX), oldY: Math.round(i.oldY)})));
 
     // Step 6: Final micro-noise for organic imperfection
     for (let i = 0; i < n; i++) {
-      items[i].x += _organizeNoise(items[i].x * 0.008, items[i].y * 0.008) * 8;
-      items[i].y += _organizeNoise(items[i].x * 0.008 + 50, items[i].y * 0.008 + 50) * 8;
+      items[i].x += _organizeNoise(items[i].x * 0.008, items[i].y * 0.008) * 5;
+      items[i].y += _organizeNoise(items[i].x * 0.008 + 50, items[i].y * 0.008 + 50) * 5;
     }
 
     // Step 6b: Re-center layout on viewport center
