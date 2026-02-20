@@ -6047,11 +6047,15 @@ async function organizeCanvasLayout() {
     console.log('[ORGANIZE] Animation complete');
 
     // Step 8: Batch save positions (convert centers to top-left for storage)
+    // IMPORTANT: include all entry metadata to prevent ON CONFLICT from wiping it
     const entriesToSave = items.map(item => ({
       id: item.id,
       text: item.data.text,
       position: { x: item.x - item.w / 2, y: item.y - item.h / 2 },
-      parentEntryId: item.data.parentEntryId || null
+      parentEntryId: item.data.parentEntryId || null,
+      mediaCardData: item.data.mediaCardData || null,
+      linkCardsData: item.data.linkCardsData || null,
+      latexData: item.data.latexData || null
     }));
     try {
       await fetch('/api/entries/batch', {
@@ -6420,7 +6424,10 @@ async function organizeEntriesIntoHubs() {
         id: e.id,
         text: entryData.text,
         position: e.position,
-        parentEntryId: entryData.parentEntryId || null
+        parentEntryId: entryData.parentEntryId || null,
+        mediaCardData: entryData.mediaCardData || null,
+        linkCardsData: entryData.linkCardsData || null,
+        latexData: entryData.latexData || null
       };
     });
 
