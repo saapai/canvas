@@ -5959,163 +5959,161 @@ async function organizeCanvasLayout() {
       noColorItems.forEach(m => assigned.add(m.id));
     }
 
-    // Step 4: Greedy tight-packing with asymmetry
-    // Sort by area (largest first) so big items anchor the layout, small items fill gaps
-    // For each item, find a position adjacent to placed items, biased toward center + noise
+    // Step 4–6: Heavy packing computation — run in Web Worker to avoid UI freeze
     console.log('[ORGANIZE] Clusters:', clusters.length, 'sizes:', clusters.map(c => c.length));
     const vpRect = viewport.getBoundingClientRect();
     const center = screenToWorld(vpRect.width / 2, vpRect.height / 2);
-    console.log('[ORGANIZE] Center:', center, 'cam:', {x: cam.x, y: cam.y, z: cam.z}, 'viewport:', vpRect.width, 'x', vpRect.height);
     const avgDiag = items.reduce((s, m) => s + Math.sqrt(m.w * m.w + m.h * m.h), 0) / n;
-    const PAD = 22; // generous padding to prevent visual overlap (shadows, borders)
-    const goldenAngle = Math.PI * (3 - Math.sqrt(5));
-    console.log('[ORGANIZE] avgDiag:', avgDiag, 'PAD:', PAD);
+    const PAD = 22;
 
-    // Sort by area descending
-    items.sort((a, b) => (b.w * b.h) - (a.w * a.h));
+    // Serialize item data for the worker (no DOM refs)
+    const workerItems = items.map(it => ({ id: it.id, w: it.w, h: it.h, oldX: it.oldX, oldY: it.oldY }));
 
-    // Place first item at center
-    items[0].x = center.x;
-    items[0].y = center.y;
+    const positions = await new Promise((resolve, reject) => {
+      const workerCode = `
+        self.onmessage = function(e) {
+          const { items, center, PAD, avgDiag } = e.data;
+          const n = items.length;
+          const goldenAngle = Math.PI * (3 - Math.sqrt(5));
 
-    // For each subsequent item, find the best position
-    for (let i = 1; i < n; i++) {
-      const item = items[i];
-      let bestX = center.x, bestY = center.y;
-      let bestScore = Infinity;
-      // Golden-angle offset per item — ensures each item samples different angles first
-      const angleOffset = i * goldenAngle;
-
-      // Generate candidate positions adjacent to each already-placed item
-      for (let j = 0; j < i; j++) {
-        const p = items[j];
-        const gapX = p.w / 2 + item.w / 2 + PAD;
-        const gapY = p.h / 2 + item.h / 2 + PAD;
-
-        // 20 candidates around the perimeter, offset by golden angle per item
-        const NUM_ANGLES = 20;
-        for (let a = 0; a < NUM_ANGLES; a++) {
-          const angle = angleOffset + (a / NUM_ANGLES) * Math.PI * 2;
-          const dx = Math.cos(angle), dy = Math.sin(angle);
-          // Minimum AABB separation distance along this angle
-          const tX = Math.abs(dx) > 0.01 ? gapX / Math.abs(dx) : 1e9;
-          const tY = Math.abs(dy) > 0.01 ? gapY / Math.abs(dy) : 1e9;
-          const t = Math.min(tX, tY);
-          const cx = p.x + t * dx;
-          const cy = p.y + t * dy;
-
-          // Check no overlap with any placed item
-          let valid = true;
-          for (let k = 0; k < i; k++) {
-            const overlapX = (item.w / 2 + items[k].w / 2 + PAD) - Math.abs(cx - items[k].x);
-            const overlapY = (item.h / 2 + items[k].h / 2 + PAD) - Math.abs(cy - items[k].y);
-            if (overlapX > 0 && overlapY > 0) {
-              valid = false;
-              break;
-            }
+          // Inline simplex noise
+          const perm = new Uint8Array(512);
+          const grad = [[1,1],[-1,1],[1,-1],[-1,-1],[1,0],[-1,0],[0,1],[0,-1]];
+          let s = 42;
+          function rng() { s = (s * 1664525 + 1013904223) & 0xFFFFFFFF; return (s >>> 0) / 0xFFFFFFFF; }
+          const p = Array.from({ length: 256 }, (_, i) => i);
+          for (let i = 255; i > 0; i--) { const j = Math.floor(rng() * (i + 1)); [p[i], p[j]] = [p[j], p[i]]; }
+          for (let i = 0; i < 512; i++) perm[i] = p[i & 255];
+          const F2 = 0.5 * (Math.sqrt(3) - 1), G2 = (3 - Math.sqrt(3)) / 6;
+          function noise(x, y) {
+            const sk = (x + y) * F2, i = Math.floor(x + sk), j = Math.floor(y + sk);
+            const t = (i + j) * G2, x0 = x - (i - t), y0 = y - (j - t);
+            const i1 = x0 > y0 ? 1 : 0, j1 = x0 > y0 ? 0 : 1;
+            const x1 = x0 - i1 + G2, y1 = y0 - j1 + G2, x2 = x0 - 1 + 2 * G2, y2 = y0 - 1 + 2 * G2;
+            const ii = i & 255, jj = j & 255;
+            const gi0 = perm[ii + perm[jj]] % 8, gi1 = perm[ii + i1 + perm[jj + j1]] % 8, gi2 = perm[ii + 1 + perm[jj + 1]] % 8;
+            let n0 = 0, n1 = 0, n2 = 0;
+            let t0 = 0.5 - x0*x0 - y0*y0; if (t0 >= 0) { t0 *= t0; n0 = t0*t0*(grad[gi0][0]*x0+grad[gi0][1]*y0); }
+            let t1 = 0.5 - x1*x1 - y1*y1; if (t1 >= 0) { t1 *= t1; n1 = t1*t1*(grad[gi1][0]*x1+grad[gi1][1]*y1); }
+            let t2 = 0.5 - x2*x2 - y2*y2; if (t2 >= 0) { t2 *= t2; n2 = t2*t2*(grad[gi2][0]*x2+grad[gi2][1]*y2); }
+            return 70 * (n0 + n1 + n2);
           }
 
-          if (valid) {
-            const dist = Math.sqrt((cx - center.x) ** 2 + (cy - center.y) ** 2);
-            // Add noise bias to break grid symmetry — nearby candidates compete randomly
-            const noiseBias = _organizeNoise(i * 2.7 + a * 0.4, j * 1.9) * avgDiag * 0.12;
-            const score = dist + noiseBias;
-            if (score < bestScore) {
-              bestScore = score;
-              bestX = cx;
-              bestY = cy;
+          // Sort by area descending
+          items.sort((a, b) => (b.w * b.h) - (a.w * a.h));
+
+          // Place first item at center
+          items[0].x = center.x;
+          items[0].y = center.y;
+
+          // Greedy tight-packing
+          for (let i = 1; i < n; i++) {
+            const item = items[i];
+            let bestX = center.x, bestY = center.y, bestScore = Infinity;
+            const angleOffset = i * goldenAngle;
+            for (let j = 0; j < i; j++) {
+              const p = items[j];
+              const gapX = p.w / 2 + item.w / 2 + PAD;
+              const gapY = p.h / 2 + item.h / 2 + PAD;
+              for (let a = 0; a < 20; a++) {
+                const angle = angleOffset + (a / 20) * Math.PI * 2;
+                const dx = Math.cos(angle), dy = Math.sin(angle);
+                const tX = Math.abs(dx) > 0.01 ? gapX / Math.abs(dx) : 1e9;
+                const tY = Math.abs(dy) > 0.01 ? gapY / Math.abs(dy) : 1e9;
+                const t = Math.min(tX, tY);
+                const cx = p.x + t * dx, cy = p.y + t * dy;
+                let valid = true;
+                for (let k = 0; k < i; k++) {
+                  if ((item.w/2 + items[k].w/2 + PAD) - Math.abs(cx - items[k].x) > 0 &&
+                      (item.h/2 + items[k].h/2 + PAD) - Math.abs(cy - items[k].y) > 0) {
+                    valid = false; break;
+                  }
+                }
+                if (valid) {
+                  const dist = Math.sqrt((cx - center.x) ** 2 + (cy - center.y) ** 2);
+                  const noiseBias = noise(i * 2.7 + a * 0.4, j * 1.9) * avgDiag * 0.12;
+                  const score = dist + noiseBias;
+                  if (score < bestScore) { bestScore = score; bestX = cx; bestY = cy; }
+                }
+              }
             }
-          }
-        }
-      }
-
-      // Fallback: if no valid position found, use golden spiral outward
-      if (bestScore === Infinity) {
-        const angle = i * goldenAngle;
-        const radius = avgDiag * 0.5 * Math.sqrt(i);
-        bestX = center.x + radius * Math.cos(angle);
-        bestY = center.y + radius * Math.sin(angle);
-      }
-
-      item.x = bestX;
-      item.y = bestY;
-    }
-
-    // Step 5: Post-placement overlap resolution safety pass
-    // Fixes any remaining overlaps (visual overflow, edge cases)
-    for (let pass = 0; pass < 10; pass++) {
-      let hasOverlap = false;
-      for (let i = 0; i < n; i++) {
-        for (let j = i + 1; j < n; j++) {
-          const overlapX = (items[i].w / 2 + items[j].w / 2 + PAD) - Math.abs(items[i].x - items[j].x);
-          const overlapY = (items[i].h / 2 + items[j].h / 2 + PAD) - Math.abs(items[i].y - items[j].y);
-          if (overlapX > 0 && overlapY > 0) {
-            hasOverlap = true;
-            const area_i = items[i].w * items[i].h || 1;
-            const area_j = items[j].w * items[j].h || 1;
-            const total = area_i + area_j;
-            const wi = area_j / total, wj = area_i / total;
-            if (overlapX < overlapY) {
-              const sign = items[i].x > items[j].x ? 1 : -1;
-              items[i].x += sign * overlapX * wi;
-              items[j].x -= sign * overlapX * wj;
-            } else {
-              const sign = items[i].y > items[j].y ? 1 : -1;
-              items[i].y += sign * overlapY * wi;
-              items[j].y -= sign * overlapY * wj;
+            if (bestScore === Infinity) {
+              const angle = i * goldenAngle;
+              const radius = avgDiag * 0.5 * Math.sqrt(i);
+              bestX = center.x + radius * Math.cos(angle);
+              bestY = center.y + radius * Math.sin(angle);
             }
+            item.x = bestX; item.y = bestY;
           }
-        }
-      }
-      if (!hasOverlap) break;
-    }
-    console.log('[ORGANIZE] Packing done. Sample positions:', items.slice(0, 5).map(i => ({id: i.id, w: Math.round(i.w), h: Math.round(i.h), x: Math.round(i.x), y: Math.round(i.y)})));
 
-    // Step 6b: Re-center layout on viewport center
-    // Compute centroid of all items and shift so it aligns with the viewport center
-    let centroidX = 0, centroidY = 0;
-    for (let i = 0; i < n; i++) {
-      centroidX += items[i].x;
-      centroidY += items[i].y;
-    }
-    centroidX /= n;
-    centroidY /= n;
-    const shiftX = center.x - centroidX;
-    const shiftY = center.y - centroidY;
-    for (let i = 0; i < n; i++) {
-      items[i].x += shiftX;
-      items[i].y += shiftY;
-    }
-    console.log('[ORGANIZE] Re-centered. centroid was:', {x: Math.round(centroidX), y: Math.round(centroidY)}, 'shift:', {x: Math.round(shiftX), y: Math.round(shiftY)});
-    console.log('[ORGANIZE] Final positions:', items.slice(0, 5).map(i => ({id: i.id, x: Math.round(i.x), y: Math.round(i.y), oldX: Math.round(i.oldX), oldY: Math.round(i.oldY)})));
+          // Overlap resolution
+          for (let pass = 0; pass < 10; pass++) {
+            let hasOverlap = false;
+            for (let i = 0; i < n; i++) {
+              for (let j = i + 1; j < n; j++) {
+                const ox = (items[i].w/2 + items[j].w/2 + PAD) - Math.abs(items[i].x - items[j].x);
+                const oy = (items[i].h/2 + items[j].h/2 + PAD) - Math.abs(items[i].y - items[j].y);
+                if (ox > 0 && oy > 0) {
+                  hasOverlap = true;
+                  const ai = items[i].w * items[i].h || 1, aj = items[j].w * items[j].h || 1;
+                  const total = ai + aj, wi = aj / total, wj = ai / total;
+                  if (ox < oy) {
+                    const sign = items[i].x > items[j].x ? 1 : -1;
+                    items[i].x += sign * ox * wi; items[j].x -= sign * ox * wj;
+                  } else {
+                    const sign = items[i].y > items[j].y ? 1 : -1;
+                    items[i].y += sign * oy * wi; items[j].y -= sign * oy * wj;
+                  }
+                }
+              }
+            }
+            if (!hasOverlap) break;
+          }
 
-    // Step 7: Animate from old to new positions
-    const duration = 700;
-    const stagger = Math.min(25, 800 / n); // Cap total stagger to 800ms regardless of count
-    const startTime = performance.now();
+          // Re-center on viewport
+          let cx2 = 0, cy2 = 0;
+          for (let i = 0; i < n; i++) { cx2 += items[i].x; cy2 += items[i].y; }
+          cx2 /= n; cy2 /= n;
+          const sx = center.x - cx2, sy = center.y - cy2;
+          for (let i = 0; i < n; i++) { items[i].x += sx; items[i].y += sy; }
 
-    await new Promise(resolve => {
-      function animate(now) {
-        let allDone = true;
-        for (let i = 0; i < n; i++) {
-          const item = items[i];
-          const elapsed = now - startTime - i * stagger;
-          if (elapsed < 0) { allDone = false; continue; }
-          const t = Math.min(1, elapsed / duration);
-          const ease = 1 - Math.pow(1 - t, 3);
-          // Interpolate centers, then convert to top-left for rendering
-          const animCX = item.oldX + (item.x - item.oldX) * ease;
-          const animCY = item.oldY + (item.y - item.oldY) * ease;
-          item.element.style.left = `${animCX - item.w / 2}px`;
-          item.element.style.top = `${animCY - item.h / 2}px`;
-          if (t < 1) allDone = false;
-          if (t >= 1) item.data.position = { x: item.x - item.w / 2, y: item.y - item.h / 2 };
-        }
-        if (!allDone) requestAnimationFrame(animate);
-        else resolve();
-      }
-      requestAnimationFrame(animate);
+          self.postMessage(items.map(it => ({ id: it.id, x: it.x, y: it.y })));
+        };
+      `;
+      const blob = new Blob([workerCode], { type: 'application/javascript' });
+      const url = URL.createObjectURL(blob);
+      const worker = new Worker(url);
+      worker.onmessage = (e) => { URL.revokeObjectURL(url); worker.terminate(); resolve(e.data); };
+      worker.onerror = (e) => { URL.revokeObjectURL(url); worker.terminate(); reject(e); };
+      worker.postMessage({ items: workerItems, center, PAD, avgDiag });
     });
+    console.log('[ORGANIZE] Worker computed positions for', positions.length, 'items');
+
+    // Map worker results back to items
+    const posMap = new Map(positions.map(p => [p.id, p]));
+    for (const item of items) {
+      const pos = posMap.get(item.id);
+      if (pos) { item.x = pos.x; item.y = pos.y; }
+    }
+
+    // Step 7: Animate using CSS transitions (GPU-accelerated, no rAF jank)
+    for (const item of items) {
+      item.element.style.transition = 'left 0.7s cubic-bezier(0.22, 1, 0.36, 1), top 0.7s cubic-bezier(0.22, 1, 0.36, 1)';
+    }
+    // Force a style flush so transitions apply from current positions
+    void items[0].element.offsetLeft;
+    for (const item of items) {
+      const newLeft = item.x - item.w / 2;
+      const newTop = item.y - item.h / 2;
+      item.element.style.left = `${newLeft}px`;
+      item.element.style.top = `${newTop}px`;
+      item.data.position = { x: newLeft, y: newTop };
+    }
+    // Clean up transitions after animation completes
+    await new Promise(resolve => setTimeout(resolve, 750));
+    for (const item of items) {
+      item.element.style.transition = '';
+    }
     console.log('[ORGANIZE] Animation complete');
 
     // Step 8: Batch save positions (convert centers to top-left for storage)
