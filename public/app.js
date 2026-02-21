@@ -1387,6 +1387,7 @@ let isProcessingClick = false; // Flag to prevent cursor updates during click ha
 function applyTransform(){
   world.style.transform = `translate3d(${cam.x}px, ${cam.y}px, 0) scale(${cam.z})`;
   world.style.transformOrigin = '0 0';
+  if (typeof scheduleImageLOD === 'function') scheduleImageLOD();
 }
 applyTransform();
 
@@ -5511,6 +5512,41 @@ function getThumbUrl(url, width = 400) {
     return `${match[1]}render/image/${match[2]}?width=${width}&resize=contain`;
   }
   return url;
+}
+
+// LOD: pick thumbnail width tier based on zoom level
+// Zoomed out = tiny thumbs, zoomed in = full res
+function _lodWidthForZoom(z) {
+  if (z < 0.2) return 100;
+  if (z < 0.45) return 200;
+  if (z < 0.8) return 400;
+  if (z < 1.5) return 800;
+  return 0; // 0 = full resolution
+}
+
+let _lodCurrentTier = 400; // matches initial getThumbUrl default
+let _lodTimer = null;
+
+function updateImageLOD() {
+  const tier = _lodWidthForZoom(cam.z);
+  if (tier === _lodCurrentTier) return;
+  _lodCurrentTier = tier;
+
+  const imageEntries = document.querySelectorAll('.canvas-image img[data-full-src]');
+  for (const img of imageEntries) {
+    const fullUrl = img.dataset.fullSrc;
+    if (!fullUrl) continue;
+    const newSrc = tier === 0 ? fullUrl : getThumbUrl(fullUrl, tier);
+    if (img.src !== newSrc) {
+      img.src = newSrc;
+    }
+  }
+}
+
+// Debounced LOD update — called from applyTransform
+function scheduleImageLOD() {
+  if (_lodTimer) clearTimeout(_lodTimer);
+  _lodTimer = setTimeout(updateImageLOD, 150);
 }
 
 // Compress image files client-side to stay under Vercel's 4.5MB body limit
