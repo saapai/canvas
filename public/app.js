@@ -45,6 +45,10 @@ let cam = { x: 0, y: 0, z: 1 };
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 let hasZoomedToFit = false;
 
+// LOD state (declared early so applyTransform can reference on init)
+let _lodCurrentTier = 400;
+let _lodTimer = null;
+
 const anchorPos = { x: 0, y: 0 };
 
 // Entry storage
@@ -5523,9 +5527,6 @@ function _lodWidthForZoom(z) {
   if (z < 1.5) return 800;
   return 0; // 0 = full resolution
 }
-
-let _lodCurrentTier = 400; // matches initial getThumbUrl default
-let _lodTimer = null;
 
 function updateImageLOD() {
   const tier = _lodWidthForZoom(cam.z);
