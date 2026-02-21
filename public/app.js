@@ -662,17 +662,19 @@ async function loadUserEntries(username, editable) {
     existingEntries.forEach(entry => entry.remove());
     
     // Create entry elements and add to map
+    const fragment = document.createDocumentFragment();
+    const entriesToMeasure = [];
     entriesData.forEach(entryData => {
       const entry = document.createElement('div');
       entry.className = 'entry';
       entry.id = entryData.id;
-      
+
       entry.style.left = `${entryData.position.x}px`;
       entry.style.top = `${entryData.position.y}px`;
-      
+
       // Initially hide all entries - visibility will be set after navigation state is determined
       entry.style.display = 'none';
-      
+
       // Process text with links (skip for image-only, file, and research entries)
       const isResearchCard = entryData.mediaCardData && entryData.mediaCardData.researchCardType;
       const isImageOnly = entryData.mediaCardData && entryData.mediaCardData.type === 'image';
@@ -688,6 +690,7 @@ async function loadUserEntries(username, editable) {
         img.src = entryData.mediaCardData.url;
         img.alt = 'Canvas image';
         img.draggable = false;
+        img.loading = 'lazy';
         entry.appendChild(img);
       } else if (isFileEntry) {
         entry.classList.add('canvas-file');
@@ -759,10 +762,10 @@ async function loadUserEntries(username, editable) {
       if (!editable) {
         entry.style.cursor = 'pointer';
       }
-      
-      world.appendChild(entry);
-      updateEntryDimensions(entry);
-      
+
+      fragment.appendChild(entry);
+      entriesToMeasure.push(entry);
+
       const storedEntryData = {
         id: entryData.id,
         element: entry,
@@ -782,6 +785,9 @@ async function loadUserEntries(username, editable) {
         setTimeout(() => updateEntryDimensions(entry), 100);
       }
     });
+    // Batch-insert all entries in one DOM operation, then measure dimensions
+    world.appendChild(fragment);
+    for (const entry of entriesToMeasure) updateEntryDimensions(entry);
 
     // Refresh deadline display dates (relative labels like "Today" / "Tomorrow")
     refreshAllDeadlineDates();
@@ -5804,10 +5810,14 @@ async function organizeCanvasLayout() {
     }
 
     // Step 2: Measure each entry and extract dominant color
+    // Batch getBoundingClientRect to minimize forced reflows
+    const rects = visibleEntries.map(ed => ed.element.getBoundingClientRect());
     const items = [];
-    for (const ed of visibleEntries) {
+    const linkColorPromises = [];
+    for (let idx = 0; idx < visibleEntries.length; idx++) {
+      const ed = visibleEntries[idx];
       const el = ed.element;
-      const rect = el.getBoundingClientRect();
+      const rect = rects[idx];
       const w = rect.width / cam.z;
       const h = rect.height / cam.z;
       let hue = 0, sat = 0, lum = 50;
@@ -5828,11 +5838,8 @@ async function organizeCanvasLayout() {
           const bg = thumb.style.backgroundImage;
           const urlMatch = bg && bg.match(/url\(["']?(.+?)["']?\)/);
           if (urlMatch) {
-            try {
-              const tmpImg = await loadImageForColor(urlMatch[1]);
-              const hsl = extractDominantHSL(tmpImg);
-              hue = hsl.h; sat = hsl.s; lum = hsl.l; hasColor = true;
-            } catch(ex) { /* cross-origin, ignore */ }
+            // Collect promise — resolve all link colors in parallel below
+            linkColorPromises.push({ idx: items.length, src: urlMatch[1] });
           }
         }
       } else if (el.querySelector('.media-card')) {
@@ -5850,9 +5857,21 @@ async function organizeCanvasLayout() {
         x: 0, y: 0, vx: 0, vy: 0
       });
     }
+    // Resolve all link-card colors in parallel
+    if (linkColorPromises.length > 0) {
+      const results = await Promise.allSettled(
+        linkColorPromises.map(p => loadImageForColor(p.src).then(img => ({ idx: p.idx, hsl: extractDominantHSL(img) })))
+      );
+      for (const r of results) {
+        if (r.status === 'fulfilled') {
+          const item = items[r.value.idx];
+          item.hue = r.value.hsl.h; item.sat = r.value.hsl.s; item.lum = r.value.hsl.l; item.hasColor = true;
+        }
+      }
+    }
 
     const n = items.length;
-    console.log('[ORGANIZE] Items measured:', n, 'types:', items.map(i => i.type));
+    console.log('[ORGANIZE] Items measured:', n);
     if (n === 0) {
       console.log('[ORGANIZE] No items after measurement, returning');
       return;
@@ -5900,53 +5919,98 @@ async function organizeCanvasLayout() {
 
     // Sort by area descending
     items.sort((a, b) => (b.w * b.h) - (a.w * a.h));
-    console.log('[ORGANIZE] Sorted sizes:', items.map(i => `${Math.round(i.w)}x${Math.round(i.h)}`));
+
+    // Spatial grid for O(1) overlap checks instead of O(n)
+    const maxDim = items.reduce((m, it) => Math.max(m, it.w, it.h), 0);
+    const CELL = maxDim + PAD + 1;
+    const grid = new Map();
+    function _gridKey(col, row) { return col + ',' + row; }
+    function _gridInsert(item) {
+      const c1 = Math.floor((item.x - item.w / 2 - PAD) / CELL);
+      const c2 = Math.floor((item.x + item.w / 2 + PAD) / CELL);
+      const r1 = Math.floor((item.y - item.h / 2 - PAD) / CELL);
+      const r2 = Math.floor((item.y + item.h / 2 + PAD) / CELL);
+      for (let c = c1; c <= c2; c++) {
+        for (let r = r1; r <= r2; r++) {
+          const key = _gridKey(c, r);
+          if (!grid.has(key)) grid.set(key, []);
+          grid.get(key).push(item);
+        }
+      }
+    }
+    function _gridQuery(cx, cy, hw, hh) {
+      const c1 = Math.floor((cx - hw - PAD) / CELL);
+      const c2 = Math.floor((cx + hw + PAD) / CELL);
+      const r1 = Math.floor((cy - hh - PAD) / CELL);
+      const r2 = Math.floor((cy + hh + PAD) / CELL);
+      const seen = new Set();
+      const result = [];
+      for (let c = c1; c <= c2; c++) {
+        for (let r = r1; r <= r2; r++) {
+          const bucket = grid.get(_gridKey(c, r));
+          if (!bucket) continue;
+          for (const it of bucket) {
+            if (!seen.has(it.id)) { seen.add(it.id); result.push(it); }
+          }
+        }
+      }
+      return result;
+    }
 
     // Place first item at center
     items[0].x = center.x;
     items[0].y = center.y;
+    _gridInsert(items[0]);
 
     // For each subsequent item, find the best position
+    // Limit anchor search to nearest placed items for large sets
+    const MAX_ANCHORS = 30;
     for (let i = 1; i < n; i++) {
       const item = items[i];
       let bestX = center.x, bestY = center.y;
       let bestScore = Infinity;
-      // Golden-angle offset per item — ensures each item samples different angles first
       const angleOffset = i * goldenAngle;
 
-      // Generate candidate positions adjacent to each already-placed item
-      for (let j = 0; j < i; j++) {
-        const p = items[j];
+      // Pick anchors: for large layouts, only try the closest placed items to center
+      let anchors;
+      if (i <= MAX_ANCHORS) {
+        anchors = items.slice(0, i);
+      } else {
+        // Use items near the frontier (closest to center, most recently placed)
+        const scored = [];
+        for (let j = 0; j < i; j++) {
+          scored.push({ idx: j, d: (items[j].x - center.x) ** 2 + (items[j].y - center.y) ** 2 });
+        }
+        scored.sort((a, b) => a.d - b.d);
+        anchors = scored.slice(0, MAX_ANCHORS).map(s => items[s.idx]);
+      }
+
+      const NUM_ANGLES = 16;
+      for (const p of anchors) {
         const gapX = p.w / 2 + item.w / 2 + PAD;
         const gapY = p.h / 2 + item.h / 2 + PAD;
 
-        // 20 candidates around the perimeter, offset by golden angle per item
-        const NUM_ANGLES = 20;
         for (let a = 0; a < NUM_ANGLES; a++) {
           const angle = angleOffset + (a / NUM_ANGLES) * Math.PI * 2;
           const dx = Math.cos(angle), dy = Math.sin(angle);
-          // Minimum AABB separation distance along this angle
           const tX = Math.abs(dx) > 0.01 ? gapX / Math.abs(dx) : 1e9;
           const tY = Math.abs(dy) > 0.01 ? gapY / Math.abs(dy) : 1e9;
           const t = Math.min(tX, tY);
           const cx = p.x + t * dx;
           const cy = p.y + t * dy;
 
-          // Check no overlap with any placed item
+          // Spatial grid overlap check — only tests nearby items
+          const nearby = _gridQuery(cx, cy, item.w / 2, item.h / 2);
           let valid = true;
-          for (let k = 0; k < i; k++) {
-            const overlapX = (item.w / 2 + items[k].w / 2 + PAD) - Math.abs(cx - items[k].x);
-            const overlapY = (item.h / 2 + items[k].h / 2 + PAD) - Math.abs(cy - items[k].y);
-            if (overlapX > 0 && overlapY > 0) {
-              valid = false;
-              break;
-            }
+          for (const nb of nearby) {
+            const ox = (item.w / 2 + nb.w / 2 + PAD) - Math.abs(cx - nb.x);
+            const oy = (item.h / 2 + nb.h / 2 + PAD) - Math.abs(cy - nb.y);
+            if (ox > 0 && oy > 0) { valid = false; break; }
           }
 
           if (valid) {
             const dist = Math.sqrt((cx - center.x) ** 2 + (cy - center.y) ** 2);
-            // Add noise bias to break grid symmetry — nearby candidates compete randomly
-            const noiseBias = _organizeNoise(i * 2.7 + a * 0.4, j * 1.9) * avgDiag * 0.12;
+            const noiseBias = _organizeNoise(i * 2.7 + a * 0.4, anchors.indexOf(p) * 1.9) * avgDiag * 0.12;
             const score = dist + noiseBias;
             if (score < bestScore) {
               bestScore = score;
@@ -5957,7 +6021,7 @@ async function organizeCanvasLayout() {
         }
       }
 
-      // Fallback: if no valid position found, use golden spiral outward
+      // Fallback: golden spiral outward
       if (bestScore === Infinity) {
         const angle = i * goldenAngle;
         const radius = avgDiag * 0.5 * Math.sqrt(i);
@@ -5967,35 +6031,45 @@ async function organizeCanvasLayout() {
 
       item.x = bestX;
       item.y = bestY;
+      _gridInsert(item);
     }
 
     // Step 5: Post-placement overlap resolution safety pass
-    // Fixes any remaining overlaps (visual overflow, edge cases)
+    // Rebuild grid, use spatial queries for overlap checks
+    grid.clear();
+    for (const it of items) _gridInsert(it);
     for (let pass = 0; pass < 10; pass++) {
       let hasOverlap = false;
       for (let i = 0; i < n; i++) {
-        for (let j = i + 1; j < n; j++) {
-          const overlapX = (items[i].w / 2 + items[j].w / 2 + PAD) - Math.abs(items[i].x - items[j].x);
-          const overlapY = (items[i].h / 2 + items[j].h / 2 + PAD) - Math.abs(items[i].y - items[j].y);
+        const nearby = _gridQuery(items[i].x, items[i].y, items[i].w / 2, items[i].h / 2);
+        for (const other of nearby) {
+          if (other.id === items[i].id) continue;
+          const j = items.indexOf(other);
+          if (j < i) continue; // only resolve each pair once
+          const overlapX = (items[i].w / 2 + other.w / 2 + PAD) - Math.abs(items[i].x - other.x);
+          const overlapY = (items[i].h / 2 + other.h / 2 + PAD) - Math.abs(items[i].y - other.y);
           if (overlapX > 0 && overlapY > 0) {
             hasOverlap = true;
             const area_i = items[i].w * items[i].h || 1;
-            const area_j = items[j].w * items[j].h || 1;
+            const area_j = other.w * other.h || 1;
             const total = area_i + area_j;
             const wi = area_j / total, wj = area_i / total;
             if (overlapX < overlapY) {
-              const sign = items[i].x > items[j].x ? 1 : -1;
+              const sign = items[i].x > other.x ? 1 : -1;
               items[i].x += sign * overlapX * wi;
-              items[j].x -= sign * overlapX * wj;
+              other.x -= sign * overlapX * wj;
             } else {
-              const sign = items[i].y > items[j].y ? 1 : -1;
+              const sign = items[i].y > other.y ? 1 : -1;
               items[i].y += sign * overlapY * wi;
-              items[j].y -= sign * overlapY * wj;
+              other.y -= sign * overlapY * wj;
             }
           }
         }
       }
       if (!hasOverlap) break;
+      // Rebuild grid after positions shifted
+      grid.clear();
+      for (const it of items) _gridInsert(it);
     }
     console.log('[ORGANIZE] Packing done. Sample positions:', items.slice(0, 5).map(i => ({id: i.id, w: Math.round(i.w), h: Math.round(i.h), x: Math.round(i.x), y: Math.round(i.y)})));
 
@@ -6018,8 +6092,8 @@ async function organizeCanvasLayout() {
     console.log('[ORGANIZE] Final positions:', items.slice(0, 5).map(i => ({id: i.id, x: Math.round(i.x), y: Math.round(i.y), oldX: Math.round(i.oldX), oldY: Math.round(i.oldY)})));
 
     // Step 7: Animate from old to new positions
-    const duration = 900;
-    const stagger = 25;
+    const duration = 700;
+    const stagger = Math.min(25, 800 / n); // Cap total stagger to 800ms regardless of count
     const startTime = performance.now();
 
     await new Promise(resolve => {
