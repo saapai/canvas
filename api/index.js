@@ -1560,13 +1560,40 @@ app.post('/api/entries/batch', async (req, res) => {
     if (!req.user) {
       return res.status(401).json({ error: 'Authentication required' });
     }
-    const { entries } = req.body;
-    
+    const { entries, pageOwnerId } = req.body;
+
     if (!Array.isArray(entries)) {
       return res.status(400).json({ error: 'entries must be an array' });
     }
 
-    const savedEntries = await saveAllEntries(entries, req.user.id);
+    // Limit batch size to prevent abuse
+    if (entries.length > 1000) {
+      return res.status(400).json({ error: 'Batch size cannot exceed 1000 entries' });
+    }
+
+    // Determine which user ID to use for saving
+    let targetUserId = req.user.id;
+
+    // If pageOwnerId is provided and different from logged-in user, verify permission
+    if (pageOwnerId && pageOwnerId !== req.user.id) {
+      const pageOwner = await getUserById(pageOwnerId);
+      if (!pageOwner) {
+        return res.status(403).json({ error: 'Invalid page owner' });
+      }
+
+      // Verify that logged-in user and page owner have the same phone number
+      const loggedInPhone = req.user.phone.replace(/\s/g, '');
+      const pageOwnerPhone = pageOwner.phone.replace(/\s/g, '');
+
+      if (loggedInPhone !== pageOwnerPhone) {
+        return res.status(403).json({ error: 'Not authorized to edit this page' });
+      }
+
+      // Permission verified - use pageOwnerId
+      targetUserId = pageOwnerId;
+    }
+
+    const savedEntries = await saveAllEntries(entries, targetUserId);
     res.json(savedEntries);
   } catch (error) {
     console.error('Error saving entries:', error);

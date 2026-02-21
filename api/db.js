@@ -473,7 +473,7 @@ export async function saveAllEntries(entries, userId) {
              position_x = EXCLUDED.position_x,
              position_y = EXCLUDED.position_y,
              parent_entry_id = EXCLUDED.parent_entry_id,
-             user_id = EXCLUDED.user_id,
+             -- user_id NEVER changes once set
              link_cards_data = EXCLUDED.link_cards_data,
              media_card_data = EXCLUDED.media_card_data,
              latex_data = EXCLUDED.latex_data,
