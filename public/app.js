@@ -45,10 +45,6 @@ let cam = { x: 0, y: 0, z: 1 };
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 let hasZoomedToFit = false;
 
-// LOD state (declared early so applyTransform can reference on init)
-let _lodCurrentTier = 400;
-let _lodTimer = null;
-
 const anchorPos = { x: 0, y: 0 };
 
 // Entry storage
@@ -1390,7 +1386,6 @@ let isProcessingClick = false; // Flag to prevent cursor updates during click ha
 function applyTransform(){
   world.style.transform = `translate3d(${cam.x}px, ${cam.y}px, 0) scale(${cam.z})`;
   world.style.transformOrigin = '0 0';
-  if (typeof scheduleImageLOD === 'function') scheduleImageLOD();
 }
 applyTransform();
 
@@ -5505,50 +5500,6 @@ viewport.addEventListener('contextmenu', (e) => {
   }
 });
 
-// Convert a Supabase storage URL to a thumbnail URL using image transforms
-// Falls back to original URL for non-Supabase URLs
-function getThumbUrl(url, width = 400) {
-  if (!url || typeof url !== 'string') return url;
-  // Match Supabase storage public URLs: .../storage/v1/object/public/...
-  const match = url.match(/^(https?:\/\/[^/]+\/storage\/v1\/)object\/(public\/.+)$/);
-  if (match) {
-    return `${match[1]}render/image/${match[2]}?width=${width}&resize=contain`;
-  }
-  return url;
-}
-
-// LOD: pick thumbnail width tier based on zoom level
-// Zoomed out = tiny thumbs, zoomed in = full res
-function _lodWidthForZoom(z) {
-  if (z < 0.2) return 100;
-  if (z < 0.45) return 200;
-  if (z < 0.8) return 400;
-  if (z < 1.5) return 800;
-  return 0; // 0 = full resolution
-}
-
-function updateImageLOD() {
-  const tier = _lodWidthForZoom(cam.z);
-  if (tier === _lodCurrentTier) return;
-  _lodCurrentTier = tier;
-
-  const imageEntries = document.querySelectorAll('.canvas-image img[data-full-src]');
-  for (const img of imageEntries) {
-    const fullUrl = img.dataset.fullSrc;
-    if (!fullUrl) continue;
-    const newSrc = tier === 0 ? fullUrl : getThumbUrl(fullUrl, tier);
-    if (img.src !== newSrc) {
-      img.src = newSrc;
-    }
-  }
-}
-
-// Debounced LOD update — called from applyTransform
-function scheduleImageLOD() {
-  if (_lodTimer) clearTimeout(_lodTimer);
-  _lodTimer = setTimeout(updateImageLOD, 150);
-}
-
 // Compress image files client-side to stay under Vercel's 4.5MB body limit
 const MAX_UPLOAD_SIZE = 4 * 1024 * 1024; // 4MB target (leave headroom)
 async function compressImageFile(file) {
@@ -6031,8 +5982,8 @@ async function organizeCanvasLayout() {
                 }
                 if (valid) {
                   const dist = Math.sqrt((cx - center.x) ** 2 + (cy - center.y) ** 2);
-                  const noiseBias = noise(i * 2.7 + a * 0.4, j * 1.9) * avgDiag * 0.25;
-                  const jitter = (Math.random() - 0.5) * avgDiag * 0.15;
+                  const noiseBias = noise(i * 2.7 + a * 0.4, j * 1.9) * avgDiag * 0.35;
+                  const jitter = (Math.random() - 0.5) * avgDiag * 0.3;
                   const score = dist + noiseBias + jitter;
                   if (score < bestScore) { bestScore = score; bestX = cx; bestY = cy; }
                 }
@@ -6047,8 +5998,8 @@ async function organizeCanvasLayout() {
             item.x = bestX; item.y = bestY;
           }
 
-          // Overlap resolution
-          for (let pass = 0; pass < 10; pass++) {
+          // Overlap resolution — push overlapping items apart
+          for (let pass = 0; pass < 30; pass++) {
             let hasOverlap = false;
             for (let i = 0; i < n; i++) {
               for (let j = i + 1; j < n; j++) {
@@ -6058,12 +6009,14 @@ async function organizeCanvasLayout() {
                   hasOverlap = true;
                   const ai = items[i].w * items[i].h || 1, aj = items[j].w * items[j].h || 1;
                   const total = ai + aj, wi = aj / total, wj = ai / total;
+                  // Push apart by 110% of overlap to escape deadlocks
+                  const push = 1.1;
                   if (ox < oy) {
-                    const sign = items[i].x > items[j].x ? 1 : -1;
-                    items[i].x += sign * ox * wi; items[j].x -= sign * ox * wj;
+                    const sign = items[i].x > items[j].x ? 1 : (items[i].x < items[j].x ? -1 : (Math.random() > 0.5 ? 1 : -1));
+                    items[i].x += sign * ox * wi * push; items[j].x -= sign * ox * wj * push;
                   } else {
-                    const sign = items[i].y > items[j].y ? 1 : -1;
-                    items[i].y += sign * oy * wi; items[j].y -= sign * oy * wj;
+                    const sign = items[i].y > items[j].y ? 1 : (items[i].y < items[j].y ? -1 : (Math.random() > 0.5 ? 1 : -1));
+                    items[i].y += sign * oy * wi * push; items[j].y -= sign * oy * wj * push;
                   }
                 }
               }
