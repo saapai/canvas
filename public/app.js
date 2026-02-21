@@ -692,13 +692,12 @@ async function loadUserEntries(username, editable) {
         entry.innerHTML = '';
         const img = document.createElement('img');
         const fullUrl = entryData.mediaCardData.url;
-        img.src = getThumbUrl(fullUrl);
+        img.src = fullUrl;
         img.dataset.fullSrc = fullUrl;
         img.alt = 'Canvas image';
         img.draggable = false;
         img.loading = 'lazy';
         img.decoding = 'async';
-        img.onerror = function() { if (this.src !== fullUrl) this.src = fullUrl; };
         entry.appendChild(img);
       } else if (isFileEntry) {
         entry.classList.add('canvas-file');
@@ -4149,13 +4148,13 @@ async function createImageEntryAtWorld(worldX, worldY, imageUrl) {
   entry.style.width = '200px';
   entry.style.height = '150px';
   const img = document.createElement('img');
-  img.src = getThumbUrl(imageUrl);
+  img.src = imageUrl;
   img.dataset.fullSrc = imageUrl;
   img.alt = 'Canvas image';
   img.draggable = false;
   img.decoding = 'async';
   img.onload = () => updateEntryDimensions(entry);
-  img.onerror = function() { if (this.src !== imageUrl) { this.src = imageUrl; } else { updateEntryDimensions(entry); } };
+  img.onerror = () => updateEntryDimensions(entry);
   entry.appendChild(img);
   world.appendChild(entry);
   const entryData = {
@@ -6032,8 +6031,9 @@ async function organizeCanvasLayout() {
                 }
                 if (valid) {
                   const dist = Math.sqrt((cx - center.x) ** 2 + (cy - center.y) ** 2);
-                  const noiseBias = noise(i * 2.7 + a * 0.4, j * 1.9) * avgDiag * 0.12;
-                  const score = dist + noiseBias;
+                  const noiseBias = noise(i * 2.7 + a * 0.4, j * 1.9) * avgDiag * 0.25;
+                  const jitter = (Math.random() - 0.5) * avgDiag * 0.15;
+                  const score = dist + noiseBias + jitter;
                   if (score < bestScore) { bestScore = score; bestX = cx; bestY = cy; }
                 }
               }
@@ -7179,13 +7179,13 @@ function executePlacements(placements) {
         entry.style.width = '200px';
         entry.style.height = '150px';
         const img = document.createElement('img');
-        img.src = getThumbUrl(item.url);
+        img.src = item.url;
         img.dataset.fullSrc = item.url;
         img.alt = 'Canvas image';
         img.draggable = false;
         img.decoding = 'async';
         img.onload = () => updateEntryDimensions(entry);
-        img.onerror = function() { if (this.src !== item.url) { this.src = item.url; } else { updateEntryDimensions(entry); } };
+        img.onerror = () => updateEntryDimensions(entry);
         entry.appendChild(img);
         world.appendChild(entry);
         const entryData = {
@@ -8343,12 +8343,11 @@ async function performUndo() {
           entry.classList.add('canvas-image');
           const img = document.createElement('img');
           const fullUrl = entryData.mediaCardData.url;
-          img.src = getThumbUrl(fullUrl);
+          img.src = fullUrl;
           img.dataset.fullSrc = fullUrl;
           img.alt = 'Canvas image';
           img.draggable = false;
           img.decoding = 'async';
-          img.onerror = function() { if (this.src !== fullUrl) this.src = fullUrl; };
           entry.appendChild(img);
         } else {
           const { processedText, urls } = processTextWithLinks(entryData.text);
