@@ -194,6 +194,14 @@ export async function initDatabase() {
       console.log('Note: page_editors table check:', error.message);
     }
 
+    // Add pending_phone column and make editor_user_id nullable for pending invites
+    try {
+      await db.query(`ALTER TABLE page_editors ADD COLUMN IF NOT EXISTS pending_phone TEXT`);
+      await db.query(`ALTER TABLE page_editors ALTER COLUMN editor_user_id DROP NOT NULL`);
+    } catch (error) {
+      console.log('Note: page_editors pending_phone migration:', error.message);
+    }
+
     // Index on entries.updated_at for efficient sync polling
     try {
       await db.query(`
@@ -919,6 +927,39 @@ export async function addPageEditor(ownerUserId, editorUserId, sharedEntryId = n
   return { id, ownerUserId, editorUserId, sharedEntryId };
 }
 
+export async function addPendingEditor(ownerUserId, pendingPhone, sharedEntryId = null) {
+  const db = getPool();
+  const existing = await db.query(
+    `SELECT 1 FROM page_editors WHERE owner_user_id = $1 AND pending_phone = $2 AND editor_user_id IS NULL
+     AND (shared_entry_id IS NOT DISTINCT FROM $3) LIMIT 1`,
+    [ownerUserId, pendingPhone, sharedEntryId]
+  );
+  if (existing.rows.length > 0) return { alreadyPending: true };
+  const id = crypto.randomUUID();
+  await db.query(
+    `INSERT INTO page_editors (id, owner_user_id, editor_user_id, pending_phone, shared_entry_id)
+     VALUES ($1, $2, NULL, $3, $4)`,
+    [id, ownerUserId, pendingPhone, sharedEntryId]
+  );
+  return { id, ownerUserId, pendingPhone, sharedEntryId };
+}
+
+export async function convertPendingEditors(phone, newUserId) {
+  const db = getPool();
+  const rawDigits = phone.replace(/\D/g, '');
+  const without1 = rawDigits.replace(/^1/, '');
+  const result = await db.query(
+    `UPDATE page_editors SET editor_user_id = $1, pending_phone = NULL
+     WHERE editor_user_id IS NULL AND (
+       REPLACE(REPLACE(REPLACE(pending_phone, '+', ''), '-', ''), ' ', '') = $2
+       OR REPLACE(REPLACE(REPLACE(pending_phone, '+', ''), '-', ''), ' ', '') = $3
+       OR REPLACE(REPLACE(REPLACE(pending_phone, '+', ''), '-', ''), ' ', '') = $4
+     )`,
+    [newUserId, rawDigits, without1, '1' + without1]
+  );
+  return result.rowCount;
+}
+
 export async function removePageEditor(ownerUserId, editorUserId, sharedEntryId = null) {
   const db = getPool();
   if (sharedEntryId) {
@@ -944,20 +985,20 @@ export async function getPageEditors(ownerUserId, sharedEntryId = null) {
   let result;
   if (sharedEntryId) {
     result = await db.query(
-      `SELECT pe.id, pe.editor_user_id, pe.shared_entry_id, pe.created_at,
+      `SELECT pe.id, pe.editor_user_id, pe.shared_entry_id, pe.created_at, pe.pending_phone,
               u.username, u.phone
        FROM page_editors pe
-       JOIN users u ON pe.editor_user_id = u.id
+       LEFT JOIN users u ON pe.editor_user_id = u.id
        WHERE pe.owner_user_id = $1 AND pe.shared_entry_id = $2
        ORDER BY pe.created_at ASC`,
       [ownerUserId, sharedEntryId]
     );
   } else {
     result = await db.query(
-      `SELECT pe.id, pe.editor_user_id, pe.shared_entry_id, pe.created_at,
+      `SELECT pe.id, pe.editor_user_id, pe.shared_entry_id, pe.created_at, pe.pending_phone,
               u.username, u.phone
        FROM page_editors pe
-       JOIN users u ON pe.editor_user_id = u.id
+       LEFT JOIN users u ON pe.editor_user_id = u.id
        WHERE pe.owner_user_id = $1 AND pe.shared_entry_id IS NULL
        ORDER BY pe.created_at ASC`,
       [ownerUserId]
