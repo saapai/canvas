@@ -10858,8 +10858,8 @@ if (window.location.search.includes('google=connected')) {
 // ——— Collaborative editing: Share UI ———
 
 const shareButton = document.getElementById('share-button');
-const shareModal = document.getElementById('share-modal');
-const shareModalClose = document.getElementById('share-modal-close');
+const sharePopover = document.getElementById('share-popover');
+const sharePopoverClose = document.getElementById('share-popover-close');
 const sharePhoneInput = document.getElementById('share-phone-input');
 const shareAddBtn = document.getElementById('share-add-btn');
 const shareError = document.getElementById('share-error');
@@ -10868,25 +10868,42 @@ const shareEditorsList = document.getElementById('share-editors-list');
 if (shareButton) {
   shareButton.addEventListener('click', (e) => {
     e.stopPropagation();
-    if (shareModal) {
-      shareModal.classList.remove('hidden');
-      loadEditorsList();
-      if (sharePhoneInput) sharePhoneInput.focus();
+    if (sharePopover) {
+      sharePopover.classList.toggle('hidden');
+      if (!sharePopover.classList.contains('hidden')) {
+        loadEditorsList();
+        setTimeout(() => { if (sharePhoneInput) sharePhoneInput.focus(); }, 50);
+      }
     }
   });
 }
 
-if (shareModalClose) {
-  shareModalClose.addEventListener('click', () => {
-    if (shareModal) shareModal.classList.add('hidden');
+if (sharePopoverClose) {
+  sharePopoverClose.addEventListener('click', () => {
+    if (sharePopover) sharePopover.classList.add('hidden');
   });
 }
 
-if (shareModal) {
-  shareModal.addEventListener('click', (e) => {
-    if (e.target === shareModal) shareModal.classList.add('hidden');
+// Prevent clicks/mousedown inside popover from bubbling to viewport (fixes input focus stealing)
+if (sharePopover) {
+  sharePopover.addEventListener('mousedown', (e) => {
+    e.stopPropagation();
+  });
+  sharePopover.addEventListener('mouseup', (e) => {
+    e.stopPropagation();
+  });
+  sharePopover.addEventListener('click', (e) => {
+    e.stopPropagation();
   });
 }
+
+// Close popover when clicking outside
+document.addEventListener('mousedown', (e) => {
+  if (sharePopover && !sharePopover.classList.contains('hidden') &&
+      !sharePopover.contains(e.target) && e.target !== shareButton) {
+    sharePopover.classList.add('hidden');
+  }
+});
 
 async function loadEditorsList() {
   if (!shareEditorsList) return;
