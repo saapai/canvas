@@ -5422,7 +5422,10 @@ editor.addEventListener('blur', (e) => {
   } else if (trimmed.length === 0 && (!editingEntryId || editingEntryId === 'anchor')) {
     // If empty and creating new entry, show cursor in default position
     setTimeout(() => {
-      if (document.activeElement !== editor) {
+      const blurActive = document.activeElement;
+      // Don't steal focus from form fields (share dialog, auth inputs, etc.)
+      const blurInFormField = blurActive && (blurActive.tagName === 'INPUT' || blurActive.tagName === 'TEXTAREA' || blurActive.tagName === 'SELECT');
+      if (blurActive !== editor && !blurInFormField) {
         showCursorInDefaultPosition();
         editingEntryId = null;
       }
@@ -9979,7 +9982,7 @@ function applyRemoteEntryUpdate(entryData) {
         }
       }
       if (typeof updateEntryDimensions === 'function') {
-        updateEntryDimensions(existing);
+        updateEntryDimensions(existing.element);
       }
     }
   } else {
