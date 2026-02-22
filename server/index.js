@@ -36,7 +36,14 @@ import {
   getGoogleTokens,
   saveGoogleTokens,
   deleteGoogleTokens,
-  saveGoogleCalendarSettings
+  saveGoogleCalendarSettings,
+  addPageEditor,
+  removePageEditor,
+  removePageEditorById,
+  getPageEditors,
+  getSharedPagesForUser,
+  isEditor,
+  getEntriesUpdatedSince
 } from './db.js';
 import { google } from 'googleapis';
 import jwt from 'jsonwebtoken';
@@ -752,11 +759,40 @@ app.get('/api/oauth/google/callback', async (req, res) => {
   }
 });
 
-// Check Google connection status
+// Check Google connection status (proactively refreshes token if near expiry)
 app.get('/api/oauth/google/status', requireAuth, async (req, res) => {
   try {
     const tokens = await getGoogleTokens(req.user.id);
-    res.json({ connected: !!tokens, calendarSettings: tokens?.calendar_settings || {} });
+    if (!tokens) return res.json({ connected: false, calendarSettings: {} });
+
+    // Proactively refresh token if it's expired or will expire within 5 minutes
+    const expiryTime = tokens.token_expiry ? new Date(tokens.token_expiry).getTime() : 0;
+    const fiveMinutes = 5 * 60 * 1000;
+    if (tokens.refresh_token && (!expiryTime || Date.now() > expiryTime - fiveMinutes)) {
+      try {
+        const oauth2 = createOAuth2Client();
+        oauth2.setCredentials({
+          access_token: tokens.access_token,
+          refresh_token: tokens.refresh_token,
+          expiry_date: expiryTime || null
+        });
+        const { credentials } = await oauth2.refreshAccessToken();
+        await saveGoogleTokens(req.user.id, {
+          ...credentials,
+          refresh_token: credentials.refresh_token || tokens.refresh_token
+        });
+      } catch (refreshErr) {
+        // If refresh fails with invalid_grant, the token is truly dead
+        if (refreshErr.message?.includes('invalid_grant') || refreshErr.response?.data?.error === 'invalid_grant') {
+          await deleteGoogleTokens(req.user.id);
+          return res.json({ connected: false, calendarSettings: {}, reconnectRequired: true });
+        }
+        // Other refresh errors - token may still work, don't disconnect
+        console.error('Proactive token refresh failed:', refreshErr.message);
+      }
+    }
+
+    res.json({ connected: true, calendarSettings: tokens.calendar_settings || {} });
   } catch (error) {
     res.status(500).json({ error: 'Failed to check status' });
   }
@@ -1300,10 +1336,14 @@ app.post('/api/entries', async (req, res) => {
       const pageOwnerPhone = pageOwner.phone.replace(/\s/g, '');
       
       if (loggedInPhone !== pageOwnerPhone) {
-        debugLog('[SAVE] Phone mismatch:', loggedInPhone, pageOwnerPhone);
-        return res.status(403).json({ error: 'Not authorized to edit this page' });
+        // Check if user is an authorized editor
+        const authorized = await isEditor(pageOwnerId, req.user.id);
+        if (!authorized) {
+          debugLog('[SAVE] Phone mismatch and not editor:', loggedInPhone, pageOwnerPhone);
+          return res.status(403).json({ error: 'Not authorized to edit this page' });
+        }
       }
-      
+
       // Permission verified - use pageOwnerId
       targetUserId = pageOwnerId;
       debugLog('[SAVE] Using pageOwnerId:', targetUserId);
@@ -1361,9 +1401,12 @@ app.put('/api/entries/:id', async (req, res) => {
       const pageOwnerPhone = pageOwner.phone.replace(/\s/g, '');
       
       if (loggedInPhone !== pageOwnerPhone) {
-        return res.status(403).json({ error: 'Not authorized to edit this page' });
+        const authorized = await isEditor(pageOwnerId, req.user.id);
+        if (!authorized) {
+          return res.status(403).json({ error: 'Not authorized to edit this page' });
+        }
       }
-      
+
       // Permission verified - use pageOwnerId
       targetUserId = pageOwnerId;
     }
@@ -1414,10 +1457,13 @@ app.delete('/api/entries/:id', async (req, res) => {
       const pageOwnerPhone = pageOwner.phone.replace(/\s/g, '');
       
       if (loggedInPhone !== pageOwnerPhone) {
-        debugLog('[DELETE] Phone mismatch:', loggedInPhone, pageOwnerPhone);
-        return res.status(403).json({ error: 'Not authorized to edit this page' });
+        const authorized = await isEditor(pageOwnerId, req.user.id);
+        if (!authorized) {
+          debugLog('[DELETE] Phone mismatch and not editor:', loggedInPhone, pageOwnerPhone);
+          return res.status(403).json({ error: 'Not authorized to edit this page' });
+        }
       }
-      
+
       // Permission verified - use pageOwnerId
       targetUserId = pageOwnerId;
       debugLog('[DELETE] Using pageOwnerId:', targetUserId);
@@ -1444,8 +1490,12 @@ app.post('/api/entries/restore', async (req, res) => {
       const pageOwner = await getUserById(pageOwnerId);
       if (!pageOwner) return res.status(403).json({ error: 'Invalid page owner' });
       const loggedInUser = await getUserById(req.user.id);
-      if (!loggedInUser || loggedInUser.phone !== pageOwner.phone) {
-        return res.status(403).json({ error: 'No permission' });
+      const phonesMatch = loggedInUser && loggedInUser.phone === pageOwner.phone;
+      if (!phonesMatch) {
+        const authorized = await isEditor(pageOwnerId, req.user.id);
+        if (!authorized) {
+          return res.status(403).json({ error: 'No permission' });
+        }
       }
       targetUserId = pageOwnerId;
     }
@@ -1689,6 +1739,186 @@ app.get('/api/public/:username/path/*', async (req, res) => {
     });
   } catch (error) {
     console.error('Error fetching public path:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ——— Collaborative editing endpoints ———
+
+// Add an editor by phone number
+app.post('/api/editors/add', requireAuth, async (req, res) => {
+  try {
+    const { phone, sharedEntryId } = req.body;
+    if (!phone || typeof phone !== 'string') {
+      return res.status(400).json({ error: 'Phone number is required' });
+    }
+
+    // Don't allow adding yourself
+    const ownerUser = req.user;
+
+    // Try multiple phone format normalizations to find the user
+    const rawDigits = phone.replace(/\D/g, '');
+    const candidates = [
+      rawDigits,
+      rawDigits.replace(/^1/, ''),
+      rawDigits.replace(/^\+1/, ''),
+      '+1' + rawDigits,
+      '1' + rawDigits
+    ];
+
+    let editorUsers = [];
+    for (const candidate of candidates) {
+      if (!candidate) continue;
+      const users = await getUsersByPhone(candidate);
+      if (users.length > 0) {
+        editorUsers = users;
+        break;
+      }
+    }
+
+    if (editorUsers.length === 0) {
+      return res.status(404).json({ error: 'No account found with that phone number', notRegistered: true });
+    }
+
+    // Use first user with a username, or first user
+    const editorUser = editorUsers.find(u => u.username) || editorUsers[0];
+
+    if (editorUser.id === ownerUser.id) {
+      return res.status(400).json({ error: 'You cannot add yourself as an editor' });
+    }
+
+    // Check if they share the same phone (same person, different spaces)
+    const ownerPhone = ownerUser.phone.replace(/[\s\-\(\)]/g, '').replace(/^\+1/, '').replace(/^1/, '');
+    const editorPhone = editorUser.phone.replace(/[\s\-\(\)]/g, '').replace(/^\+1/, '').replace(/^1/, '');
+    if (ownerPhone === editorPhone) {
+      return res.status(400).json({ error: 'You cannot add yourself as an editor' });
+    }
+
+    await addPageEditor(ownerUser.id, editorUser.id, sharedEntryId || null);
+    res.json({ success: true, editor: { id: editorUser.id, username: editorUser.username } });
+  } catch (error) {
+    console.error('Error adding editor:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Remove an editor
+app.delete('/api/editors/remove', requireAuth, async (req, res) => {
+  try {
+    const { editorUserId, sharedEntryId } = req.body;
+    if (!editorUserId) {
+      return res.status(400).json({ error: 'editorUserId is required' });
+    }
+
+    // Allow owner to remove an editor, or editor to remove themselves
+    const ownerUserId = req.user.id;
+
+    // Check if requester is the owner
+    const editors = await getPageEditors(ownerUserId, sharedEntryId || null);
+    const isOwnerRemoving = editors.some(e => e.editor_user_id === editorUserId);
+
+    if (isOwnerRemoving) {
+      await removePageEditor(ownerUserId, editorUserId, sharedEntryId || null);
+      return res.json({ success: true });
+    }
+
+    // Check if requester is removing themselves (they are the editor)
+    if (editorUserId === req.user.id) {
+      // Find the owner by checking who shared with this user
+      // The sharedEntryId context and the pageOwnerId should be provided
+      const { pageOwnerId } = req.body;
+      if (pageOwnerId) {
+        await removePageEditor(pageOwnerId, editorUserId, sharedEntryId || null);
+        return res.json({ success: true });
+      }
+    }
+
+    res.status(403).json({ error: 'Not authorized to remove this editor' });
+  } catch (error) {
+    console.error('Error removing editor:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// List editors for a page
+app.get('/api/editors/list', requireAuth, async (req, res) => {
+  try {
+    const { sharedEntryId } = req.query;
+    const editors = await getPageEditors(req.user.id, sharedEntryId || null);
+    res.json({
+      editors: editors.map(e => ({
+        id: e.id,
+        userId: e.editor_user_id,
+        username: e.username,
+        phone: e.phone,
+        createdAt: e.created_at
+      }))
+    });
+  } catch (error) {
+    console.error('Error listing editors:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get pages shared with current user
+app.get('/api/shared-pages', requireAuth, async (req, res) => {
+  try {
+    const sharedPages = await getSharedPagesForUser(req.user.id);
+    res.json({
+      sharedPages: sharedPages.map(p => ({
+        id: p.id,
+        ownerUserId: p.owner_user_id,
+        ownerUsername: p.owner_username,
+        sharedEntryId: p.shared_entry_id,
+        createdAt: p.created_at
+      }))
+    });
+  } catch (error) {
+    console.error('Error fetching shared pages:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Remove a shared page (editor removes themselves)
+app.delete('/api/shared-pages/:id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.params;
+    await removePageEditorById(id);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error removing shared page:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Sync endpoint: get entries updated since a timestamp
+app.get('/api/sync/entries', requireAuth, async (req, res) => {
+  try {
+    const { since, userId, parentEntryId } = req.query;
+    if (!since || !userId) {
+      return res.status(400).json({ error: 'since and userId are required' });
+    }
+
+    // Verify requester is owner or editor
+    if (userId !== req.user.id) {
+      const authorized = await isEditor(userId, req.user.id);
+      if (!authorized) {
+        // Also check if same phone (multi-space)
+        const owner = await getUserById(userId);
+        if (!owner || owner.phone.replace(/[\s\-\(\)]/g, '').replace(/^\+1/, '').replace(/^1/, '') !==
+            req.user.phone.replace(/[\s\-\(\)]/g, '').replace(/^\+1/, '').replace(/^1/, '')) {
+          return res.status(403).json({ error: 'Not authorized' });
+        }
+      }
+    }
+
+    const entries = await getEntriesUpdatedSince(userId, since, parentEntryId || null);
+    res.json({
+      entries,
+      serverTime: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('Error syncing entries:', error);
     res.status(500).json({ error: error.message });
   }
 });

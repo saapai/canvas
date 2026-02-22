@@ -872,7 +872,34 @@ app.get('/api/oauth/google/callback', async (req, res) => {
 app.get('/api/oauth/google/status', requireAuth, async (req, res) => {
   try {
     const tokens = await getGoogleTokens(req.user.id);
-    res.json({ connected: !!tokens, calendarSettings: tokens?.calendar_settings || {} });
+    if (!tokens) return res.json({ connected: false, calendarSettings: {} });
+
+    // Proactively refresh token if it's expired or will expire within 5 minutes
+    const expiryTime = tokens.token_expiry ? new Date(tokens.token_expiry).getTime() : 0;
+    const fiveMinutes = 5 * 60 * 1000;
+    if (tokens.refresh_token && (!expiryTime || Date.now() > expiryTime - fiveMinutes)) {
+      try {
+        const oauth2 = createOAuth2Client();
+        oauth2.setCredentials({
+          access_token: tokens.access_token,
+          refresh_token: tokens.refresh_token,
+          expiry_date: expiryTime || null
+        });
+        const { credentials } = await oauth2.refreshAccessToken();
+        await saveGoogleTokens(req.user.id, {
+          ...credentials,
+          refresh_token: credentials.refresh_token || tokens.refresh_token
+        });
+      } catch (refreshErr) {
+        if (refreshErr.message?.includes('invalid_grant') || refreshErr.response?.data?.error === 'invalid_grant') {
+          await deleteGoogleTokens(req.user.id);
+          return res.json({ connected: false, calendarSettings: {}, reconnectRequired: true });
+        }
+        console.error('Proactive token refresh failed:', refreshErr.message);
+      }
+    }
+
+    res.json({ connected: true, calendarSettings: tokens.calendar_settings || {} });
   } catch (error) {
     res.status(500).json({ error: 'Failed to check status' });
   }
