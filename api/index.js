@@ -38,6 +38,8 @@ import {
   deleteGoogleTokens,
   saveGoogleCalendarSettings,
   addPageEditor,
+  addPendingEditor,
+  convertPendingEditors,
   removePageEditor,
   removePageEditorById,
   getPageEditors,
@@ -485,6 +487,16 @@ app.post('/api/auth/set-username', requireAuth, async (req, res) => {
       { expiresIn: '30d' }
     );
     setAuthCookie(res, token);
+
+    // Convert any pending editor invites for this phone number
+    try {
+      const converted = await convertPendingEditors(updated.phone, updated.id);
+      if (converted > 0) {
+        console.log(`[AUTH] Converted ${converted} pending editor invite(s) for ${updated.phone}`);
+      }
+    } catch (err) {
+      console.error('Error converting pending editors:', err);
+    }
 
     return res.json({
       user: { id: updated.id, phone: updated.phone, username: updated.username }
@@ -1830,8 +1842,19 @@ app.post('/api/editors/add', requireAuth, async (req, res) => {
       if (users.length > 0) { editorUsers = users; break; }
     }
 
+    // Check if it's the owner's own phone
+    const ownerPhone = ownerUser.phone.replace(/[\s\-\(\)]/g, '').replace(/^\+1/, '').replace(/^1/, '');
+    const normalizedInput = rawDigits.replace(/^1/, '');
+    if (ownerPhone === normalizedInput || ownerPhone === rawDigits) {
+      return res.status(400).json({ error: 'You cannot add yourself as an editor' });
+    }
+
     if (editorUsers.length === 0) {
-      return res.status(404).json({ error: 'No account found with that phone number', notRegistered: true });
+      // No account yet — save as pending invite
+      const pendingPhone = rawDigits.length === 10 ? '+1' + rawDigits : '+' + rawDigits;
+      await addPendingEditor(ownerUser.id, pendingPhone, sharedEntryId || null);
+      res.json({ success: true, pending: true, phone: pendingPhone });
+      return;
     }
 
     const editorUser = editorUsers.find(u => u.username) || editorUsers[0];
@@ -1839,7 +1862,6 @@ app.post('/api/editors/add', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'You cannot add yourself as an editor' });
     }
 
-    const ownerPhone = ownerUser.phone.replace(/[\s\-\(\)]/g, '').replace(/^\+1/, '').replace(/^1/, '');
     const editorPhone = editorUser.phone.replace(/[\s\-\(\)]/g, '').replace(/^\+1/, '').replace(/^1/, '');
     if (ownerPhone === editorPhone) {
       return res.status(400).json({ error: 'You cannot add yourself as an editor' });
@@ -1891,12 +1913,26 @@ app.get('/api/editors/list', requireAuth, async (req, res) => {
         id: e.id,
         userId: e.editor_user_id,
         username: e.username,
-        phone: e.phone,
+        phone: e.phone || e.pending_phone,
+        pending: !e.editor_user_id,
         createdAt: e.created_at
       }))
     });
   } catch (error) {
     console.error('Error listing editors:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Remove a pending editor by row id
+app.delete('/api/editors/remove-by-id', requireAuth, async (req, res) => {
+  try {
+    const { id } = req.body;
+    if (!id) return res.status(400).json({ error: 'id is required' });
+    await removePageEditorById(id);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error removing editor by id:', error);
     res.status(500).json({ error: error.message });
   }
 });
