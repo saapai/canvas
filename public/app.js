@@ -793,8 +793,6 @@ async function loadUserEntries(username, editable) {
 
     // Set read-only mode
     isReadOnly = !editable;
-    const dz = document.getElementById('drop-zone');
-    if (dz) dz.style.display = isReadOnly ? 'none' : '';
     const orgBtn = document.getElementById('organize-button');
     if (orgBtn) orgBtn.style.display = isReadOnly ? 'none' : '';
 
@@ -9780,12 +9778,19 @@ async function loadEditorsList() {
       data.editors.forEach(editor => {
         const item = document.createElement('div');
         item.className = 'share-editor-item';
+        const displayName = editor.pending
+          ? `${escapeHtml(editor.phone || 'Unknown')} (pending)`
+          : escapeHtml(editor.username || editor.phone || 'Unknown');
         item.innerHTML = `
-          <span class="share-editor-name">${escapeHtml(editor.username || editor.phone || 'Unknown')}</span>
+          <span class="share-editor-name">${displayName}</span>
           <button class="share-editor-remove" title="Remove editor">&times;</button>
         `;
         item.querySelector('.share-editor-remove').addEventListener('click', () => {
-          removeEditorFromPage(editor.userId);
+          if (editor.pending) {
+            removeEditorById(editor.id);
+          } else {
+            removeEditorFromPage(editor.userId);
+          }
         });
         shareEditorsList.appendChild(item);
       });
@@ -9837,6 +9842,20 @@ async function removeEditorFromPage(editorUserId) {
     loadEditorsList();
   } catch (err) {
     console.error('Error removing editor:', err);
+  }
+}
+
+async function removeEditorById(editorId) {
+  try {
+    await fetch('/api/editors/remove-by-id', {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: editorId })
+    });
+    loadEditorsList();
+  } catch (err) {
+    console.error('Error removing pending editor:', err);
   }
 }
 
