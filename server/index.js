@@ -161,23 +161,24 @@ app.use((req, res, next) => {
 });
 
 // Helper function to generate user page HTML (canvas view, editable if owner)
-function generateUserPageHTML(user, isOwner = false, pathParts = []) {
+function generateUserPageHTML(user, isOwner = false, pathParts = [], isEditorFlag = false) {
   // Read the index.html template
   try {
     const indexPath = join(__dirname, '../public/index.html');
     let html = readFileSync(indexPath, 'utf8');
-    
+
     // Add base href to ensure static files load correctly from subdirectories
     html = html.replace('<head>', '<head>\n  <base href="/" />');
-    
+
     // Update title
     html = html.replace('<title>Infinite Diary Page</title>', `<title>${user.username} - Duttapad</title>`);
-    
+
     // Add script to set page context before app.js loads
     const contextScript = `
   <script>
     window.PAGE_USERNAME = '${user.username}';
     window.PAGE_IS_OWNER = ${isOwner};
+    window.PAGE_IS_EDITOR = ${isEditorFlag};
     window.PAGE_OWNER_ID = '${user.id}';
     window.PAGE_PATH = ${JSON.stringify(pathParts)};
   </script>`;
@@ -1539,9 +1540,12 @@ app.post('/api/entries/batch', async (req, res) => {
       const pageOwnerPhone = pageOwner.phone.replace(/\s/g, '');
       
       if (loggedInPhone !== pageOwnerPhone) {
-        return res.status(403).json({ error: 'Not authorized to edit this page' });
+        const authorized = await isEditor(pageOwnerId, req.user.id);
+        if (!authorized) {
+          return res.status(403).json({ error: 'Not authorized to edit this page' });
+        }
       }
-      
+
       // Permission verified - use pageOwnerId
       targetUserId = pageOwnerId;
     }
@@ -2041,14 +2045,15 @@ app.get('/:username', async (req, res) => {
     const cookies = parseCookies(req);
     const token = cookies.auth_token;
     let isOwner = false;
-    
+    let isEditorFlag = false;
+    let loggedInUser = null;
+
     if (token) {
       try {
         const payload = jwt.verify(token, JWT_SECRET);
         if (payload && payload.id) {
-          const loggedInUser = await getUserById(payload.id);
+          loggedInUser = await getUserById(payload.id);
           if (loggedInUser && loggedInUser.phone && user.phone) {
-            // Normalize phone numbers by removing spaces and compare
             const loggedInPhone = loggedInUser.phone.replace(/\s/g, '');
             const userPhone = user.phone.replace(/\s/g, '');
             if (loggedInPhone === userPhone) {
@@ -2060,9 +2065,14 @@ app.get('/:username', async (req, res) => {
         // Invalid token, treat as public
       }
     }
-    
-    // Always serve canvas view (editable if owner, read-only if public)
-    res.send(generateUserPageHTML(user, isOwner));
+
+    // Check if logged-in user is an editor
+    if (!isOwner && loggedInUser) {
+      isEditorFlag = await isEditor(user.id, loggedInUser.id);
+    }
+
+    // Always serve canvas view (editable if owner/editor, read-only if public)
+    res.send(generateUserPageHTML(user, isOwner, [], isEditorFlag));
   } catch (error) {
     console.error('Error serving user page:', error);
     res.status(500).send('Error loading page');
@@ -2098,14 +2108,15 @@ app.get('/:username/*', async (req, res) => {
     const cookies = parseCookies(req);
     const token = cookies.auth_token;
     let isOwner = false;
-    
+    let isEditorFlag = false;
+    let loggedInUser = null;
+
     if (token) {
       try {
         const payload = jwt.verify(token, JWT_SECRET);
         if (payload && payload.id) {
-          const loggedInUser = await getUserById(payload.id);
+          loggedInUser = await getUserById(payload.id);
           if (loggedInUser && loggedInUser.phone && user.phone) {
-            // Normalize phone numbers by removing spaces and compare
             const loggedInPhone = loggedInUser.phone.replace(/\s/g, '');
             const userPhone = user.phone.replace(/\s/g, '');
             if (loggedInPhone === userPhone) {
@@ -2117,9 +2128,14 @@ app.get('/:username/*', async (req, res) => {
         // Invalid token, treat as public
       }
     }
-    
-    // Always serve canvas view (editable if owner, read-only if public)
-    res.send(generateUserPageHTML(user, isOwner, pathParts));
+
+    // Check if logged-in user is an editor
+    if (!isOwner && loggedInUser) {
+      isEditorFlag = await isEditor(user.id, loggedInUser.id);
+    }
+
+    // Always serve canvas view (editable if owner/editor, read-only if public)
+    res.send(generateUserPageHTML(user, isOwner, pathParts, isEditorFlag));
   } catch (error) {
     console.error('Error serving user page:', error);
     res.status(500).send('Error loading page');

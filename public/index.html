@@ -82,6 +82,22 @@
           <button id="new-space-button" class="new-space-button">+ new duttapad</button>
         </div>
       </div>
+      <button id="share-button" class="share-button hidden" title="Share this page">+</button>
+    </div>
+  </div>
+  <div id="share-modal" class="share-modal hidden">
+    <div class="share-modal-content">
+      <button id="share-modal-close" class="share-modal-close">&times;</button>
+      <h3>Share this page</h3>
+      <div class="share-add-form">
+        <div class="share-phone-input-wrap">
+          <span class="share-phone-prefix">+1</span>
+          <input id="share-phone-input" type="text" inputmode="numeric" maxlength="10" placeholder="Phone number" class="share-phone-input" />
+        </div>
+        <button id="share-add-btn" class="share-add-btn">Add</button>
+      </div>
+      <div id="share-error" class="share-error hidden"></div>
+      <div id="share-editors-list" class="share-editors-list"></div>
     </div>
   </div>
   <div id="drop-zone" class="drop-zone" title="Drop content or click to chat">
