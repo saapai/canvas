@@ -1951,6 +1951,18 @@ app.get('/terms-and-conditions', (_req, res) => {
   }
 });
 
+// Home / Landing page (public, no auth required)
+app.get('/home', (_req, res) => {
+  try {
+    const homePath = join(__dirname, '../public/home.html');
+    const html = readFileSync(homePath, 'utf8');
+    res.send(html);
+  } catch (error) {
+    console.error('Error serving home page:', error);
+    res.status(500).send('Error loading home page');
+  }
+});
+
 // Root route - redirect logged-in users to their PRIMARY (oldest) duttapad
 app.get('/', async (req, res) => {
   try {

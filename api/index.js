@@ -542,6 +542,18 @@ app.get('/terms-and-conditions', (_req, res) => {
   }
 });
 
+// Home / Landing page (public, no auth required)
+app.get('/home', (_req, res) => {
+  try {
+    const homePath = join(__dirname, '../public/home.html');
+    const html = readFileSync(homePath, 'utf8');
+    res.send(html);
+  } catch (error) {
+    console.error('Error serving home page:', error);
+    res.status(500).send('Error loading home page');
+  }
+});
+
 app.get('/api/auth/me', async (req, res) => {
   if (!req.user) {
     return res.status(401).json({ error: 'Not authenticated' });
@@ -1991,38 +2003,7 @@ if (enableLoginRoutes) {
     }
   });
 
-  // Home route - redirect to user's page (requires auth)
-  app.get('/home', async (req, res) => {
-    try {
-      // Check if user is logged in
-      const cookies = parseCookies(req);
-      const token = cookies.auth_token;
-      
-      if (!token) {
-        return res.redirect('/login');
-      }
-      
-      try {
-        const payload = jwt.verify(token, JWT_SECRET);
-        if (payload && payload.id) {
-          const user = await getUserById(payload.id);
-          if (user && user.username) {
-            // Redirect to user's page
-            return res.redirect(`/${user.username}`);
-          }
-        }
-      } catch {
-        // Invalid token, redirect to login
-        return res.redirect('/login');
-      }
-      
-      // No username set, redirect to root (will show username setup)
-      return res.redirect('/');
-    } catch (error) {
-      console.error('Error handling home route:', error);
-      res.status(500).send('Error loading page');
-    }
-  });
+  // Home route is now public (handled outside enableLoginRoutes block)
   
   console.log('Login and /home routes enabled');
 }
