@@ -542,8 +542,9 @@ async function bootstrap() {
     // If on a user page, load entries (editable if owner, read-only otherwise)
     if (isUserPage) {
       const targetUsername = pageUsername || pathParts[0];
-      // Only editable if logged in AND is the owner
-      const editable = isLoggedIn && isOwner;
+      const isEditorUser = window.PAGE_IS_EDITOR === true;
+      // Editable if logged in AND (is owner OR is editor)
+      const editable = isLoggedIn && (isOwner || isEditorUser);
       await loadUserEntries(targetUsername, editable);
       // Ensure auth overlay stays hidden
       hideAuthOverlay();
@@ -801,6 +802,22 @@ async function loadUserEntries(username, editable) {
     if (dz) dz.style.display = isReadOnly ? 'none' : '';
     const orgBtn = document.getElementById('organize-button');
     if (orgBtn) orgBtn.style.display = isReadOnly ? 'none' : '';
+
+    // Show share button only for page owner (not for editors or read-only)
+    const shareBtn = document.getElementById('share-button');
+    if (shareBtn) {
+      shareBtn.classList.toggle('hidden', !(window.PAGE_IS_OWNER === true));
+    }
+
+    // Start sync if editable and user is editor (or owner with editors)
+    if (editable && window.PAGE_OWNER_ID) {
+      startSync(window.PAGE_OWNER_ID);
+    }
+
+    // Load shared pages on own home page
+    if (editable && window.PAGE_IS_OWNER === true) {
+      loadSharedPageCards();
+    }
 
     // Search button removed - using autocomplete instead
     
@@ -10837,6 +10854,301 @@ if (window.location.search.includes('google=connected')) {
   window.history.replaceState({}, '', url.pathname);
   setTimeout(() => checkGoogleStatus(), 500);
 }
+
+// ——— Collaborative editing: Share UI ———
+
+const shareButton = document.getElementById('share-button');
+const shareModal = document.getElementById('share-modal');
+const shareModalClose = document.getElementById('share-modal-close');
+const sharePhoneInput = document.getElementById('share-phone-input');
+const shareAddBtn = document.getElementById('share-add-btn');
+const shareError = document.getElementById('share-error');
+const shareEditorsList = document.getElementById('share-editors-list');
+
+if (shareButton) {
+  shareButton.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (shareModal) {
+      shareModal.classList.remove('hidden');
+      loadEditorsList();
+      if (sharePhoneInput) sharePhoneInput.focus();
+    }
+  });
+}
+
+if (shareModalClose) {
+  shareModalClose.addEventListener('click', () => {
+    if (shareModal) shareModal.classList.add('hidden');
+  });
+}
+
+if (shareModal) {
+  shareModal.addEventListener('click', (e) => {
+    if (e.target === shareModal) shareModal.classList.add('hidden');
+  });
+}
+
+async function loadEditorsList() {
+  if (!shareEditorsList) return;
+  try {
+    const res = await fetch('/api/editors/list', { credentials: 'include' });
+    if (!res.ok) { shareEditorsList.innerHTML = ''; return; }
+    const data = await res.json();
+    shareEditorsList.innerHTML = '';
+    if (data.editors && data.editors.length > 0) {
+      data.editors.forEach(editor => {
+        const item = document.createElement('div');
+        item.className = 'share-editor-item';
+        item.innerHTML = `
+          <span class="share-editor-name">${escapeHtml(editor.username || editor.phone || 'Unknown')}</span>
+          <button class="share-editor-remove" title="Remove editor">&times;</button>
+        `;
+        item.querySelector('.share-editor-remove').addEventListener('click', () => {
+          removeEditorFromPage(editor.userId);
+        });
+        shareEditorsList.appendChild(item);
+      });
+    }
+  } catch (err) {
+    console.error('Error loading editors:', err);
+  }
+}
+
+async function addEditorByPhone() {
+  if (!sharePhoneInput || !shareError) return;
+  const phone = sharePhoneInput.value.trim();
+  if (!phone || phone.replace(/\D/g, '').length < 10) {
+    shareError.textContent = 'Enter a valid 10-digit phone number';
+    shareError.classList.remove('hidden');
+    return;
+  }
+  shareError.classList.add('hidden');
+  try {
+    const res = await fetch('/api/editors/add', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: '+1' + phone.replace(/\D/g, '') })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      shareError.textContent = data.error || 'Failed to add editor';
+      shareError.classList.remove('hidden');
+      return;
+    }
+    sharePhoneInput.value = '';
+    shareError.classList.add('hidden');
+    loadEditorsList();
+  } catch (err) {
+    shareError.textContent = 'Network error';
+    shareError.classList.remove('hidden');
+  }
+}
+
+async function removeEditorFromPage(editorUserId) {
+  try {
+    await fetch('/api/editors/remove', {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ editorUserId })
+    });
+    loadEditorsList();
+  } catch (err) {
+    console.error('Error removing editor:', err);
+  }
+}
+
+if (shareAddBtn) {
+  shareAddBtn.addEventListener('click', addEditorByPhone);
+}
+if (sharePhoneInput) {
+  sharePhoneInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addEditorByPhone();
+    }
+  });
+}
+
+// ——— Shared page cards on home page ———
+
+async function loadSharedPageCards() {
+  try {
+    const res = await fetch('/api/shared-pages', { credentials: 'include' });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.sharedPages || data.sharedPages.length === 0) return;
+
+    // Place shared page cards below anchor, offset to the right
+    let offsetX = 250;
+    const startY = 60;
+
+    data.sharedPages.forEach((page, index) => {
+      const card = document.createElement('div');
+      card.className = 'shared-page-card';
+      card.style.left = `${offsetX + index * 200}px`;
+      card.style.top = `${startY}px`;
+      card.innerHTML = `
+        <div class="shared-page-card-title">${escapeHtml(page.ownerUsername)}</div>
+        <div class="shared-page-card-subtitle">Shared with you</div>
+        <button class="shared-page-card-remove" title="Remove">&times;</button>
+      `;
+
+      card.addEventListener('click', (e) => {
+        if (e.target.classList.contains('shared-page-card-remove')) return;
+        window.location.href = '/' + page.ownerUsername;
+      });
+
+      card.querySelector('.shared-page-card-remove').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        try {
+          await fetch(`/api/shared-pages/${page.id}`, {
+            method: 'DELETE',
+            credentials: 'include'
+          });
+          card.remove();
+        } catch (err) {
+          console.error('Error removing shared page:', err);
+        }
+      });
+
+      world.appendChild(card);
+    });
+  } catch (err) {
+    console.error('Error loading shared pages:', err);
+  }
+}
+
+// ——— Live sync via polling ———
+
+let syncInterval = null;
+let lastSyncTime = null;
+
+function startSync(ownerUserId) {
+  if (syncInterval) return; // Already syncing
+  lastSyncTime = new Date().toISOString();
+
+  syncInterval = setInterval(async () => {
+    try {
+      const parentParam = typeof currentViewEntryId !== 'undefined' && currentViewEntryId ? `&parentEntryId=${currentViewEntryId}` : '';
+      const res = await fetch(`/api/sync/entries?since=${encodeURIComponent(lastSyncTime)}&userId=${encodeURIComponent(ownerUserId)}${parentParam}`, {
+        credentials: 'include'
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.serverTime) lastSyncTime = data.serverTime;
+
+      if (data.entries && data.entries.length > 0) {
+        data.entries.forEach(entryData => {
+          applyRemoteEntryUpdate(entryData);
+        });
+      }
+    } catch (err) {
+      // Silently fail - sync will retry
+    }
+  }, 3000);
+}
+
+function stopSync() {
+  if (syncInterval) {
+    clearInterval(syncInterval);
+    syncInterval = null;
+  }
+}
+
+function applyRemoteEntryUpdate(entryData) {
+  // Skip entry currently being edited
+  const editorEl = document.getElementById('editor');
+  if (editorEl && editorEl.style.display !== 'none') {
+    const editingEntryId = editorEl.dataset.entryId;
+    if (editingEntryId === entryData.id) return;
+  }
+
+  if (entryData.deleted) {
+    // Remove deleted entry from canvas
+    const existing = entries.get(entryData.id);
+    if (existing) {
+      if (existing.element) existing.element.remove();
+      entries.delete(entryData.id);
+    }
+    return;
+  }
+
+  const existing = entries.get(entryData.id);
+  if (existing) {
+    // Update existing entry
+    existing.text = entryData.text;
+    existing.textHtml = entryData.textHtml;
+    existing.position = entryData.position;
+    existing.linkCardsData = entryData.linkCardsData;
+    existing.mediaCardData = entryData.mediaCardData;
+    existing.latexData = entryData.latexData;
+
+    if (existing.element) {
+      existing.element.style.left = `${entryData.position.x}px`;
+      existing.element.style.top = `${entryData.position.y}px`;
+
+      // Update text content
+      const isImageOnly = entryData.mediaCardData && entryData.mediaCardData.type === 'image';
+      if (!isImageOnly) {
+        const displayText = entryData.textHtml || escapeHtml(entryData.text);
+        const span = existing.element.querySelector(':scope > span');
+        if (span) {
+          span.innerHTML = displayText;
+        } else if (!existing.element.querySelector('.link-card') && !existing.element.querySelector('.media-card')) {
+          existing.element.innerHTML = `<span>${displayText}</span>`;
+        }
+      }
+      if (typeof updateEntryDimensions === 'function') {
+        updateEntryDimensions(existing);
+      }
+    }
+  } else {
+    // Create new entry on canvas
+    const entry = document.createElement('div');
+    entry.className = 'entry';
+    entry.id = entryData.id;
+    entry.style.left = `${entryData.position.x}px`;
+    entry.style.top = `${entryData.position.y}px`;
+
+    const isImageOnly = entryData.mediaCardData && entryData.mediaCardData.type === 'image';
+    if (isImageOnly) {
+      entry.classList.add('canvas-image');
+      const img = document.createElement('img');
+      img.src = entryData.mediaCardData.url;
+      img.dataset.fullSrc = entryData.mediaCardData.url;
+      img.alt = 'Canvas image';
+      img.draggable = false;
+      img.loading = 'lazy';
+      entry.appendChild(img);
+    } else {
+      const displayText = entryData.textHtml || escapeHtml(entryData.text);
+      entry.innerHTML = `<span>${displayText}</span>`;
+    }
+
+    world.appendChild(entry);
+
+    const newEntryData = {
+      id: entryData.id,
+      text: entryData.text,
+      textHtml: entryData.textHtml,
+      position: entryData.position,
+      parentEntryId: entryData.parentEntryId,
+      linkCardsData: entryData.linkCardsData,
+      mediaCardData: entryData.mediaCardData,
+      latexData: entryData.latexData,
+      element: entry
+    };
+    entries.set(entryData.id, newEntryData);
+    if (typeof updateEntryDimensions === 'function') {
+      updateEntryDimensions(newEntryData);
+    }
+  }
+}
+
+// Stop sync on page unload
+window.addEventListener('beforeunload', stopSync);
 
 bootstrap();
 

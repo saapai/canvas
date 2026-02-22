@@ -172,6 +172,37 @@ export async function initDatabase() {
       console.log('Note: google_tokens table check:', error.message);
     }
 
+    // Page editors table for collaborative editing
+    try {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS page_editors (
+          id TEXT PRIMARY KEY,
+          owner_user_id TEXT NOT NULL,
+          editor_user_id TEXT NOT NULL,
+          shared_entry_id TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(owner_user_id, editor_user_id, shared_entry_id)
+        );
+      `);
+      await db.query(`
+        CREATE INDEX IF NOT EXISTS idx_page_editors_owner ON page_editors(owner_user_id);
+      `);
+      await db.query(`
+        CREATE INDEX IF NOT EXISTS idx_page_editors_editor ON page_editors(editor_user_id);
+      `);
+    } catch (error) {
+      console.log('Note: page_editors table check:', error.message);
+    }
+
+    // Index on entries.updated_at for efficient sync polling
+    try {
+      await db.query(`
+        CREATE INDEX IF NOT EXISTS idx_entries_updated_at ON entries(updated_at);
+      `);
+    } catch (error) {
+      console.log('Note: entries updated_at index check:', error.message);
+    }
+
     // Remove UNIQUE constraint from phone column if it exists (migration for multi-username support)
     try {
       // First, check if the constraint exists
@@ -872,4 +903,123 @@ export async function saveGoogleCalendarSettings(userId, settings) {
     `UPDATE google_tokens SET calendar_settings = $2, updated_at = NOW() WHERE user_id = $1`,
     [userId, JSON.stringify(settings)]
   );
+}
+
+// ——— Collaborative editing (page editors) ———
+
+export async function addPageEditor(ownerUserId, editorUserId, sharedEntryId = null) {
+  const db = getPool();
+  const id = crypto.randomUUID();
+  await db.query(
+    `INSERT INTO page_editors (id, owner_user_id, editor_user_id, shared_entry_id)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (owner_user_id, editor_user_id, shared_entry_id) DO NOTHING`,
+    [id, ownerUserId, editorUserId, sharedEntryId]
+  );
+  return { id, ownerUserId, editorUserId, sharedEntryId };
+}
+
+export async function removePageEditor(ownerUserId, editorUserId, sharedEntryId = null) {
+  const db = getPool();
+  if (sharedEntryId) {
+    await db.query(
+      `DELETE FROM page_editors WHERE owner_user_id = $1 AND editor_user_id = $2 AND shared_entry_id = $3`,
+      [ownerUserId, editorUserId, sharedEntryId]
+    );
+  } else {
+    await db.query(
+      `DELETE FROM page_editors WHERE owner_user_id = $1 AND editor_user_id = $2 AND shared_entry_id IS NULL`,
+      [ownerUserId, editorUserId]
+    );
+  }
+}
+
+export async function removePageEditorById(id) {
+  const db = getPool();
+  await db.query(`DELETE FROM page_editors WHERE id = $1`, [id]);
+}
+
+export async function getPageEditors(ownerUserId, sharedEntryId = null) {
+  const db = getPool();
+  let result;
+  if (sharedEntryId) {
+    result = await db.query(
+      `SELECT pe.id, pe.editor_user_id, pe.shared_entry_id, pe.created_at,
+              u.username, u.phone
+       FROM page_editors pe
+       JOIN users u ON pe.editor_user_id = u.id
+       WHERE pe.owner_user_id = $1 AND pe.shared_entry_id = $2
+       ORDER BY pe.created_at ASC`,
+      [ownerUserId, sharedEntryId]
+    );
+  } else {
+    result = await db.query(
+      `SELECT pe.id, pe.editor_user_id, pe.shared_entry_id, pe.created_at,
+              u.username, u.phone
+       FROM page_editors pe
+       JOIN users u ON pe.editor_user_id = u.id
+       WHERE pe.owner_user_id = $1 AND pe.shared_entry_id IS NULL
+       ORDER BY pe.created_at ASC`,
+      [ownerUserId]
+    );
+  }
+  return result.rows;
+}
+
+export async function getSharedPagesForUser(editorUserId) {
+  const db = getPool();
+  const result = await db.query(
+    `SELECT pe.id, pe.owner_user_id, pe.shared_entry_id, pe.created_at,
+            u.username AS owner_username
+     FROM page_editors pe
+     JOIN users u ON pe.owner_user_id = u.id
+     WHERE pe.editor_user_id = $1
+     ORDER BY pe.created_at DESC`,
+    [editorUserId]
+  );
+  return result.rows;
+}
+
+export async function isEditor(ownerUserId, editorUserId) {
+  const db = getPool();
+  const result = await db.query(
+    `SELECT 1 FROM page_editors
+     WHERE owner_user_id = $1 AND editor_user_id = $2
+     LIMIT 1`,
+    [ownerUserId, editorUserId]
+  );
+  return result.rows.length > 0;
+}
+
+export async function getEntriesUpdatedSince(userId, sinceTimestamp, parentEntryId = null) {
+  const db = getPool();
+  let query, params;
+  if (parentEntryId) {
+    query = `SELECT id, text, text_html, position_x, position_y, parent_entry_id,
+                    link_cards_data, media_card_data, latex_data, updated_at, deleted_at
+             FROM entries
+             WHERE user_id = $1 AND updated_at > $2 AND parent_entry_id = $3
+             ORDER BY updated_at ASC`;
+    params = [userId, sinceTimestamp, parentEntryId];
+  } else {
+    query = `SELECT id, text, text_html, position_x, position_y, parent_entry_id,
+                    link_cards_data, media_card_data, latex_data, updated_at, deleted_at
+             FROM entries
+             WHERE user_id = $1 AND updated_at > $2 AND parent_entry_id IS NULL
+             ORDER BY updated_at ASC`;
+    params = [userId, sinceTimestamp];
+  }
+  const result = await db.query(query, params);
+  return result.rows.map(row => ({
+    id: row.id,
+    text: row.text,
+    textHtml: row.text_html || null,
+    position: { x: row.position_x, y: row.position_y },
+    parentEntryId: row.parent_entry_id || null,
+    linkCardsData: row.link_cards_data || null,
+    mediaCardData: row.media_card_data || null,
+    latexData: row.latex_data || null,
+    updatedAt: row.updated_at,
+    deleted: !!row.deleted_at
+  }));
 }
