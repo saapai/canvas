@@ -1,322 +1,4 @@
-// article.js — Article view, Google Calendar integration, and final initialization
-function setViewMode(mode) {
-  if (mode === currentViewMode) return;
-
-  // Just toggle the flag — research entries are real and persist
-  if (researchModeEnabled && mode !== 'research') {
-    researchModeEnabled = false;
-  }
-
-  currentViewMode = mode;
-
-  viewToggleCanvas.classList.toggle('active', mode === 'canvas');
-  viewToggleArticle.classList.toggle('active', mode === 'article');
-  if (viewToggleResearch) viewToggleResearch.classList.toggle('active', mode === 'research');
-  document.body.classList.toggle('article-mode', mode === 'article');
-
-  if (mode === 'article') {
-    researchModeEnabled = false;
-    viewport.style.display = 'none';
-    if (editingEntryId) {
-      editor.blur();
-      hideCursor();
-    }
-    articleView.classList.remove('hidden');
-    renderArticleView();
-  } else if (mode === 'research') {
-    researchModeEnabled = true;
-    articleView.classList.add('hidden');
-    viewport.style.display = '';
-    // Recalculate entry dimensions when switching
-    setTimeout(() => {
-      entries.forEach((ed, id) => {
-        if (id === 'anchor') return;
-        if (ed.element && ed.element.style.display !== 'none') {
-          updateEntryDimensions(ed.element);
-        }
-      });
-    }, 50);
-  } else {
-    // canvas mode
-    researchModeEnabled = false;
-    articleView.classList.add('hidden');
-    viewport.style.display = '';
-    // Recalculate entry dimensions when switching back
-    setTimeout(() => {
-      entries.forEach((ed, id) => {
-        if (id === 'anchor') return;
-        if (ed.element && ed.element.style.display !== 'none') {
-          updateEntryDimensions(ed.element);
-        }
-      });
-    }, 50);
-  }
-}
-
-function getArticleCategory(ed) {
-  const mcd = ed.mediaCardData;
-  if (mcd && mcd.type === 'image') return 'images';
-  if (mcd && mcd.type === 'file') return 'files';
-  if (mcd && mcd.type === 'song') return 'songs';
-  if (mcd && mcd.type === 'movie') return 'movies';
-  if (ed.latexData && ed.latexData.enabled) return 'latex';
-  if (ed.textHtml && ed.textHtml.includes('deadline-table')) return 'deadlines';
-  if (ed.linkCardsData && ed.linkCardsData.length > 0 && ed.linkCardsData.some(c => c && c.url)) return 'links';
-  return 'notes';
-}
-
-function getFlattenedArticleEntries() {
-  const list = [];
-  entries.forEach((ed) => {
-    if (ed.id === 'anchor') return;
-    if (ed.parentEntryId !== currentViewEntryId) return;
-    const cat = getArticleCategory(ed);
-    list.push({ ed, category: cat });
-  });
-  list.sort((a, b) => {
-    const ay = a.ed.position?.y ?? 0;
-    const by = b.ed.position?.y ?? 0;
-    if (ay !== by) return ay - by;
-    return (a.ed.position?.x ?? 0) - (b.ed.position?.x ?? 0);
-  });
-  return list;
-}
-
-function renderArticleView() {
-  const flattened = getFlattenedArticleEntries();
-  const totalCount = flattened.length;
-
-  let titleText = 'Home';
-  if (currentViewEntryId) {
-    const parent = entries.get(currentViewEntryId);
-    if (parent) titleText = entryTitle(parent);
-  }
-  const now = new Date();
-  const dateStr = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-  articleHeader.innerHTML = `<h1 class="article-header-title">${escapeHtml(titleText)}</h1><div class="article-header-meta">${totalCount} item${totalCount !== 1 ? 's' : ''} &middot; ${dateStr}</div>`;
-
-  if (articleSidebarNav) articleSidebarNav.innerHTML = '';
-
-  articleContent.innerHTML = '';
-  if (totalCount === 0) {
-    articleContent.innerHTML = '<div class="article-empty">No entries on this page yet.</div>';
-    articleAiSection.classList.add('hidden');
-    return;
-  }
-
-  const stream = document.createElement('div');
-  stream.className = 'article-stream';
-  flattened.forEach(({ ed, category }) => {
-    const el = renderArticleEntry(ed, category);
-    if (el) stream.appendChild(el);
-  });
-  articleContent.appendChild(stream);
-
-  fetchArticleRelated();
-}
-
-function renderArticleEntry(ed, category) {
-  switch (category) {
-    case 'notes': {
-      const card = document.createElement('div');
-      card.className = 'article-note-card';
-      if (ed.textHtml) {
-        card.innerHTML = ed.textHtml;
-      } else {
-        card.textContent = ed.text || '';
-      }
-      // Check if this entry has children
-      const hasChildren = Array.from(entries.values()).some(e => e.parentEntryId === ed.id);
-      if (hasChildren) {
-        card.classList.add('clickable');
-        const hint = document.createElement('div');
-        hint.className = 'article-note-children-hint';
-        hint.textContent = 'Open subpage \u2192';
-        card.appendChild(hint);
-        card.addEventListener('click', () => navigateToEntry(ed.id));
-      }
-      return card;
-    }
-    case 'links': {
-      const frag = document.createDocumentFragment();
-      (ed.linkCardsData || []).forEach(lc => {
-        if (!lc || !lc.url) return;
-        const a = document.createElement('a');
-        a.className = 'article-link-card';
-        a.href = lc.url;
-        a.target = '_blank';
-        a.rel = 'noopener';
-        a.innerHTML = `${lc.image ? `<div class="article-link-thumb" style="background-image:url('${lc.image}')"></div>` : ''}
-          <div class="article-link-body">
-            <div class="article-link-site">${escapeHtml(lc.siteName || '')}</div>
-            <div class="article-link-title">${escapeHtml(lc.title || '')}</div>
-            ${lc.description ? `<div class="article-link-desc">${escapeHtml(lc.description)}</div>` : ''}
-            <div class="article-link-open">Open link \u2192</div>
-          </div>`;
-        frag.appendChild(a);
-      });
-      // Also show the text if any (above the link cards)
-      if (ed.text && ed.text.trim()) {
-        const wrapper = document.createElement('div');
-        const textDiv = document.createElement('div');
-        textDiv.className = 'article-note-card';
-        textDiv.style.marginBottom = '8px';
-        textDiv.textContent = ed.text;
-        wrapper.appendChild(textDiv);
-        wrapper.appendChild(frag);
-        return wrapper;
-      }
-      return frag.childNodes.length > 0 ? (() => { const d = document.createElement('div'); d.appendChild(frag); return d; })() : null;
-    }
-    case 'songs':
-    case 'movies': {
-      const mcd = ed.mediaCardData;
-      if (!mcd) return null;
-      const card = document.createElement('div');
-      card.className = 'article-media-card';
-      const imageUrl = mcd.image || mcd.poster || '';
-      const typeLabel = mcd.type === 'song' ? 'Song' : 'Movie';
-      const subtitle = mcd.type === 'song' ? (mcd.artist || '') : (mcd.year ? String(mcd.year) : '');
-      card.innerHTML = `${imageUrl ? `<div class="article-media-image" style="background-image:url('${imageUrl}')"></div>` : ''}
-        <div class="article-media-info">
-          <div class="article-media-type">${typeLabel}</div>
-          <div class="article-media-title">${escapeHtml(mcd.title || '')}</div>
-          ${subtitle ? `<div class="article-media-subtitle">${escapeHtml(subtitle)}</div>` : ''}
-        </div>`;
-      return card;
-    }
-    case 'images': {
-      const mcd = ed.mediaCardData;
-      if (!mcd || !mcd.url) return null;
-      const card = document.createElement('div');
-      card.className = 'article-image-card';
-      const img = document.createElement('img');
-      img.src = mcd.url;
-      img.alt = 'Image';
-      img.loading = 'lazy';
-      card.appendChild(img);
-      return card;
-    }
-    case 'files': {
-      const mcd = ed.mediaCardData;
-      if (!mcd) return null;
-      const card = document.createElement('div');
-      card.className = 'article-file-card';
-      card.innerHTML = `<span class="article-file-icon">${getFileIcon(mcd.mimetype || '')}</span>
-        <div>
-          <div class="article-file-name">${escapeHtml(mcd.name || 'File')}</div>
-          <div class="article-file-size">${formatFileSize(mcd.size || 0)}</div>
-        </div>`;
-      if (mcd.url) {
-        card.style.cursor = 'pointer';
-        card.addEventListener('click', () => window.open(mcd.url, '_blank'));
-      }
-      return card;
-    }
-    case 'latex': {
-      const card = document.createElement('div');
-      card.className = 'article-latex-card';
-      if (ed.latexData && ed.latexData.source) {
-        const container = document.createElement('div');
-        card.appendChild(container);
-        setTimeout(() => {
-          if (typeof renderMathInElement !== 'undefined') {
-            container.innerHTML = ed.latexData.source;
-            renderMathInElement(container, { delimiters: [
-              { left: '$$', right: '$$', display: true },
-              { left: '$', right: '$', display: false },
-              { left: '\\[', right: '\\]', display: true },
-              { left: '\\(', right: '\\)', display: false }
-            ], throwOnError: false });
-          } else if (typeof katex !== 'undefined') {
-            try { katex.render(ed.latexData.source, container, { displayMode: true, throwOnError: false }); }
-            catch(e) { container.textContent = ed.latexData.source; }
-          } else {
-            container.textContent = ed.latexData.source;
-          }
-        }, 100);
-      }
-      return card;
-    }
-    case 'deadlines': {
-      const card = document.createElement('div');
-      card.className = 'article-deadline-card';
-      if (ed.element) {
-        const dt = ed.element.querySelector('.deadline-table');
-        if (dt) {
-          card.appendChild(dt.cloneNode(true));
-        } else if (ed.textHtml) {
-          card.innerHTML = ed.textHtml;
-        }
-      } else if (ed.textHtml) {
-        card.innerHTML = ed.textHtml;
-      }
-      return card;
-    }
-    default:
-      return null;
-  }
-}
-
-function fetchArticleRelated() {
-  if (!currentUser) {
-    articleAiSection.classList.add('hidden');
-    return;
-  }
-  articleAiSection.classList.remove('hidden');
-  articleAiContent.innerHTML = '<div class="article-related-loading">Finding related content…</div>';
-
-  const payload = buildTrenchesPayload();
-  const body = {
-    ...payload,
-    userMessage: `RELATED CONTENT TASK: Suggest 3–5 real articles and books that fit the content and aesthetic of this page.
-
-Only recommend actual, well-known works: real book titles with authors, real essay/article titles with publications or authors. Never invent or make up titles. Draw from your knowledge of classic and notable works.
-
-Format: One line per item. "Title" by Author (or "Article Title" – Publication). No asterisks, no markdown, no links. Plain text only.
-
-Examples: "Bullshit Jobs" by David Graeber | "Consider the Lobster" – David Foster Wallace, The Atlantic`
-  };
-  fetch('/api/chat', {
-    method: 'POST',
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  })
-    .then(r => { if (!r.ok) throw new Error('Failed'); return r.json(); })
-    .then(data => {
-      let raw = (data.message || '').trim();
-      raw = raw.replace(/\*\*([^*]+)\*\*/g, '$1').replace(/\*([^*]+)\*/g, '$1').replace(/_([^_]+)_/g, '$1').replace(/\*+/g, '').replace(/^#+\s*/gm, '');
-      articleAiContent.innerHTML = `<div class="article-related-card">${escapeHtml(raw)}</div>`;
-    })
-    .catch(() => {
-      articleAiContent.innerHTML = '<div class="article-related-loading">Could not load related content.</div>';
-    });
-}
-
-// Toggle event listeners
-if (viewToggleCanvas) viewToggleCanvas.addEventListener('click', () => setViewMode('canvas'));
-if (viewToggleArticle) viewToggleArticle.addEventListener('click', () => setViewMode('article'));
-if (viewToggleResearch) viewToggleResearch.addEventListener('click', () => setViewMode('research'));
-
-// Patch navigation functions to re-render article view
-const _origNavigateToEntry = navigateToEntry;
-navigateToEntry = function(entryId) {
-  _origNavigateToEntry(entryId);
-  if (currentViewMode === 'article') setTimeout(() => renderArticleView(), 300);
-};
-
-const _origNavigateBack = navigateBack;
-navigateBack = function(level) {
-  _origNavigateBack(level);
-  if (currentViewMode === 'article') setTimeout(() => renderArticleView(), 300);
-};
-
-const _origNavigateToRoot = navigateToRoot;
-navigateToRoot = function() {
-  _origNavigateToRoot();
-  if (currentViewMode === 'article') setTimeout(() => renderArticleView(), 300);
-};
+// article.js — Google Calendar integration, Share UI, Shared pages, Live sync, and final initialization
 
 // ——— Google Calendar Integration ———
 const googleConnectBtn = document.getElementById('google-connect-btn');
@@ -376,6 +58,339 @@ if (window.location.search.includes('google=connected')) {
   window.history.replaceState({}, '', url.pathname);
   setTimeout(() => checkGoogleStatus(), 500);
 }
+
+// ——— Collaborative editing: Share UI ———
+
+const shareButton = document.getElementById('share-button');
+const sharePopover = document.getElementById('share-popover');
+const sharePopoverClose = document.getElementById('share-popover-close');
+const sharePhoneInput = document.getElementById('share-phone-input');
+const shareAddBtn = document.getElementById('share-add-btn');
+const shareError = document.getElementById('share-error');
+const shareEditorsList = document.getElementById('share-editors-list');
+
+if (shareButton) {
+  shareButton.addEventListener('click', (e) => {
+    e.stopPropagation();
+    if (sharePopover) {
+      sharePopover.classList.toggle('hidden');
+      if (!sharePopover.classList.contains('hidden')) {
+        loadEditorsList();
+        setTimeout(() => { if (sharePhoneInput) sharePhoneInput.focus(); }, 50);
+      }
+    }
+  });
+}
+
+if (sharePopoverClose) {
+  sharePopoverClose.addEventListener('click', () => {
+    if (sharePopover) sharePopover.classList.add('hidden');
+  });
+}
+
+// Prevent clicks/mousedown inside popover from bubbling to viewport (fixes input focus stealing)
+if (sharePopover) {
+  sharePopover.addEventListener('mousedown', (e) => {
+    e.stopPropagation();
+  });
+  sharePopover.addEventListener('mouseup', (e) => {
+    e.stopPropagation();
+  });
+  sharePopover.addEventListener('click', (e) => {
+    e.stopPropagation();
+  });
+}
+
+// Close popover when clicking outside
+document.addEventListener('mousedown', (e) => {
+  if (sharePopover && !sharePopover.classList.contains('hidden') &&
+      !sharePopover.contains(e.target) && e.target !== shareButton) {
+    sharePopover.classList.add('hidden');
+  }
+});
+
+async function loadEditorsList() {
+  if (!shareEditorsList) return;
+  try {
+    const res = await fetch('/api/editors/list', { credentials: 'include' });
+    if (!res.ok) { shareEditorsList.innerHTML = ''; return; }
+    const data = await res.json();
+    shareEditorsList.innerHTML = '';
+    if (data.editors && data.editors.length > 0) {
+      data.editors.forEach(editor => {
+        const item = document.createElement('div');
+        item.className = 'share-editor-item';
+        const displayName = editor.pending
+          ? `${escapeHtml(editor.phone || 'Unknown')} (pending)`
+          : escapeHtml(editor.username || editor.phone || 'Unknown');
+        item.innerHTML = `
+          <span class="share-editor-name">${displayName}</span>
+          <button class="share-editor-remove" title="Remove editor">&times;</button>
+        `;
+        item.querySelector('.share-editor-remove').addEventListener('click', () => {
+          if (editor.pending) {
+            removeEditorById(editor.id);
+          } else {
+            removeEditorFromPage(editor.userId);
+          }
+        });
+        shareEditorsList.appendChild(item);
+      });
+    }
+  } catch (err) {
+    console.error('Error loading editors:', err);
+  }
+}
+
+async function addEditorByPhone() {
+  if (!sharePhoneInput || !shareError) return;
+  const phone = sharePhoneInput.value.trim();
+  if (!phone || phone.replace(/\D/g, '').length < 10) {
+    shareError.textContent = 'Enter a valid 10-digit phone number';
+    shareError.classList.remove('hidden');
+    return;
+  }
+  shareError.classList.add('hidden');
+  try {
+    const res = await fetch('/api/editors/add', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone: '+1' + phone.replace(/\D/g, '') })
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      shareError.textContent = data.error || 'Failed to add editor';
+      shareError.classList.remove('hidden');
+      return;
+    }
+    sharePhoneInput.value = '';
+    shareError.classList.add('hidden');
+    loadEditorsList();
+  } catch (err) {
+    shareError.textContent = 'Network error';
+    shareError.classList.remove('hidden');
+  }
+}
+
+async function removeEditorFromPage(editorUserId) {
+  try {
+    await fetch('/api/editors/remove', {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ editorUserId })
+    });
+    loadEditorsList();
+  } catch (err) {
+    console.error('Error removing editor:', err);
+  }
+}
+
+async function removeEditorById(editorId) {
+  try {
+    await fetch('/api/editors/remove-by-id', {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: editorId })
+    });
+    loadEditorsList();
+  } catch (err) {
+    console.error('Error removing pending editor:', err);
+  }
+}
+
+if (shareAddBtn) {
+  shareAddBtn.addEventListener('click', addEditorByPhone);
+}
+if (sharePhoneInput) {
+  sharePhoneInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      addEditorByPhone();
+    }
+  });
+}
+
+// ——— Shared page cards on home page ———
+
+async function loadSharedPageCards() {
+  try {
+    const res = await fetch('/api/shared-pages', { credentials: 'include' });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.sharedPages || data.sharedPages.length === 0) return;
+
+    // Place shared page cards below anchor, offset to the right
+    let offsetX = 250;
+    const startY = 60;
+
+    data.sharedPages.forEach((page, index) => {
+      const card = document.createElement('div');
+      card.className = 'shared-page-card';
+      card.style.left = `${offsetX + index * 200}px`;
+      card.style.top = `${startY}px`;
+      card.innerHTML = `
+        <div class="shared-page-card-title">${escapeHtml(page.ownerUsername)}</div>
+        <div class="shared-page-card-subtitle">Shared with you</div>
+        <button class="shared-page-card-remove" title="Remove">&times;</button>
+      `;
+
+      card.addEventListener('click', (e) => {
+        if (e.target.classList.contains('shared-page-card-remove')) return;
+        window.location.href = '/' + page.ownerUsername;
+      });
+
+      card.querySelector('.shared-page-card-remove').addEventListener('click', async (e) => {
+        e.stopPropagation();
+        try {
+          await fetch(`/api/shared-pages/${page.id}`, {
+            method: 'DELETE',
+            credentials: 'include'
+          });
+          card.remove();
+        } catch (err) {
+          console.error('Error removing shared page:', err);
+        }
+      });
+
+      world.appendChild(card);
+    });
+  } catch (err) {
+    console.error('Error loading shared pages:', err);
+  }
+}
+
+// ——— Live sync via polling ———
+
+let syncInterval = null;
+let lastSyncTime = null;
+
+function startSync(ownerUserId) {
+  if (syncInterval) return; // Already syncing
+  lastSyncTime = new Date().toISOString();
+
+  syncInterval = setInterval(async () => {
+    try {
+      const parentParam = typeof currentViewEntryId !== 'undefined' && currentViewEntryId ? `&parentEntryId=${currentViewEntryId}` : '';
+      const res = await fetch(`/api/sync/entries?since=${encodeURIComponent(lastSyncTime)}&userId=${encodeURIComponent(ownerUserId)}${parentParam}`, {
+        credentials: 'include'
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.serverTime) lastSyncTime = data.serverTime;
+
+      if (data.entries && data.entries.length > 0) {
+        data.entries.forEach(entryData => {
+          applyRemoteEntryUpdate(entryData);
+        });
+      }
+    } catch (err) {
+      // Silently fail - sync will retry
+    }
+  }, 3000);
+}
+
+function stopSync() {
+  if (syncInterval) {
+    clearInterval(syncInterval);
+    syncInterval = null;
+  }
+}
+
+function applyRemoteEntryUpdate(entryData) {
+  // Skip entry currently being edited
+  const editorEl = document.getElementById('editor');
+  if (editorEl && editorEl.style.display !== 'none') {
+    const editingEntryId = editorEl.dataset.entryId;
+    if (editingEntryId === entryData.id) return;
+  }
+
+  if (entryData.deleted) {
+    // Remove deleted entry from canvas
+    const existing = entries.get(entryData.id);
+    if (existing) {
+      if (existing.element) existing.element.remove();
+      entries.delete(entryData.id);
+    }
+    return;
+  }
+
+  const existing = entries.get(entryData.id);
+  if (existing) {
+    // Update existing entry
+    existing.text = entryData.text;
+    existing.textHtml = entryData.textHtml;
+    existing.position = entryData.position;
+    existing.linkCardsData = entryData.linkCardsData;
+    existing.mediaCardData = entryData.mediaCardData;
+    existing.latexData = entryData.latexData;
+
+    if (existing.element) {
+      existing.element.style.left = `${entryData.position.x}px`;
+      existing.element.style.top = `${entryData.position.y}px`;
+
+      // Update text content
+      const isImageOnly = entryData.mediaCardData && entryData.mediaCardData.type === 'image';
+      if (!isImageOnly) {
+        const displayText = entryData.textHtml || escapeHtml(entryData.text);
+        const span = existing.element.querySelector(':scope > span');
+        if (span) {
+          span.innerHTML = displayText;
+        } else if (!existing.element.querySelector('.link-card') && !existing.element.querySelector('.media-card')) {
+          existing.element.innerHTML = `<span>${displayText}</span>`;
+        }
+      }
+      if (typeof updateEntryDimensions === 'function') {
+        updateEntryDimensions(existing.element);
+      }
+    }
+  } else {
+    // Create new entry on canvas
+    const entry = document.createElement('div');
+    entry.className = 'entry';
+    entry.id = entryData.id;
+    entry.style.left = `${entryData.position.x}px`;
+    entry.style.top = `${entryData.position.y}px`;
+
+    const isImageOnly = entryData.mediaCardData && entryData.mediaCardData.type === 'image';
+    if (isImageOnly) {
+      entry.classList.add('canvas-image');
+      const img = document.createElement('img');
+      img.src = entryData.mediaCardData.url;
+      img.dataset.fullSrc = entryData.mediaCardData.url;
+      img.alt = 'Canvas image';
+      img.draggable = false;
+      img.loading = 'lazy';
+      entry.appendChild(img);
+    } else {
+      const displayText = entryData.textHtml || escapeHtml(entryData.text);
+      entry.innerHTML = `<span>${displayText}</span>`;
+    }
+
+    world.appendChild(entry);
+
+    const newEntryData = {
+      id: entryData.id,
+      text: entryData.text,
+      textHtml: entryData.textHtml,
+      position: entryData.position,
+      parentEntryId: entryData.parentEntryId,
+      linkCardsData: entryData.linkCardsData,
+      mediaCardData: entryData.mediaCardData,
+      latexData: entryData.latexData,
+      element: entry
+    };
+    entries.set(entryData.id, newEntryData);
+    if (typeof updateEntryDimensions === 'function') {
+      updateEntryDimensions(newEntryData);
+    }
+  }
+}
+
+// Stop sync on page unload
+window.addEventListener('beforeunload', stopSync);
 
 bootstrap();
 

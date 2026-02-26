@@ -454,8 +454,6 @@ viewport.addEventListener('mousemove', (e) => {
                 editor.style.left = `${selectedNewX - 4}px`;
                 editor.style.top = `${selectedNewY}px`;
               }
-              // Update research SVG lines
-              updateResearchLinePositions(selectedId);
             }
           });
         }
@@ -481,9 +479,6 @@ viewport.addEventListener('mousemove', (e) => {
             editor.style.left = `${newX - 4}px`;
             editor.style.top = `${newY}px`;
           }
-
-          // Update research SVG lines
-          updateResearchLinePositions(entryId);
 
           // Debounce position saves to avoid too many server requests
           if (entryData.positionSaveTimeout) {
@@ -647,9 +642,6 @@ window.addEventListener('mouseup', async (e) => {
                   focusNearestDeadlineCell(table, cx, cy);
                 }
               });
-            } else if (researchModeEnabled) {
-              // Research mode: just spawn research, don't open editor
-              spawnResearchEntries(draggingEntry.id);
             } else {
               // If currently editing, commit first and wait for it to complete
               if (editor && (editor.textContent.trim() || editingEntryId)) {
@@ -1487,9 +1479,11 @@ editor.addEventListener('blur', (e) => {
     }, 0);
   } else if (trimmed.length === 0 && (!editingEntryId || editingEntryId === 'anchor')) {
     // If empty and creating new entry, show cursor in default position
-    // Skip when focus moved to drop dialog so we don't steal focus back
     setTimeout(() => {
-      if (document.activeElement !== editor && !isFocusInDropDialog()) {
+      const blurActive = document.activeElement;
+      // Don't steal focus from form fields (share dialog, auth inputs, etc.)
+      const blurInFormField = blurActive && (blurActive.tagName === 'INPUT' || blurActive.tagName === 'TEXTAREA' || blurActive.tagName === 'SELECT');
+      if (blurActive !== editor && !blurInFormField) {
         showCursorInDefaultPosition();
         editingEntryId = null;
       }

@@ -410,11 +410,6 @@ async function commitEditor(){
         console.log('[COMMIT] About to updateEntryOnServer, entryData.textHtml:', entryData.textHtml ? entryData.textHtml.substring(0, 100) : 'null');
         await updateEntryOnServer(entryData);
         console.log('[COMMIT] Entry updated successfully:', entryData.id);
-        // Research mode: generate related entries if text changed
-        if (researchModeEnabled && oldText !== trimmedRight) {
-          researchedEntries.delete(entryData.id);
-          spawnResearchEntries(entryData.id);
-        }
       } catch (error) {
         console.error('[COMMIT] Failed to update entry:', error);
         // Don't clear editing state on error - let user retry
@@ -566,11 +561,6 @@ async function commitEditor(){
   // Save to server (await to ensure it completes)
   console.log('[COMMIT] Saving new text entry:', entryData.id, entryData.text.substring(0, 50));
   await saveEntryToServer(entryData);
-
-  // Research mode: generate related entries from the new entry
-  if (researchModeEnabled) {
-    spawnResearchEntries(entryId);
-  }
 
   // Generate and add cards for URLs (async, after text is rendered)
   if(urls.length > 0){

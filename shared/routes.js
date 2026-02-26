@@ -31,7 +31,16 @@ import {
   getGoogleTokens,
   saveGoogleTokens,
   deleteGoogleTokens,
-  saveGoogleCalendarSettings
+  saveGoogleCalendarSettings,
+  addPageEditor,
+  addPendingEditor,
+  convertPendingEditors,
+  removePageEditor,
+  removePageEditorById,
+  getPageEditors,
+  getSharedPagesForUser,
+  isEditor,
+  getEntriesUpdatedSince
 } from './db.js';
 
 import { processTextWithLLM, fetchLinkMetadata, generateLinkCard, extractDeadlinesFromFile, convertTextToLatex, generateResearchEntries, planResearch } from './llm.js';
@@ -94,7 +103,7 @@ export function createRouter(options = {}) {
   }
 
   // Helper function to generate user page HTML (canvas view, editable if owner)
-  function generateUserPageHTML(user, isOwner = false, pathParts = []) {
+  function generateUserPageHTML(user, isOwner = false, pathParts = [], isEditorFlag = false) {
     // Read the index.html template
     try {
       const indexPath = join(__dirname, '../public/index.html');
@@ -111,6 +120,7 @@ export function createRouter(options = {}) {
   <script>
     window.PAGE_USERNAME = '${user.username}';
     window.PAGE_IS_OWNER = ${isOwner};
+    window.PAGE_IS_EDITOR = ${isEditorFlag};
     window.PAGE_OWNER_ID = '${user.id}';
     window.PAGE_PATH = ${JSON.stringify(pathParts)};
   </script>`;
@@ -355,6 +365,16 @@ export function createRouter(options = {}) {
       );
       setAuthCookie(res, token);
 
+      // Convert any pending editor invites for this phone number
+      try {
+        const converted = await convertPendingEditors(updated.phone, updated.id);
+        if (converted > 0) {
+          console.log(`[AUTH] Converted ${converted} pending editor invite(s) for ${updated.phone}`);
+        }
+      } catch (err) {
+        console.error('Error converting pending editors:', err);
+      }
+
       return res.json({
         user: { id: updated.id, phone: updated.phone, username: updated.username }
       });
@@ -586,11 +606,40 @@ export function createRouter(options = {}) {
     }
   });
 
-  // Check Google connection status
+  // Check Google connection status (proactively refreshes token if near expiry)
   router.get('/api/oauth/google/status', requireAuth, async (req, res) => {
     try {
       const tokens = await getGoogleTokens(req.user.id);
-      res.json({ connected: !!tokens, calendarSettings: tokens?.calendar_settings || {} });
+      if (!tokens) return res.json({ connected: false, calendarSettings: {} });
+
+      // Proactively refresh token if it's expired or will expire within 5 minutes
+      const expiryTime = tokens.token_expiry ? new Date(tokens.token_expiry).getTime() : 0;
+      const fiveMinutes = 5 * 60 * 1000;
+      if (tokens.refresh_token && (!expiryTime || Date.now() > expiryTime - fiveMinutes)) {
+        try {
+          const oauth2 = createOAuth2Client();
+          oauth2.setCredentials({
+            access_token: tokens.access_token,
+            refresh_token: tokens.refresh_token,
+            expiry_date: expiryTime || null
+          });
+          const { credentials } = await oauth2.refreshAccessToken();
+          await saveGoogleTokens(req.user.id, {
+            ...credentials,
+            refresh_token: credentials.refresh_token || tokens.refresh_token
+          });
+        } catch (refreshErr) {
+          // If refresh fails with invalid_grant, the token is truly dead
+          if (refreshErr.message?.includes('invalid_grant') || refreshErr.response?.data?.error === 'invalid_grant') {
+            await deleteGoogleTokens(req.user.id);
+            return res.json({ connected: false, calendarSettings: {}, reconnectRequired: true });
+          }
+          // Other refresh errors - token may still work, don't disconnect
+          console.error('Proactive token refresh failed:', refreshErr.message);
+        }
+      }
+
+      res.json({ connected: true, calendarSettings: tokens.calendar_settings || {} });
     } catch (error) {
       res.status(500).json({ error: 'Failed to check status' });
     }
@@ -1134,8 +1183,12 @@ export function createRouter(options = {}) {
         const pageOwnerPhone = pageOwner.phone.replace(/\s/g, '');
 
         if (loggedInPhone !== pageOwnerPhone) {
-          debugLog('[SAVE] Phone mismatch:', loggedInPhone, pageOwnerPhone);
-          return res.status(403).json({ error: 'Not authorized to edit this page' });
+          // Check if user is an authorized editor
+          const authorized = await isEditor(pageOwnerId, req.user.id);
+          if (!authorized) {
+            debugLog('[SAVE] Phone mismatch and not editor:', loggedInPhone, pageOwnerPhone);
+            return res.status(403).json({ error: 'Not authorized to edit this page' });
+          }
         }
 
         // Permission verified - use pageOwnerId
@@ -1195,7 +1248,10 @@ export function createRouter(options = {}) {
         const pageOwnerPhone = pageOwner.phone.replace(/\s/g, '');
 
         if (loggedInPhone !== pageOwnerPhone) {
-          return res.status(403).json({ error: 'Not authorized to edit this page' });
+          const authorized = await isEditor(pageOwnerId, req.user.id);
+          if (!authorized) {
+            return res.status(403).json({ error: 'Not authorized to edit this page' });
+          }
         }
 
         // Permission verified - use pageOwnerId
@@ -1248,8 +1304,11 @@ export function createRouter(options = {}) {
         const pageOwnerPhone = pageOwner.phone.replace(/\s/g, '');
 
         if (loggedInPhone !== pageOwnerPhone) {
-          debugLog('[DELETE] Phone mismatch:', loggedInPhone, pageOwnerPhone);
-          return res.status(403).json({ error: 'Not authorized to edit this page' });
+          const authorized = await isEditor(pageOwnerId, req.user.id);
+          if (!authorized) {
+            debugLog('[DELETE] Phone mismatch and not editor:', loggedInPhone, pageOwnerPhone);
+            return res.status(403).json({ error: 'Not authorized to edit this page' });
+          }
         }
 
         // Permission verified - use pageOwnerId
@@ -1278,8 +1337,12 @@ export function createRouter(options = {}) {
         const pageOwner = await getUserById(pageOwnerId);
         if (!pageOwner) return res.status(403).json({ error: 'Invalid page owner' });
         const loggedInUser = await getUserById(req.user.id);
-        if (!loggedInUser || loggedInUser.phone !== pageOwner.phone) {
-          return res.status(403).json({ error: 'No permission' });
+        const phonesMatch = loggedInUser && loggedInUser.phone === pageOwner.phone;
+        if (!phonesMatch) {
+          const authorized = await isEditor(pageOwnerId, req.user.id);
+          if (!authorized) {
+            return res.status(403).json({ error: 'No permission' });
+          }
         }
         targetUserId = pageOwnerId;
       }
@@ -1323,7 +1386,10 @@ export function createRouter(options = {}) {
         const pageOwnerPhone = pageOwner.phone.replace(/\s/g, '');
 
         if (loggedInPhone !== pageOwnerPhone) {
-          return res.status(403).json({ error: 'Not authorized to edit this page' });
+          const authorized = await isEditor(pageOwnerId, req.user.id);
+          if (!authorized) {
+            return res.status(403).json({ error: 'Not authorized to edit this page' });
+          }
         }
 
         // Permission verified - use pageOwnerId
@@ -1527,6 +1593,210 @@ export function createRouter(options = {}) {
     }
   });
 
+  // ——— Collaborative editing endpoints ———
+
+  // Add an editor by phone number
+  router.post('/api/editors/add', requireAuth, async (req, res) => {
+    try {
+      const { phone, sharedEntryId } = req.body;
+      if (!phone || typeof phone !== 'string') {
+        return res.status(400).json({ error: 'Phone number is required' });
+      }
+
+      // Don't allow adding yourself
+      const ownerUser = req.user;
+
+      // Try multiple phone format normalizations to find the user
+      const rawDigits = phone.replace(/\D/g, '');
+      const candidates = [
+        rawDigits,
+        rawDigits.replace(/^1/, ''),
+        rawDigits.replace(/^\+1/, ''),
+        '+1' + rawDigits,
+        '1' + rawDigits
+      ];
+
+      let editorUsers = [];
+      for (const candidate of candidates) {
+        if (!candidate) continue;
+        const users = await getUsersByPhone(candidate);
+        if (users.length > 0) {
+          editorUsers = users;
+          break;
+        }
+      }
+
+      // Check if it's the owner's own phone
+      const ownerPhone = ownerUser.phone.replace(/[\s\-\(\)]/g, '').replace(/^\+1/, '').replace(/^1/, '');
+      const normalizedInput = rawDigits.replace(/^1/, '');
+      if (ownerPhone === normalizedInput || ownerPhone === rawDigits) {
+        return res.status(400).json({ error: 'You cannot add yourself as an editor' });
+      }
+
+      if (editorUsers.length === 0) {
+        // No account yet — save as pending invite
+        const pendingPhone = rawDigits.length === 10 ? '+1' + rawDigits : '+' + rawDigits;
+        await addPendingEditor(ownerUser.id, pendingPhone, sharedEntryId || null);
+        res.json({ success: true, pending: true, phone: pendingPhone });
+        return;
+      }
+
+      // Use first user with a username, or first user
+      const editorUser = editorUsers.find(u => u.username) || editorUsers[0];
+
+      if (editorUser.id === ownerUser.id) {
+        return res.status(400).json({ error: 'You cannot add yourself as an editor' });
+      }
+
+      // Check if they share the same phone (same person, different spaces)
+      const editorPhone = editorUser.phone.replace(/[\s\-\(\)]/g, '').replace(/^\+1/, '').replace(/^1/, '');
+      if (ownerPhone === editorPhone) {
+        return res.status(400).json({ error: 'You cannot add yourself as an editor' });
+      }
+
+      await addPageEditor(ownerUser.id, editorUser.id, sharedEntryId || null);
+      res.json({ success: true, editor: { id: editorUser.id, username: editorUser.username } });
+    } catch (error) {
+      console.error('Error adding editor:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Remove an editor
+  router.delete('/api/editors/remove', requireAuth, async (req, res) => {
+    try {
+      const { editorUserId, sharedEntryId } = req.body;
+      if (!editorUserId) {
+        return res.status(400).json({ error: 'editorUserId is required' });
+      }
+
+      // Allow owner to remove an editor, or editor to remove themselves
+      const ownerUserId = req.user.id;
+
+      // Check if requester is the owner
+      const editors = await getPageEditors(ownerUserId, sharedEntryId || null);
+      const isOwnerRemoving = editors.some(e => e.editor_user_id === editorUserId);
+
+      if (isOwnerRemoving) {
+        await removePageEditor(ownerUserId, editorUserId, sharedEntryId || null);
+        return res.json({ success: true });
+      }
+
+      // Check if requester is removing themselves (they are the editor)
+      if (editorUserId === req.user.id) {
+        // Find the owner by checking who shared with this user
+        // The sharedEntryId context and the pageOwnerId should be provided
+        const { pageOwnerId } = req.body;
+        if (pageOwnerId) {
+          await removePageEditor(pageOwnerId, editorUserId, sharedEntryId || null);
+          return res.json({ success: true });
+        }
+      }
+
+      res.status(403).json({ error: 'Not authorized to remove this editor' });
+    } catch (error) {
+      console.error('Error removing editor:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // List editors for a page
+  router.get('/api/editors/list', requireAuth, async (req, res) => {
+    try {
+      const { sharedEntryId } = req.query;
+      const editors = await getPageEditors(req.user.id, sharedEntryId || null);
+      res.json({
+        editors: editors.map(e => ({
+          id: e.id,
+          userId: e.editor_user_id,
+          username: e.username,
+          phone: e.phone || e.pending_phone,
+          pending: !e.editor_user_id,
+          createdAt: e.created_at
+        }))
+      });
+    } catch (error) {
+      console.error('Error listing editors:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Remove a pending editor by row id
+  router.delete('/api/editors/remove-by-id', requireAuth, async (req, res) => {
+    try {
+      const { id } = req.body;
+      if (!id) return res.status(400).json({ error: 'id is required' });
+      await removePageEditorById(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error removing editor by id:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get pages shared with current user
+  router.get('/api/shared-pages', requireAuth, async (req, res) => {
+    try {
+      const sharedPages = await getSharedPagesForUser(req.user.id);
+      res.json({
+        sharedPages: sharedPages.map(p => ({
+          id: p.id,
+          ownerUserId: p.owner_user_id,
+          ownerUsername: p.owner_username,
+          sharedEntryId: p.shared_entry_id,
+          createdAt: p.created_at
+        }))
+      });
+    } catch (error) {
+      console.error('Error fetching shared pages:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Remove a shared page (editor removes themselves)
+  router.delete('/api/shared-pages/:id', requireAuth, async (req, res) => {
+    try {
+      const { id } = req.params;
+      await removePageEditorById(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error removing shared page:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Sync endpoint: get entries updated since a timestamp
+  router.get('/api/sync/entries', requireAuth, async (req, res) => {
+    try {
+      const { since, userId, parentEntryId } = req.query;
+      if (!since || !userId) {
+        return res.status(400).json({ error: 'since and userId are required' });
+      }
+
+      // Verify requester is owner or editor
+      if (userId !== req.user.id) {
+        const authorized = await isEditor(userId, req.user.id);
+        if (!authorized) {
+          // Also check if same phone (multi-space)
+          const owner = await getUserById(userId);
+          if (!owner || owner.phone.replace(/[\s\-\(\)]/g, '').replace(/^\+1/, '').replace(/^1/, '') !==
+              req.user.phone.replace(/[\s\-\(\)]/g, '').replace(/^\+1/, '').replace(/^1/, '')) {
+            return res.status(403).json({ error: 'Not authorized' });
+          }
+        }
+      }
+
+      const entries = await getEntriesUpdatedSince(userId, since, parentEntryId || null);
+      res.json({
+        entries,
+        serverTime: new Date().toISOString()
+      });
+    } catch (error) {
+      console.error('Error syncing entries:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Privacy Policy page
   router.get('/privacy', (_req, res) => {
     try {
@@ -1548,6 +1818,18 @@ export function createRouter(options = {}) {
     } catch (error) {
       console.error('Error serving terms page:', error);
       res.status(500).send('Error loading terms page');
+    }
+  });
+
+  // Home / Landing page (public, no auth required)
+  router.get('/home', (_req, res) => {
+    try {
+      const homePath = join(__dirname, '../public/home.html');
+      const html = readFileSync(homePath, 'utf8');
+      res.send(html);
+    } catch (error) {
+      console.error('Error serving home page:', error);
+      res.status(500).send('Error loading home page');
     }
   });
 
@@ -1645,14 +1927,15 @@ export function createRouter(options = {}) {
       const cookies = parseCookies(req);
       const token = cookies.auth_token;
       let isOwner = false;
+      let isEditorFlag = false;
+      let loggedInUser = null;
 
       if (token) {
         try {
           const payload = jwt.verify(token, JWT_SECRET);
           if (payload && payload.id) {
-            const loggedInUser = await getUserById(payload.id);
+            loggedInUser = await getUserById(payload.id);
             if (loggedInUser && loggedInUser.phone && user.phone) {
-              // Normalize phone numbers by removing spaces and compare
               const loggedInPhone = loggedInUser.phone.replace(/\s/g, '');
               const userPhone = user.phone.replace(/\s/g, '');
               if (loggedInPhone === userPhone) {
@@ -1665,8 +1948,13 @@ export function createRouter(options = {}) {
         }
       }
 
-      // Always serve canvas view (editable if owner, read-only if public)
-      res.send(generateUserPageHTML(user, isOwner));
+      // Check if logged-in user is an editor
+      if (!isOwner && loggedInUser) {
+        isEditorFlag = await isEditor(user.id, loggedInUser.id);
+      }
+
+      // Always serve canvas view (editable if owner/editor, read-only if public)
+      res.send(generateUserPageHTML(user, isOwner, [], isEditorFlag));
     } catch (error) {
       console.error('Error serving user page:', error);
       res.status(500).send('Error loading page');
@@ -1702,14 +1990,15 @@ export function createRouter(options = {}) {
       const cookies = parseCookies(req);
       const token = cookies.auth_token;
       let isOwner = false;
+      let isEditorFlag = false;
+      let loggedInUser = null;
 
       if (token) {
         try {
           const payload = jwt.verify(token, JWT_SECRET);
           if (payload && payload.id) {
-            const loggedInUser = await getUserById(payload.id);
+            loggedInUser = await getUserById(payload.id);
             if (loggedInUser && loggedInUser.phone && user.phone) {
-              // Normalize phone numbers by removing spaces and compare
               const loggedInPhone = loggedInUser.phone.replace(/\s/g, '');
               const userPhone = user.phone.replace(/\s/g, '');
               if (loggedInPhone === userPhone) {
@@ -1722,8 +2011,13 @@ export function createRouter(options = {}) {
         }
       }
 
-      // Always serve canvas view (editable if owner, read-only if public)
-      res.send(generateUserPageHTML(user, isOwner, pathParts));
+      // Check if logged-in user is an editor
+      if (!isOwner && loggedInUser) {
+        isEditorFlag = await isEditor(user.id, loggedInUser.id);
+      }
+
+      // Always serve canvas view (editable if owner/editor, read-only if public)
+      res.send(generateUserPageHTML(user, isOwner, pathParts, isEditorFlag));
     } catch (error) {
       console.error('Error serving user page:', error);
       res.status(500).send('Error loading page');

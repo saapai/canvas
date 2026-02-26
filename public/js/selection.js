@@ -189,9 +189,7 @@ async function performUndo() {
 
         // Process and restore text
         const { processedText, urls } = processTextWithLinks(state.data.oldText);
-        if (state.data.oldMediaCardData && state.data.oldMediaCardData.researchCardType) {
-          renderResearchCard(editEntryData.element, editEntryData);
-        } else if (editEntryData.textHtml && editEntryData.textHtml.includes('deadline-table')) {
+        if (editEntryData.textHtml && editEntryData.textHtml.includes('deadline-table')) {
           editEntryData.element.innerHTML = editEntryData.textHtml;
         } else if (editEntryData.textHtml && editEntryData.textHtml.includes('gcal-card')) {
           editEntryData.element.innerHTML = editEntryData.textHtml;
@@ -314,6 +312,10 @@ async function deleteSelectedEntries() {
 window.addEventListener('keydown', (e) => {
   // Only handle if editor is in idle mode (showing cursor but not actively editing) and we're in edit mode
   // Also check that the event target is not the editor (to avoid double-handling)
+  // Skip if focus is in any input, textarea, select, or contenteditable outside the canvas editor
+  const activeEl = document.activeElement;
+  const isInFormField = activeEl && (activeEl.tagName === 'INPUT' || activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'SELECT' || (activeEl.isContentEditable && activeEl !== editor));
+  if (isInFormField) return;
   if (editor.classList.contains('idle-cursor') && !isReadOnly && !isNavigating && !navigationJustCompleted && e.target !== editor) {
     // Check if this is a printable character (not a modifier key)
     // Allow letters, numbers, punctuation, space, etc.
@@ -372,21 +374,25 @@ window.addEventListener('keydown', (e) => {
 
 // Keyboard shortcuts
 window.addEventListener('keydown', async (e) => {
+  // Skip canvas shortcuts if focus is in any form field (input, textarea, select, or non-editor contenteditable)
+  const _activeEl = document.activeElement;
+  const _isInFormField = _activeEl && (_activeEl.tagName === 'INPUT' || _activeEl.tagName === 'TEXTAREA' || _activeEl.tagName === 'SELECT' || (_activeEl.isContentEditable && _activeEl !== editor));
+
   // Command+Z / Ctrl+Z for undo — when editor focused, let browser handle (typing, formatting)
   if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
-    if (document.activeElement === editor) return;
+    if (document.activeElement === editor || _isInFormField) return;
     e.preventDefault();
     await performUndo();
     return;
   }
   // Command+Shift+Z / Ctrl+Y for redo — when editor focused, let browser handle
   if (((e.metaKey || e.ctrlKey) && e.shiftKey && e.key === 'z') || ((e.metaKey || e.ctrlKey) && e.key === 'y')) {
-    if (document.activeElement === editor) return;
+    if (document.activeElement === editor || _isInFormField) return;
   }
 
   // Delete key for selected entries
   if (e.key === 'Delete' || e.key === 'Backspace') {
-    if (selectedEntries.size > 0 && document.activeElement !== editor) {
+    if (selectedEntries.size > 0 && document.activeElement !== editor && !_isInFormField) {
       e.preventDefault();
       await deleteSelectedEntries();
       return;

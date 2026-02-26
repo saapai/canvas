@@ -45,8 +45,9 @@ async function bootstrap() {
     // If on a user page, load entries (editable if owner, read-only otherwise)
     if (isUserPage) {
       const targetUsername = pageUsername || pathParts[0];
-      // Only editable if logged in AND is the owner
-      const editable = isLoggedIn && isOwner;
+      const isEditorUser = window.PAGE_IS_EDITOR === true;
+      // Editable if logged in AND (is owner OR is editor)
+      const editable = isLoggedIn && (isOwner || isEditorUser);
       await loadUserEntries(targetUsername, editable);
       // Ensure auth overlay stays hidden
       hideAuthOverlay();
@@ -178,15 +179,10 @@ async function loadUserEntries(username, editable) {
       // Initially hide all entries - visibility will be set after navigation state is determined
       entry.style.display = 'none';
 
-      // Process text with links (skip for image-only, file, and research entries)
-      const isResearchCard = entryData.mediaCardData && entryData.mediaCardData.researchCardType;
+      // Process text with links (skip for image-only and file entries)
       const isImageOnly = entryData.mediaCardData && entryData.mediaCardData.type === 'image';
       const isFileEntry = entryData.mediaCardData && entryData.mediaCardData.type === 'file';
-      if (isResearchCard) {
-        // Research card entry: render with appropriate card renderer
-        const tempData = { ...entryData, element: entry };
-        renderResearchCard(entry, tempData);
-      } else if (isImageOnly) {
+      if (isImageOnly) {
         entry.classList.add('canvas-image');
         entry.innerHTML = '';
         const img = document.createElement('img');
@@ -285,7 +281,7 @@ async function loadUserEntries(username, editable) {
       };
       entries.set(entryData.id, storedEntryData);
 
-      if (!isImageOnly && !isFileEntry && !isResearchCard && entryData.mediaCardData && entryData.mediaCardData.type !== 'image') {
+      if (!isImageOnly && !isFileEntry && entryData.mediaCardData && entryData.mediaCardData.type !== 'image') {
         const card = createMediaCard(entryData.mediaCardData);
         entry.appendChild(card);
         setTimeout(() => updateEntryDimensions(entry), 100);
@@ -300,10 +296,24 @@ async function loadUserEntries(username, editable) {
 
     // Set read-only mode
     isReadOnly = !editable;
-    const dz = document.getElementById('drop-zone');
-    if (dz) dz.style.display = isReadOnly ? 'none' : '';
     const orgBtn = document.getElementById('organize-button');
     if (orgBtn) orgBtn.style.display = isReadOnly ? 'none' : '';
+
+    // Show share button only for page owner (not for editors or read-only)
+    const shareBtn = document.getElementById('share-button');
+    if (shareBtn) {
+      shareBtn.classList.toggle('hidden', !(window.PAGE_IS_OWNER === true));
+    }
+
+    // Start sync if editable and user is editor (or owner with editors)
+    if (editable && window.PAGE_OWNER_ID) {
+      startSync(window.PAGE_OWNER_ID);
+    }
+
+    // Load shared pages on own home page
+    if (editable && window.PAGE_IS_OWNER === true) {
+      loadSharedPageCards();
+    }
 
     // Search button removed - using autocomplete instead
 
@@ -776,12 +786,7 @@ async function loadEntriesFromServer() {
       // Process text with links
       const { processedText, urls } = processTextWithLinks(entryData.text);
 
-      // Research card entries: render with appropriate card renderer
-      if (entryData.mediaCardData && entryData.mediaCardData.researchCardType) {
-        const tempData = { ...entryData, element: entry };
-        renderResearchCard(entry, tempData);
-      // LaTeX entries: render via KaTeX
-      } else if (entryData.latexData && entryData.latexData.enabled) {
+      if (entryData.latexData && entryData.latexData.enabled) {
         renderLatex(entryData.latexData.source, entry);
       } else if (entryData.textHtml && entryData.textHtml.includes('deadline-table')) {
         entry.innerHTML = entryData.textHtml;

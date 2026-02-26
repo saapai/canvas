@@ -67,11 +67,6 @@
       </div>
     </div>
     <div class="topbar-right">
-      <div id="view-toggle" class="view-toggle">
-        <button id="view-toggle-canvas" class="view-toggle-option active">Canvas</button>
-        <button id="view-toggle-article" class="view-toggle-option">Article</button>
-        <button id="view-toggle-research" class="view-toggle-option">Research</button>
-      </div>
       <div id="user-menu" class="user-menu">
         <button id="user-menu-button" class="user-menu-button" title="User menu">
           <span id="user-menu-label" class="user-name"></span>
@@ -82,11 +77,25 @@
           <button id="new-space-button" class="new-space-button">+ new duttapad</button>
         </div>
       </div>
+      <div class="share-button-wrap">
+        <button id="share-button" class="share-button hidden" title="Share this page">Share</button>
+        <div id="share-popover" class="share-popover hidden">
+          <div class="share-popover-header">
+            <span>Share</span>
+            <button id="share-popover-close" class="share-popover-close">&times;</button>
+          </div>
+          <div class="share-add-form">
+            <div class="share-phone-input-wrap">
+              <span class="share-phone-prefix">+1</span>
+              <input id="share-phone-input" type="text" inputmode="numeric" maxlength="10" placeholder="Phone number" class="share-phone-input" />
+            </div>
+            <button id="share-add-btn" class="share-add-btn">Add</button>
+          </div>
+          <div id="share-error" class="share-error hidden"></div>
+          <div id="share-editors-list" class="share-editors-list"></div>
+        </div>
+      </div>
     </div>
-  </div>
-  <div id="drop-zone" class="drop-zone" title="Drop content or click to chat">
-    <span class="drop-zone-icon">◇</span>
-    <span class="drop-zone-pulse"></span>
   </div>
   <button id="organize-button" class="organize-button" title="Organize layout">⊞</button>
   <button id="bg-picker-button" class="bg-picker-button" title="Background image">
@@ -305,41 +314,14 @@
       </div>
     </div>
   </div>
-  <div id="drop-dialog" class="drop-dialog hidden">
-    <div class="drop-dialog-backdrop"></div>
-    <div class="drop-dialog-content">
-      <div class="drop-dialog-header">
-        <button id="drop-dialog-close" class="drop-dialog-close" title="Close">×</button>
-        <span class="drop-dialog-title">Canvas</span>
-      </div>
-      <div id="drop-dialog-messages" class="drop-dialog-messages"></div>
-      <div class="drop-dialog-input-wrap">
-        <input id="drop-dialog-input" class="drop-dialog-input" type="text" placeholder="Reply..." autocomplete="off" />
-        <button id="drop-dialog-send" class="drop-dialog-send" title="Send">→</button>
-      </div>
-    </div>
-  </div>
   <div id="viewport">
     <div id="world">
-      <svg id="research-lines" class="research-lines"></svg>
       <div id="editor" contenteditable="true" spellcheck="false"></div>
       <div id="anchor">Hello</div>
     </div>
     <div id="autocomplete" class="autocomplete hidden"></div>
   </div>
   <div id="navigator"><div id="navigator-list"></div></div>
-  <div id="article-view" class="article-view hidden">
-    <div class="article-layout">
-      <main class="article-main">
-        <header id="article-header"></header>
-        <div id="article-content"></div>
-        <section id="article-ai-section" class="article-related-section hidden">
-          <h2 class="article-related-heading">Related</h2>
-          <div id="article-ai-content"></div>
-        </section>
-      </main>
-    </div>
-  </div>
 
   <script src="js/state.js"></script>
   <script src="js/camera.js"></script>
@@ -360,7 +342,6 @@
   <script src="js/ui-formatting.js"></script>
   <script src="js/chat.js"></script>
   <script src="js/spaces.js"></script>
-  <script src="js/research.js"></script>
   <script src="js/article.js"></script>
 </body>
 </html>

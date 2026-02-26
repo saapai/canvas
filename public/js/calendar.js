@@ -129,10 +129,17 @@ function saveCalendarCardState(card) {
   const entryData = entries.get(entry.id);
   if (!entryData) return;
   const clone = card.cloneNode(true);
-  const grid = clone.querySelector('.gcal-card-grid');
-  if (grid) grid.innerHTML = '';
+  // Keep rendered grid content so events are visible on page reload
   const loading = clone.querySelector('.gcal-card-loading');
   if (loading) loading.classList.add('hidden');
+  // Save cached events as data attribute for instant restore
+  const state = card._gcalState;
+  if (state && state.eventCache) {
+    clone.dataset.gcalEventCache = JSON.stringify(state.eventCache);
+  }
+  if (state && state.calendars && state.calendars.length > 0) {
+    clone.dataset.gcalCalendars = JSON.stringify(state.calendars);
+  }
   entryData.text = entry.innerText;
   entryData.textHtml = clone.outerHTML;
   updateEntryOnServer(entryData);
@@ -142,13 +149,43 @@ function setupCalendarCardHandlers(card) {
   const monthStr = card.dataset.gcalMonth || formatMonthKey(new Date());
   card.dataset.gcalMonth = monthStr;
   const viewDate = parseGcalMonth(monthStr);
-  card._gcalState = { viewDate: viewDate.getTime(), calendars: [], events: [] };
+
+  // Restore cached data from saved HTML data attributes
+  let restoredEventCache = {};
+  let restoredCalendars = [];
+  try {
+    if (card.dataset.gcalEventCache) {
+      restoredEventCache = JSON.parse(card.dataset.gcalEventCache);
+      delete card.dataset.gcalEventCache;
+    }
+  } catch (e) { /* ignore parse errors */ }
+  try {
+    if (card.dataset.gcalCalendars) {
+      restoredCalendars = JSON.parse(card.dataset.gcalCalendars);
+      delete card.dataset.gcalCalendars;
+    }
+  } catch (e) { /* ignore parse errors */ }
+
+  const cachedEvents = restoredEventCache[monthStr] || [];
+  card._gcalState = {
+    viewDate: viewDate.getTime(),
+    calendars: restoredCalendars,
+    events: cachedEvents,
+    eventCache: restoredEventCache
+  };
 
   const loading = card.querySelector('.gcal-card-loading');
   if (loading) loading.classList.add('hidden');
 
-  renderCalendarCard(card);
+  // If we have cached events (from saved HTML), the grid already shows them.
+  // If no cached events, render to show the empty grid structure.
+  const grid = card.querySelector('.gcal-card-grid');
+  const hasRenderedContent = grid && grid.children.length > 0 && cachedEvents.length > 0;
+  if (!hasRenderedContent) {
+    renderCalendarCard(card);
+  }
 
+  // Silently fetch fresh events in background
   (async () => {
     const [calendars, events] = await Promise.all([
       fetchGcalCalendars(),
@@ -156,9 +193,15 @@ function setupCalendarCardHandlers(card) {
     ]);
     if (!card._gcalState) return;
     card._gcalState.calendars = calendars;
+    // Only re-render if events actually changed
+    const oldJson = JSON.stringify(card._gcalState.events);
+    const newJson = JSON.stringify(events);
     card._gcalState.events = events;
-    renderCalendarCard(card);
-    saveCalendarCardState(card);
+    card._gcalState.eventCache[monthStr] = events;
+    if (oldJson !== newJson || !hasRenderedContent) {
+      renderCalendarCard(card);
+      saveCalendarCardState(card);
+    }
   })();
 
   card.addEventListener('mousedown', (e) => {
@@ -169,59 +212,54 @@ function setupCalendarCardHandlers(card) {
   const nextBtn = card.querySelector('.gcal-card-next');
   const todayBtn = card.querySelector('.gcal-card-today-btn');
 
+  // Shared function for navigating to a month
+  function navigateToMonth(d) {
+    const key = formatMonthKey(d);
+    card._gcalState.viewDate = d.getTime();
+    card.dataset.gcalMonth = key;
+    // Show cached events immediately if available, otherwise show empty grid
+    const cached = card._gcalState.eventCache[key];
+    card._gcalState.events = cached || [];
+    renderCalendarCard(card);
+    // Silently fetch fresh events in background
+    fetchGcalEventsForMonth(d).then(events => {
+      if (!card._gcalState) return;
+      // Only re-render if we're still on the same month and events changed
+      if (formatMonthKey(new Date(card._gcalState.viewDate)) !== key) return;
+      const oldJson = JSON.stringify(card._gcalState.events);
+      const newJson = JSON.stringify(events);
+      card._gcalState.events = events;
+      card._gcalState.eventCache[key] = events;
+      if (oldJson !== newJson) {
+        renderCalendarCard(card);
+      }
+      saveCalendarCardState(card);
+    });
+  }
+
   if (prevBtn) {
     prevBtn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      const state = card._gcalState || {};
-      const d = new Date(state.viewDate || Date.now());
+      const d = new Date(card._gcalState.viewDate || Date.now());
       d.setMonth(d.getMonth() - 1);
-      card._gcalState.viewDate = d.getTime();
-      card.dataset.gcalMonth = formatMonthKey(d);
-      card._gcalState.events = [];
-      renderCalendarCard(card);
-      fetchGcalEventsForMonth(d).then(events => {
-        if (!card._gcalState) return;
-        card._gcalState.events = events;
-        renderCalendarCard(card);
-        saveCalendarCardState(card);
-      });
+      navigateToMonth(d);
     });
   }
   if (nextBtn) {
     nextBtn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      const state = card._gcalState || {};
-      const d = new Date(state.viewDate || Date.now());
+      const d = new Date(card._gcalState.viewDate || Date.now());
       d.setMonth(d.getMonth() + 1);
-      card._gcalState.viewDate = d.getTime();
-      card.dataset.gcalMonth = formatMonthKey(d);
-      card._gcalState.events = [];
-      renderCalendarCard(card);
-      fetchGcalEventsForMonth(d).then(events => {
-        if (!card._gcalState) return;
-        card._gcalState.events = events;
-        renderCalendarCard(card);
-        saveCalendarCardState(card);
-      });
+      navigateToMonth(d);
     });
   }
   if (todayBtn) {
     todayBtn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      const d = new Date();
-      card._gcalState.viewDate = d.getTime();
-      card.dataset.gcalMonth = formatMonthKey(d);
-      card._gcalState.events = [];
-      renderCalendarCard(card);
-      fetchGcalEventsForMonth(d).then(events => {
-        if (!card._gcalState) return;
-        card._gcalState.events = events;
-        renderCalendarCard(card);
-        saveCalendarCardState(card);
-      });
+      navigateToMonth(new Date());
     });
   }
 }

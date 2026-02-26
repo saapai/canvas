@@ -198,9 +198,6 @@ function showCursorAtWorld(wx, wy, force = false) {
   if (isReadOnly) {
     return;
   }
-  if (isFocusInDropDialog()) {
-    return;
-  }
 
   // Don't show cursor if there are selected entries (user might want to delete them)
   if (selectedEntries.size > 0 && !force) {
@@ -279,9 +276,6 @@ function showCursorInDefaultPosition(entryId = null) {
   console.log('[CURSOR] showCursorInDefaultPosition called. isReadOnly:', isReadOnly, 'entryId:', entryId, 'hasClickedRecently:', hasClickedRecently);
 
   if (isReadOnly) {
-    return;
-  }
-  if (isFocusInDropDialog()) {
     return;
   }
 
