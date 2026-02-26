@@ -106,7 +106,7 @@ export function createRouter(options = {}) {
       // Update title
       html = html.replace('<title>Infinite Diary Page</title>', `<title>${user.username} - Duttapad</title>`);
 
-      // Add script to set page context before app.js loads
+      // Add script to set page context before modules load
       const contextScript = `
   <script>
     window.PAGE_USERNAME = '${user.username}';
@@ -114,7 +114,7 @@ export function createRouter(options = {}) {
     window.PAGE_OWNER_ID = '${user.id}';
     window.PAGE_PATH = ${JSON.stringify(pathParts)};
   </script>`;
-      html = html.replace('<script src="app.js"></script>', `${contextScript}\n  <script src="app.js"></script>`);
+      html = html.replace('<script src="js/state.js"></script>', `${contextScript}\n  <script src="js/state.js"></script>`);
 
       return html;
     } catch (error) {
