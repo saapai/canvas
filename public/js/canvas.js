@@ -863,6 +863,58 @@ viewport.addEventListener('wheel', (e) => {
   applyTransform();
 }, { passive: false });
 
+// ——— Two-finger touch: pan + pinch-to-zoom ———
+let touchState = { active: false, lastX: 0, lastY: 0, lastDist: 0 };
+
+viewport.addEventListener('touchstart', (e) => {
+  if (e.touches.length === 2) {
+    e.preventDefault();
+    const t0 = e.touches[0], t1 = e.touches[1];
+    touchState.active = true;
+    touchState.lastX = (t0.clientX + t1.clientX) / 2;
+    touchState.lastY = (t0.clientY + t1.clientY) / 2;
+    touchState.lastDist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+  }
+}, { passive: false });
+
+viewport.addEventListener('touchmove', (e) => {
+  if (!touchState.active || e.touches.length !== 2) return;
+  e.preventDefault();
+
+  const t0 = e.touches[0], t1 = e.touches[1];
+  const midX = (t0.clientX + t1.clientX) / 2;
+  const midY = (t0.clientY + t1.clientY) / 2;
+  const dist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+
+  // Pan: delta of midpoint
+  const dx = midX - touchState.lastX;
+  const dy = midY - touchState.lastY;
+  cam.x += dx;
+  cam.y += dy;
+
+  // Pinch zoom centered on midpoint
+  if (touchState.lastDist > 0) {
+    const ratio = dist / touchState.lastDist;
+    const before = screenToWorld(midX, midY);
+    cam.z = clamp(cam.z * ratio, 0.12, 8);
+    const after = screenToWorld(midX, midY);
+    cam.x += (after.x - before.x) * cam.z;
+    cam.y += (after.y - before.y) * cam.z;
+  }
+
+  touchState.lastX = midX;
+  touchState.lastY = midY;
+  touchState.lastDist = dist;
+
+  applyTransform();
+}, { passive: false });
+
+viewport.addEventListener('touchend', (e) => {
+  if (e.touches.length < 2) {
+    touchState.active = false;
+  }
+}, { passive: false });
+
 editor.addEventListener('keydown', (e) => {
   // Handle autocomplete keyboard navigation
   if (autocomplete && !autocomplete.classList.contains('hidden')) {
@@ -1351,9 +1403,15 @@ editor.addEventListener('blur', (e) => {
   if (trimmed.length > 0) {
     // Use setTimeout to ensure blur completes before commit
     // This prevents issues with focus changes during commit
+    // Capture editingEntryId at blur time to detect if commitEditor already ran
+    const entryIdAtBlur = editingEntryId;
     setTimeout(() => {
       const active = document.activeElement;
       const focusInFormatBar = formatBar && formatBar.contains(active);
+      // Skip if commitEditor already ran (e.g. from ENTER key) - detected by editingEntryId changing or isCommitting still active
+      if (isCommitting) return;
+      // If we were editing an entry at blur time but editingEntryId is now null, commitEditor already handled it
+      if (entryIdAtBlur && !editingEntryId) return;
       if (active !== editor && !editor.contains(active) && !focusInFormatBar && editor.innerText.trim().length > 0) {
         commitEditor();
       }
