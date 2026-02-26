@@ -64,6 +64,11 @@ function updateEntryVisibility() {
   });
 
   console.log(`[VISIBILITY] Current context: ${currentViewEntryId}, Visible: ${visibleCount}, Hidden: ${hiddenCount}, Total: ${entries.size}`);
+
+  // Rebuild navigator list when entry visibility changes
+  if (typeof buildNavigatorList === 'function') {
+    buildNavigatorList();
+  }
 }
 
 function navigateToEntry(entryId) {
