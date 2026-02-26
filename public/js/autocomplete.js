@@ -275,7 +275,7 @@ function selectAutocompleteResult(result) {
 
   const entryId = generateEntryId();
   const entry = document.createElement('div');
-  entry.className = 'entry melt';
+  entry.className = 'entry';
   entry.id = entryId;
 
   entry.style.left = `${worldPos.x}px`;

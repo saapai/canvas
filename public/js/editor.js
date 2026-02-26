@@ -323,8 +323,7 @@ async function commitEditor(){
           if (card) setupCalendarCardHandlers(card);
         }
       } else {
-        // Add melt class for animation
-        entryData.element.classList.add('melt');
+        // Text appears immediately (no melt animation)
 
         // Update entry content with melt animation, preserving HTML formatting
         if(processedText){
@@ -417,20 +416,6 @@ async function commitEditor(){
         return;
       }
 
-      // Remove melt class after animation completes and reset styles
-      const maxDuration = 1500; // Maximum animation duration
-      setTimeout(() => {
-        entryData.element.classList.remove('melt');
-        // Reset any inline styles from animation
-        const spans = entryData.element.querySelectorAll('span');
-        spans.forEach(span => {
-          span.style.animation = 'none';
-          span.style.transform = '';
-          span.style.filter = '';
-          span.style.opacity = '';
-        });
-      }, maxDuration);
-
       // Clear editor content BEFORE showing cursor to prevent stale content
       // from being committed as a new entry if commitEditor is triggered again
       const committedEntryId = editingEntryId;
@@ -483,7 +468,7 @@ async function commitEditor(){
 
   const entryId = generateEntryId();
   const entry = document.createElement('div');
-  entry.className = (isDeadlineTable || isCalendarCard) ? 'entry' : 'entry melt';
+  entry.className = 'entry';
   entry.id = entryId;
 
   entry.style.left = `${editorWorldPos.x}px`;
@@ -493,7 +478,6 @@ async function commitEditor(){
 
   // LaTeX mode for new entries
   if (latexModeEnabled && !isDeadlineTable && !isCalendarCard) {
-    entry.classList.remove('melt');
     entry.classList.add('latex-converting');
     world.appendChild(entry);
     const latexResult = await convertToLatex(trimmedRight);
@@ -601,20 +585,6 @@ async function commitEditor(){
       }
     }
   }
-
-  // Remove melt class after animation completes
-  const maxDuration = 1500; // Maximum animation duration
-  setTimeout(() => {
-    entry.classList.remove('melt');
-    // Reset any inline styles from animation
-    const spans = entry.querySelectorAll('span');
-    spans.forEach(span => {
-      span.style.animation = 'none';
-      span.style.transform = '';
-      span.style.filter = '';
-      span.style.opacity = '';
-    });
-  }, maxDuration);
 
   // Remove editing class if any
   if(editingEntryId && editingEntryId !== 'anchor'){

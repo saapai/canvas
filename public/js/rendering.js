@@ -1,38 +1,7 @@
 // rendering.js — Text animation (melt), LaTeX, link cards, and URL processing
 
 function meltify(text){
-  const chars = [...text];
-  let out = '';
-  let idx = 0;
-
-  for(const ch of chars){
-    if(ch === '\n'){
-      out += '<br>';
-      idx++;
-      continue;
-    }
-    if(ch === ' '){
-      out += '&nbsp;';
-      idx++;
-      continue;
-    }
-
-    const animateThis = Math.random() > 0.18;
-    const baseDelay = idx * 8;
-    const jitter = (Math.random() * 140) | 0;
-    const delay = animateThis ? (baseDelay + jitter) : (baseDelay + 20);
-    const dur = 720 + ((Math.random() * 520) | 0);
-    const safe = escapeHtml(ch);
-
-    const dripThis = animateThis && Math.random() < 0.10;
-    if(animateThis){
-      out += `<span ${dripThis ? 'class="drip"' : ''} data-ch="${safe}" style="animation-delay:${delay}ms;animation-duration:${dur}ms">${safe}</span>`;
-    }else{
-      out += `<span data-ch="${safe}" style="animation:none;opacity:1">${safe}</span>`;
-    }
-    idx++;
-  }
-  return out;
+  return escapeHtml(text).replace(/ /g, '&nbsp;').replace(/\n/g, '<br>');
 }
 
 // LaTeX conversion helper: POST text to server, return { latex, isFullMath }
@@ -168,68 +137,9 @@ function escapeHtml(s){
     .replaceAll("'","&#039;");
 }
 
-// Meltify HTML while preserving formatting tags (like <strong>, <b>)
 function meltifyHtml(html){
   if (!html) return '';
-
-  // Create a temporary container to parse HTML
-  const temp = document.createElement('div');
-  temp.innerHTML = html;
-
-  // Process each text node recursively, preserving formatting elements
-  function processNode(node, idxRef) {
-    if (node.nodeType === Node.TEXT_NODE) {
-      const text = node.textContent;
-      if (!text) return;
-
-      const chars = [...text];
-      let out = '';
-
-      for(const ch of chars){
-        if(ch === '\n'){
-          out += '<br>';
-          idxRef.idx++;
-          continue;
-        }
-        if(ch === ' '){
-          out += '&nbsp;';
-          idxRef.idx++;
-          continue;
-        }
-
-        const animateThis = Math.random() > 0.18;
-        const baseDelay = idxRef.idx * 8;
-        const jitter = (Math.random() * 140) | 0;
-        const delay = animateThis ? (baseDelay + jitter) : (baseDelay + 20);
-        const dur = 720 + ((Math.random() * 520) | 0);
-        const safe = escapeHtml(ch);
-
-        const dripThis = animateThis && Math.random() < 0.10;
-        if(animateThis){
-          out += `<span ${dripThis ? 'class="drip"' : ''} data-ch="${safe}" style="animation-delay:${delay}ms;animation-duration:${dur}ms">${safe}</span>`;
-        }else{
-          out += `<span data-ch="${safe}" style="animation:none;opacity:1">${safe}</span>`;
-        }
-        idxRef.idx++;
-      }
-
-      // Replace text node with a document fragment containing the HTML
-      const fragment = document.createRange().createContextualFragment(out);
-      if (node.parentNode) {
-        node.parentNode.replaceChild(fragment, node);
-      }
-    } else if (node.nodeType === Node.ELEMENT_NODE) {
-      // Recursively process child nodes, preserving formatting elements (strong, b, em, i, u)
-      const children = Array.from(node.childNodes);
-      children.forEach(child => processNode(child, idxRef));
-    }
-  }
-
-  const idxRef = { idx: 0 };
-  const children = Array.from(temp.childNodes);
-  children.forEach(child => processNode(child, idxRef));
-
-  return temp.innerHTML;
+  return html;
 }
 
 // URL detection regex
@@ -476,7 +386,7 @@ function createLinkCard(cardData) {
 
     const entryId = `entry-${entryIdCounter++}`;
     const entry = document.createElement('div');
-    entry.className = 'entry melt';
+    entry.className = 'entry';
     entry.id = entryId;
 
     // Position the new entry near the card
@@ -510,18 +420,6 @@ function createLinkCard(cardData) {
     // Navigate to the new entry
     navigateToEntry(entryId);
 
-    // Remove melt class after animation
-    const maxDuration = 1500;
-    setTimeout(() => {
-      entry.classList.remove('melt');
-      const spans = entry.querySelectorAll('span');
-      spans.forEach(span => {
-        span.style.animation = 'none';
-        span.style.transform = '';
-        span.style.filter = '';
-        span.style.opacity = '';
-      });
-    }, maxDuration);
   });
   card.addEventListener('mousedown', (e) => {
     // Allow mousedown to bubble for dragging (both regular and shift+click)

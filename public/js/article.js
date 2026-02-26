@@ -335,11 +335,19 @@ function applyRemoteEntryUpdate(entryData) {
       const isImageOnly = entryData.mediaCardData && entryData.mediaCardData.type === 'image';
       if (!isImageOnly) {
         const displayText = entryData.textHtml || escapeHtml(entryData.text);
-        const span = existing.element.querySelector(':scope > span');
-        if (span) {
-          span.innerHTML = displayText;
-        } else if (!existing.element.querySelector('.link-card') && !existing.element.querySelector('.media-card')) {
-          existing.element.innerHTML = `<span>${displayText}</span>`;
+        // Preserve link/media cards, replace only text content
+        const hasCards = existing.element.querySelector('.link-card') || existing.element.querySelector('.media-card');
+        if (hasCards) {
+          // Remove all non-card children, then prepend new text
+          Array.from(existing.element.childNodes).forEach(child => {
+            if (child.nodeType === Node.TEXT_NODE ||
+                (child.nodeType === Node.ELEMENT_NODE && !child.classList.contains('link-card') && !child.classList.contains('media-card'))) {
+              child.remove();
+            }
+          });
+          existing.element.insertAdjacentHTML('afterbegin', displayText);
+        } else {
+          existing.element.innerHTML = displayText;
         }
       }
       if (typeof updateEntryDimensions === 'function') {
