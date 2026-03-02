@@ -1821,6 +1821,93 @@ export function createRouter(options = {}) {
     }
   });
 
+  // Stats / Admin page
+  router.get('/stats', (_req, res) => {
+    try {
+      const statsPath = join(__dirname, '../public/stats.html');
+      const html = readFileSync(statsPath, 'utf8');
+      res.send(html);
+    } catch (error) {
+      console.error('Error serving stats page:', error);
+      res.status(500).send('Error loading stats page');
+    }
+  });
+
+  // Stats API endpoint
+  router.get('/api/stats', async (_req, res) => {
+    try {
+      const db = getPool();
+
+      // Total users
+      const usersResult = await db.query('SELECT COUNT(*) as count FROM users');
+      const totalUsers = parseInt(usersResult.rows[0].count, 10);
+
+      // Total entries (non-deleted)
+      const entriesResult = await db.query('SELECT COUNT(*) as count FROM entries WHERE deleted_at IS NULL');
+      const totalEntries = parseInt(entriesResult.rows[0].count, 10);
+
+      const avgEntriesPerUser = totalUsers > 0 ? (totalEntries / totalUsers).toFixed(1) : '0';
+
+      // Daily new users (last 30 days)
+      const dailyNewUsers = await db.query(`
+        SELECT DATE(created_at) as date, COUNT(*) as count
+        FROM users
+        WHERE created_at >= NOW() - INTERVAL '30 days'
+        GROUP BY DATE(created_at)
+        ORDER BY date
+      `);
+
+      // Daily new entries (last 30 days)
+      const dailyNewEntries = await db.query(`
+        SELECT DATE(created_at) as date, COUNT(*) as count
+        FROM entries
+        WHERE created_at >= NOW() - INTERVAL '30 days' AND deleted_at IS NULL
+        GROUP BY DATE(created_at)
+        ORDER BY date
+      `);
+
+      // Daily active users (last 30 days) - users who created or updated entries
+      const dailyActiveUsers = await db.query(`
+        SELECT DATE(updated_at) as date, COUNT(DISTINCT user_id) as count
+        FROM entries
+        WHERE updated_at >= NOW() - INTERVAL '30 days' AND deleted_at IS NULL
+        GROUP BY DATE(updated_at)
+        ORDER BY date
+      `);
+
+      // Leaderboard
+      const leaderboard = await db.query(`
+        SELECT
+          u.username,
+          COUNT(e.id) FILTER (WHERE e.deleted_at IS NULL) as entry_count,
+          COUNT(e.id) as total_entries_made,
+          COUNT(e.id) FILTER (WHERE e.deleted_at IS NOT NULL) as entries_deleted,
+          COUNT(DISTINCT e.parent_entry_id) FILTER (WHERE e.deleted_at IS NULL) as unique_pages,
+          u.created_at
+        FROM users u
+        LEFT JOIN entries e ON e.user_id = u.id
+        GROUP BY u.id, u.username, u.created_at
+        ORDER BY entry_count DESC
+        LIMIT 50
+      `);
+
+      res.json({
+        totals: {
+          users: totalUsers,
+          entries: totalEntries,
+          avgEntriesPerUser
+        },
+        dailyNewUsers: dailyNewUsers.rows.map(r => ({ date: r.date, count: parseInt(r.count, 10) })),
+        dailyNewEntries: dailyNewEntries.rows.map(r => ({ date: r.date, count: parseInt(r.count, 10) })),
+        dailyActiveUsers: dailyActiveUsers.rows.map(r => ({ date: r.date, count: parseInt(r.count, 10) })),
+        leaderboard: leaderboard.rows
+      });
+    } catch (error) {
+      console.error('Error fetching stats:', error);
+      res.status(500).json({ error: 'Failed to load stats' });
+    }
+  });
+
   // Home / Landing page (public, no auth required)
   router.get('/home', (_req, res) => {
     try {
