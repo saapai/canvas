@@ -334,7 +334,18 @@ function applyRemoteEntryUpdate(entryData) {
       // Update text content
       const isImageOnly = entryData.mediaCardData && entryData.mediaCardData.type === 'image';
       if (!isImageOnly) {
-        const displayText = entryData.textHtml || escapeHtml(entryData.text);
+        // Strip URLs from display text — they're shown as link cards instead
+        const { processedText, urls } = processTextWithLinks(entryData.text);
+        let displayText;
+        if (urls.length > 0 && entryData.textHtml) {
+          let cleanHtml = entryData.textHtml;
+          urls.forEach(url => { cleanHtml = cleanHtml.replace(url, ''); });
+          displayText = cleanHtml.trim();
+        } else if (entryData.textHtml) {
+          displayText = entryData.textHtml;
+        } else {
+          displayText = processedText ? escapeHtml(processedText) : '';
+        }
         // Preserve link/media cards, replace only text content
         const hasCards = existing.element.querySelector('.link-card') || existing.element.querySelector('.media-card');
         if (hasCards) {
@@ -345,7 +356,9 @@ function applyRemoteEntryUpdate(entryData) {
               child.remove();
             }
           });
-          existing.element.insertAdjacentHTML('afterbegin', displayText);
+          if (displayText) {
+            existing.element.insertAdjacentHTML('afterbegin', displayText);
+          }
         } else {
           existing.element.innerHTML = displayText;
         }
@@ -373,8 +386,30 @@ function applyRemoteEntryUpdate(entryData) {
       img.loading = 'lazy';
       entry.appendChild(img);
     } else {
-      const displayText = entryData.textHtml || escapeHtml(entryData.text);
-      entry.innerHTML = `<span>${displayText}</span>`;
+      // Strip URLs from display text — they're shown as link cards instead
+      const { processedText, urls } = processTextWithLinks(entryData.text);
+      let displayText;
+      if (urls.length > 0 && entryData.textHtml) {
+        let cleanHtml = entryData.textHtml;
+        urls.forEach(url => { cleanHtml = cleanHtml.replace(url, ''); });
+        displayText = cleanHtml.trim();
+      } else if (entryData.textHtml) {
+        displayText = entryData.textHtml;
+      } else {
+        displayText = processedText ? escapeHtml(processedText) : '';
+      }
+      if (displayText) {
+        entry.innerHTML = `<span>${displayText}</span>`;
+      }
+      // Add link cards for URLs
+      if (urls.length > 0 && entryData.linkCardsData && Array.isArray(entryData.linkCardsData)) {
+        entryData.linkCardsData.forEach(cardData => {
+          if (cardData && cardData.url) {
+            const card = createLinkCard(cardData);
+            entry.appendChild(card);
+          }
+        });
+      }
     }
 
     world.appendChild(entry);

@@ -213,7 +213,11 @@ async function loadUserEntries(username, editable) {
           if (card) setupCalendarCardHandlers(card);
         } else if (processedText) {
           if (entryData.textHtml && /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(entryData.textHtml)) {
-            entry.innerHTML = meltifyHtml(entryData.textHtml);
+            // Strip URLs from HTML — they're shown as link cards
+            let cleanHtml = entryData.textHtml;
+            urls.forEach(url => { cleanHtml = cleanHtml.replace(url, ''); });
+            cleanHtml = cleanHtml.trim();
+            entry.innerHTML = cleanHtml ? meltifyHtml(cleanHtml) : '';
             applyEntryFontSize(entry, entryData.textHtml);
           } else {
             entry.innerHTML = meltify(processedText);
@@ -798,8 +802,11 @@ async function loadEntriesFromServer() {
         if (card) setupCalendarCardHandlers(card);
       } else if (processedText) {
         if (entryData.textHtml && /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(entryData.textHtml)) {
-          // Has formatting, use HTML version
-          entry.innerHTML = meltifyHtml(entryData.textHtml);
+          // Has formatting — strip URLs from HTML (they're shown as link cards)
+          let cleanHtml = entryData.textHtml;
+          urls.forEach(url => { cleanHtml = cleanHtml.replace(url, ''); });
+          cleanHtml = cleanHtml.trim();
+          entry.innerHTML = cleanHtml ? meltifyHtml(cleanHtml) : '';
           applyEntryFontSize(entry, entryData.textHtml);
         } else {
           // No formatting, use regular meltify

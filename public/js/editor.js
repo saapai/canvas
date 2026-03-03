@@ -323,13 +323,14 @@ async function commitEditor(){
           if (card) setupCalendarCardHandlers(card);
         }
       } else {
-        // Text appears immediately (no melt animation)
-
-        // Update entry content with melt animation, preserving HTML formatting
+        // Update entry content, preserving HTML formatting
         if(processedText){
           if (trimmedHtml) {
-            // Has formatting, process HTML with formatting preserved
-            entryData.element.innerHTML = meltifyHtml(trimmedHtml);
+            // Has formatting — strip URLs from HTML (they're shown as link cards)
+            let cleanHtml = trimmedHtml;
+            urls.forEach(url => { cleanHtml = cleanHtml.replace(url, ''); });
+            cleanHtml = cleanHtml.trim();
+            entryData.element.innerHTML = cleanHtml ? meltifyHtml(cleanHtml) : '';
           } else {
             // No formatting, use regular meltify
             entryData.element.innerHTML = meltify(processedText);
@@ -503,8 +504,11 @@ async function commitEditor(){
     if (card) setupCalendarCardHandlers(card);
   } else if(processedText){
     if (trimmedHtml) {
-      // Has formatting, process HTML with formatting preserved
-      entry.innerHTML = meltifyHtml(trimmedHtml);
+      // Has formatting — strip URLs from HTML (they're shown as link cards)
+      let cleanHtml = trimmedHtml;
+      urls.forEach(url => { cleanHtml = cleanHtml.replace(url, ''); });
+      cleanHtml = cleanHtml.trim();
+      entry.innerHTML = cleanHtml ? meltifyHtml(cleanHtml) : '';
     } else {
       // No formatting, use regular meltify
       entry.innerHTML = meltify(processedText);
@@ -574,13 +578,13 @@ async function commitEditor(){
     if (allCardData.length > 0 && !editingEntryId) {
       const entryData = entries.get(entry.id);
       if (entryData) {
-        entryData.cardData = allCardData[0]; // Store first card data
+        entryData.linkCardsData = allCardData;
         await updateEntryOnServer(entryData);
       }
     } else if (allCardData.length > 0 && editingEntryId && editingEntryId !== 'anchor') {
       const entryData = entries.get(editingEntryId);
       if (entryData) {
-        entryData.cardData = allCardData[0]; // Store first card data
+        entryData.linkCardsData = allCardData;
         await updateEntryOnServer(entryData);
       }
     }
