@@ -546,6 +546,12 @@ async function commitEditor(){
   console.log('[COMMIT] Saving new text entry:', entryData.id, entryData.text.substring(0, 50));
   await saveEntryToServer(entryData);
 
+  // SMS meta-instruction detection: if this entry is inside a page with SMS members,
+  // check if it matches any meta-instructions (announcement/poll/meta_instruction)
+  if (currentViewEntryId) {
+    detectSmsType(entryData.id, currentViewEntryId, trimmedRight).catch(() => {});
+  }
+
   // Generate and add cards for URLs (async, after text is rendered)
   if(urls.length > 0){
     const placeholders = [];
@@ -918,4 +924,28 @@ function updateEntryDimensions(entry) {
 function updateEntryWidthForLinkCard(entry, card) {
   // Update entry dimensions to account for link card
   updateEntryDimensions(entry);
+}
+
+// SMS meta-instruction detection: check if entry text matches page meta-instructions
+async function detectSmsType(entryId, parentEntryId, entryText) {
+  if (!entryText || !parentEntryId) return;
+  try {
+    const res = await fetch(`/api/pages/${parentEntryId}/detect-sms-type`, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ childEntryId: entryId, text: entryText })
+    });
+    if (!res.ok) return;
+    const { smsType } = await res.json();
+    if (smsType) {
+      const entryData = entries.get(entryId);
+      if (entryData) {
+        entryData.smsType = smsType;
+        entryData.element.dataset.smsType = smsType;
+      }
+    }
+  } catch (e) {
+    // Silent fail — detection is best-effort
+  }
 }

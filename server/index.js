@@ -17,6 +17,7 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: false })); // Twilio sends form-encoded data
 
 // Rate limiting (production only for auth)
 const generalLimiter = rateLimit({
@@ -25,7 +26,7 @@ const generalLimiter = rateLimit({
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => req.path === '/api/health'
+  skip: (req) => req.path === '/api/health' || req.path === '/api/twilio/sms'
 });
 
 const authLimiter = rateLimit({

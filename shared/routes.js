@@ -48,6 +48,9 @@ import { chatWithCanvas, organizeDroppedContent } from './chat.js';
 import { requireAuth, validatePhone, validateUsername, setAuthCookie, parseCookies } from './auth.js';
 import { JWT_SECRET, RESERVED_USERNAMES, debugLog } from './config.js';
 import { upload, supabase, supabaseBucket } from './upload.js';
+import { handleIncomingSms, toTwiml, validateTwilioSignature } from './sms.js';
+import * as smsDb from './sms-db.js';
+import { detectSmsType } from './sms-meta.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -2108,6 +2111,239 @@ export function createRouter(options = {}) {
     } catch (error) {
       console.error('Error serving user page:', error);
       res.status(500).send('Error loading page');
+    }
+  });
+
+  // ============================================
+  // SMS / TWILIO ROUTES
+  // ============================================
+
+  // Twilio SMS webhook (no auth, form-encoded body)
+  router.post('/api/twilio/sms', async (req, res) => {
+    try {
+      const body = req.body?.Body || '';
+      const from = req.body?.From || '';
+
+      // Validate Twilio signature in production
+      if (process.env.NODE_ENV === 'production') {
+        const signature = req.headers['x-twilio-signature'] || '';
+        const url = `${process.env.APP_URL || ''}/api/twilio/sms`;
+        if (!validateTwilioSignature(signature, url, req.body || {})) {
+          return res.status(403).send('Forbidden');
+        }
+      }
+
+      const response = await handleIncomingSms(from, body);
+      res.type('text/xml').send(toTwiml([response]));
+    } catch (error) {
+      console.error('SMS webhook error:', error);
+      res.type('text/xml').send(toTwiml(['oops, something went wrong. try again?']));
+    }
+  });
+
+  // ——— SMS Management API (all require auth) ———
+
+  // Helper: check if user owns or edits the page entry
+  async function requirePageAccess(req, res) {
+    const entryId = req.params.entryId;
+    if (!req.user) { res.status(401).json({ error: 'Not authenticated' }); return null; }
+    const db = getPool();
+    const result = await db.query(`SELECT user_id FROM entries WHERE id = $1 AND deleted_at IS NULL`, [entryId]);
+    if (!result.rows[0]) { res.status(404).json({ error: 'Page not found' }); return null; }
+    const isOwner = result.rows[0].user_id === req.user.id;
+    const isEditorFlag = !isOwner && await isEditor(result.rows[0].user_id, req.user.id);
+    if (!isOwner && !isEditorFlag) { res.status(403).json({ error: 'Access denied' }); return null; }
+    return { entryId, isOwner };
+  }
+
+  // Members CRUD
+  router.get('/api/pages/:entryId/members', requireAuth, async (req, res) => {
+    const access = await requirePageAccess(req, res);
+    if (!access) return;
+    const members = await smsDb.getMembers(access.entryId);
+    res.json(members);
+  });
+
+  router.post('/api/pages/:entryId/members', requireAuth, async (req, res) => {
+    const access = await requirePageAccess(req, res);
+    if (!access) return;
+    const { phone, name, role } = req.body;
+    if (!phone) return res.status(400).json({ error: 'Phone required' });
+    const member = await smsDb.addMember(access.entryId, phone, name, role);
+    res.json(member);
+  });
+
+  router.put('/api/pages/:entryId/members/:phone', requireAuth, async (req, res) => {
+    const access = await requirePageAccess(req, res);
+    if (!access) return;
+    const { role, name } = req.body;
+    if (role) await smsDb.updateMemberRole(access.entryId, req.params.phone, role);
+    if (name) await smsDb.updateMemberName(access.entryId, req.params.phone, name);
+    res.json({ ok: true });
+  });
+
+  router.delete('/api/pages/:entryId/members/:phone', requireAuth, async (req, res) => {
+    const access = await requirePageAccess(req, res);
+    if (!access) return;
+    await smsDb.removeMember(access.entryId, req.params.phone);
+    res.json({ ok: true });
+  });
+
+  // Announcements CRUD
+  router.get('/api/pages/:entryId/announcements', requireAuth, async (req, res) => {
+    const access = await requirePageAccess(req, res);
+    if (!access) return;
+    res.json(await smsDb.getAnnouncements(access.entryId));
+  });
+
+  router.post('/api/pages/:entryId/announcements', requireAuth, async (req, res) => {
+    const access = await requirePageAccess(req, res);
+    if (!access) return;
+    const { content } = req.body;
+    if (!content) return res.status(400).json({ error: 'Content required' });
+    const announcement = await smsDb.createAnnouncement(access.entryId, content, req.user.id);
+    res.json(announcement);
+  });
+
+  router.put('/api/pages/:entryId/announcements/:id', requireAuth, async (req, res) => {
+    const access = await requirePageAccess(req, res);
+    if (!access) return;
+    await smsDb.updateAnnouncement(req.params.id, req.body);
+    res.json({ ok: true });
+  });
+
+  router.delete('/api/pages/:entryId/announcements/:id', requireAuth, async (req, res) => {
+    const access = await requirePageAccess(req, res);
+    if (!access) return;
+    await smsDb.deleteAnnouncement(req.params.id);
+    res.json({ ok: true });
+  });
+
+  router.post('/api/pages/:entryId/announcements/:id/send', requireAuth, async (req, res) => {
+    const access = await requirePageAccess(req, res);
+    if (!access) return;
+    const announcement = await smsDb.getAnnouncementById(req.params.id);
+    if (!announcement) return res.status(404).json({ error: 'Announcement not found' });
+
+    const { sendSms } = await import('./sms.js');
+    const members = await smsDb.getOptedInMembers(access.entryId);
+    let sent = 0;
+    for (const member of members) {
+      const phone = member.phone_normalized;
+      if (!phone || phone.length < 10) continue;
+      const result = await sendSms(smsDb.toE164(phone), announcement.content);
+      if (result.ok) {
+        await smsDb.logMessage(access.entryId, phone, 'outbound', announcement.content, { action: 'announcement' });
+        sent++;
+      }
+    }
+    await smsDb.updateAnnouncement(req.params.id, { status: 'sent', sent_count: sent, sent_at: new Date() });
+    res.json({ sent });
+  });
+
+  // Polls CRUD
+  router.get('/api/pages/:entryId/polls', requireAuth, async (req, res) => {
+    const access = await requirePageAccess(req, res);
+    if (!access) return;
+    res.json(await smsDb.getPolls(access.entryId));
+  });
+
+  router.post('/api/pages/:entryId/polls', requireAuth, async (req, res) => {
+    const access = await requirePageAccess(req, res);
+    if (!access) return;
+    const { questionText, requiresReasonForNo } = req.body;
+    if (!questionText) return res.status(400).json({ error: 'Question required' });
+    const poll = await smsDb.createPoll(access.entryId, questionText, req.user.id, requiresReasonForNo || false);
+    res.json(poll);
+  });
+
+  router.post('/api/pages/:entryId/polls/:id/send', requireAuth, async (req, res) => {
+    const access = await requirePageAccess(req, res);
+    if (!access) return;
+    const poll = await smsDb.getPollById(req.params.id);
+    if (!poll) return res.status(404).json({ error: 'Poll not found' });
+
+    const { sendSms } = await import('./sms.js');
+    const members = await smsDb.getOptedInMembers(access.entryId);
+    const excuseNote = poll.requires_reason_for_no ? ' (if no explain why)' : '';
+    const pollMessage = `📊 ${poll.question_text}\n\nreply yes/no/maybe${excuseNote}`;
+    let sent = 0;
+    for (const member of members) {
+      const phone = member.phone_normalized;
+      if (!phone || phone.length < 10) continue;
+      const result = await sendSms(smsDb.toE164(phone), pollMessage);
+      if (result.ok) {
+        await smsDb.logMessage(access.entryId, phone, 'outbound', pollMessage, { action: 'poll', pollId: poll.id });
+        sent++;
+      }
+    }
+    res.json({ sent });
+  });
+
+  router.get('/api/pages/:entryId/polls/:id/responses', requireAuth, async (req, res) => {
+    const access = await requirePageAccess(req, res);
+    if (!access) return;
+    const responses = await smsDb.getPollResponses(req.params.id);
+    const summary = await smsDb.getPollResponseSummary(req.params.id);
+    res.json({ responses, summary });
+  });
+
+  router.delete('/api/pages/:entryId/polls/:id', requireAuth, async (req, res) => {
+    const access = await requirePageAccess(req, res);
+    if (!access) return;
+    await smsDb.deletePoll(req.params.id);
+    res.json({ ok: true });
+  });
+
+  // Meta Instructions
+  router.get('/api/pages/:entryId/meta-instructions', requireAuth, async (req, res) => {
+    const access = await requirePageAccess(req, res);
+    if (!access) return;
+    res.json(await smsDb.getMetaInstructions(access.entryId));
+  });
+
+  router.post('/api/pages/:entryId/meta-instructions', requireAuth, async (req, res) => {
+    const access = await requirePageAccess(req, res);
+    if (!access) return;
+    const { instruction } = req.body;
+    if (!instruction) return res.status(400).json({ error: 'Instruction required' });
+    const meta = await smsDb.addMetaInstruction(access.entryId, instruction, req.user.id);
+    res.json(meta);
+  });
+
+  router.delete('/api/pages/:entryId/meta-instructions/:id', requireAuth, async (req, res) => {
+    const access = await requirePageAccess(req, res);
+    if (!access) return;
+    await smsDb.deleteMetaInstruction(req.params.id);
+    res.json({ ok: true });
+  });
+
+  // Messages
+  router.get('/api/pages/:entryId/messages', requireAuth, async (req, res) => {
+    const access = await requirePageAccess(req, res);
+    if (!access) return;
+    const limit = parseInt(req.query.limit) || 100;
+    res.json(await smsDb.getMessagesByEntry(access.entryId, limit));
+  });
+
+  // SMS type detection for entries
+  router.post('/api/pages/:entryId/detect-sms-type', requireAuth, async (req, res) => {
+    const access = await requirePageAccess(req, res);
+    if (!access) return;
+    const { text, childEntryId } = req.body;
+    if (!text || !childEntryId) return res.status(400).json({ error: 'text and childEntryId required' });
+    const result = await detectSmsType(text, childEntryId, access.entryId);
+    res.json(result);
+  });
+
+  // Management page route (must be before /:username catch-all)
+  router.get('/:username/page/:entryId/manage', async (req, res) => {
+    try {
+      const managePath = join(__dirname, '..', 'public', 'manage.html');
+      res.sendFile(managePath);
+    } catch (error) {
+      console.error('Error serving manage page:', error);
+      res.status(500).send('Error loading management page');
     }
   });
 

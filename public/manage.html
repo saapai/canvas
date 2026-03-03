@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SMS Management</title>
+  <link rel="stylesheet" href="/manage.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>SMS Management</h1>
+    </header>
+
+    <nav class="tab-bar">
+      <button class="tab active" data-tab="members">Members</button>
+      <button class="tab" data-tab="announcements">Announcements</button>
+      <button class="tab" data-tab="polls">Polls</button>
+      <button class="tab" data-tab="meta-instructions">Meta Instructions</button>
+      <button class="tab" data-tab="messages">Messages</button>
+    </nav>
+
+    <main>
+      <!-- Members -->
+      <section id="panel-members" class="panel active">
+        <div class="panel-header">
+          <h2>Members</h2>
+        </div>
+        <form id="add-member-form" class="inline-form">
+          <input type="tel" id="member-phone" placeholder="Phone number" required>
+          <input type="text" id="member-name" placeholder="Name" required>
+          <button type="submit" class="btn btn-primary">Add</button>
+        </form>
+        <div id="members-list" class="list"></div>
+      </section>
+
+      <!-- Announcements -->
+      <section id="panel-announcements" class="panel">
+        <div class="panel-header">
+          <h2>Announcements</h2>
+        </div>
+        <form id="create-announcement-form" class="inline-form">
+          <textarea id="announcement-text" placeholder="Write your announcement..." rows="3" required></textarea>
+          <button type="submit" class="btn btn-primary">Create</button>
+        </form>
+        <div id="announcements-list" class="list"></div>
+      </section>
+
+      <!-- Polls -->
+      <section id="panel-polls" class="panel">
+        <div class="panel-header">
+          <h2>Polls</h2>
+        </div>
+        <form id="create-poll-form" class="inline-form">
+          <textarea id="poll-question" placeholder="Poll question..." rows="3" required></textarea>
+          <label class="checkbox-label">
+            <input type="checkbox" id="poll-mandatory">
+            <span>Mandatory</span>
+          </label>
+          <button type="submit" class="btn btn-primary">Create</button>
+        </form>
+        <div id="polls-list" class="list"></div>
+      </section>
+
+      <!-- Meta Instructions -->
+      <section id="panel-meta-instructions" class="panel">
+        <div class="panel-header">
+          <h2>Meta Instructions</h2>
+        </div>
+        <form id="add-instruction-form" class="inline-form">
+          <input type="text" id="instruction-text" placeholder="Add instruction..." required>
+          <button type="submit" class="btn btn-primary">Add</button>
+        </form>
+        <div id="instructions-list" class="list"></div>
+      </section>
+
+      <!-- Messages -->
+      <section id="panel-messages" class="panel">
+        <div class="panel-header">
+          <h2>Messages</h2>
+          <span class="auto-refresh-badge">Auto-refresh: 30s</span>
+        </div>
+        <div id="messages-list" class="list"></div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Toast container -->
+  <div id="toast-container"></div>
+
+  <!-- Confirmation modal -->
+  <div id="confirm-modal" class="modal-overlay">
+    <div class="modal">
+      <p id="confirm-message"></p>
+      <div class="modal-actions">
+        <button id="confirm-cancel" class="btn btn-secondary">Cancel</button>
+        <button id="confirm-ok" class="btn btn-danger">Confirm</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/manage.js"></script>
+</body>
+</html>

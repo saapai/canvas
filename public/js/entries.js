@@ -268,6 +268,14 @@ async function loadUserEntries(username, editable) {
       fragment.appendChild(entry);
       entriesToMeasure.push(entry);
 
+      // Apply SMS type badge if present
+      if (entryData.smsType) {
+        entry.dataset.smsType = entryData.smsType;
+      }
+      if (entryData.smsJoinCode) {
+        entry.dataset.smsJoinCode = entryData.smsJoinCode;
+      }
+
       const storedEntryData = {
         id: entryData.id,
         element: entry,
@@ -277,7 +285,10 @@ async function loadUserEntries(username, editable) {
         position: entryData.position,
         parentEntryId: entryData.parentEntryId,
         linkCardsData: entryData.linkCardsData || [],
-        mediaCardData: entryData.mediaCardData || null
+        mediaCardData: entryData.mediaCardData || null,
+        smsType: entryData.smsType || null,
+        smsRefId: entryData.smsRefId || null,
+        smsJoinCode: entryData.smsJoinCode || null
       };
       entries.set(entryData.id, storedEntryData);
 
@@ -303,6 +314,21 @@ async function loadUserEntries(username, editable) {
     const shareBtn = document.getElementById('share-button');
     if (shareBtn) {
       shareBtn.classList.toggle('hidden', !(window.PAGE_IS_OWNER === true));
+    }
+
+    // Show SMS manage button if current page has an sms_join_code
+    const smsManageBtn = document.getElementById('sms-manage-button');
+    if (smsManageBtn) {
+      const currentPageEntry = currentViewEntryId ? entries.get(currentViewEntryId) : null;
+      const pageHasSms = currentPageEntry && currentPageEntry.smsJoinCode;
+      // Also check root-level entries for sms join codes
+      const anySmsPagesAtRoot = !currentViewEntryId && Array.from(entries.values()).some(e => !e.parentEntryId && e.smsJoinCode);
+      smsManageBtn.classList.toggle('hidden', !pageHasSms && !anySmsPagesAtRoot);
+      if (pageHasSms) {
+        smsManageBtn.onclick = () => {
+          window.open(`/${username}/page/${currentViewEntryId}/manage`, '_blank');
+        };
+      }
     }
 
     // Start sync if editable and user is editor (or owner with editors)
