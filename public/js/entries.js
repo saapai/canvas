@@ -320,21 +320,6 @@ async function loadUserEntries(username, editable) {
       shareBtn.classList.toggle('hidden', !(window.PAGE_IS_OWNER === true));
     }
 
-    // Show SMS manage button if current page has an sms_join_code
-    const smsManageBtn = document.getElementById('sms-manage-button');
-    if (smsManageBtn) {
-      const currentPageEntry = currentViewEntryId ? entries.get(currentViewEntryId) : null;
-      const pageHasSms = currentPageEntry && currentPageEntry.smsJoinCode;
-      // Also check root-level entries for sms join codes
-      const anySmsPagesAtRoot = !currentViewEntryId && Array.from(entries.values()).some(e => !e.parentEntryId && e.smsJoinCode);
-      smsManageBtn.classList.toggle('hidden', !pageHasSms && !anySmsPagesAtRoot);
-      if (pageHasSms) {
-        smsManageBtn.onclick = () => {
-          window.open(`/${username}/page/${currentViewEntryId}/manage`, '_blank');
-        };
-      }
-    }
-
     // Start sync if editable and user is editor (or owner with editors)
     if (editable && window.PAGE_OWNER_ID) {
       startSync(window.PAGE_OWNER_ID);
@@ -388,6 +373,28 @@ async function loadUserEntries(username, editable) {
     // Always update breadcrumb (will show even for empty subdirectories)
     updateBreadcrumb();
     updateEntryVisibility();
+
+    // Show SMS manage button — must run AFTER navigation resolves so currentViewEntryId is set
+    const smsManageBtn = document.getElementById('sms-manage-button');
+    if (smsManageBtn) {
+      const currentPageEntry = currentViewEntryId ? entries.get(currentViewEntryId) : null;
+      const pageHasSms = currentPageEntry && currentPageEntry.smsJoinCode;
+      const anySmsPagesAtRoot = !currentViewEntryId && Array.from(entries.values()).some(e => !e.parentEntryId && e.smsJoinCode);
+      smsManageBtn.classList.toggle('hidden', !pageHasSms && !anySmsPagesAtRoot);
+      if (pageHasSms) {
+        smsManageBtn.onclick = () => {
+          window.open(`/${username}/page/${currentViewEntryId}/manage`, '_blank');
+        };
+      } else if (anySmsPagesAtRoot) {
+        // At root level, find the first SMS page and use that
+        const smsEntry = Array.from(entries.values()).find(e => !e.parentEntryId && e.smsJoinCode);
+        if (smsEntry) {
+          smsManageBtn.onclick = () => {
+            window.open(`/${username}/page/${smsEntry.id}/manage`, '_blank');
+          };
+        }
+      }
+    }
 
     // Recalculate dimensions for all existing entries to fix old fixed-width entries
     setTimeout(() => {
