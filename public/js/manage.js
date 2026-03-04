@@ -153,20 +153,20 @@
             '<div class="manage-sub">' + maskPhone(m.phone) + '</div>' +
           '</div>' +
           '<div class="manage-card-actions">' +
-            '<button class="manage-btn manage-btn-small manage-btn-secondary" data-manage-toggle-role="' + escapeHtml(m.phone) + '" data-current-role="' + (m.role || 'member') + '">' +
-              (m.role === 'admin' ? 'Demote' : 'Make Admin') +
-            '</button>' +
+            '<select class="manage-role-select" data-manage-role-phone="' + escapeHtml(m.phone) + '">' +
+              '<option value="admin"' + (m.role === 'admin' ? ' selected' : '') + '>Admin</option>' +
+              '<option value="member"' + (m.role !== 'admin' ? ' selected' : '') + '>Member</option>' +
+            '</select>' +
             '<button class="manage-btn manage-btn-small manage-btn-danger" data-manage-remove-member="' + escapeHtml(m.phone) + '">Remove</button>' +
           '</div>' +
         '</div>';
       }).join('');
 
-      // Toggle role — uses URL path for phone
-      list.querySelectorAll('[data-manage-toggle-role]').forEach((btn) => {
-        btn.addEventListener('click', async () => {
-          const phone = btn.dataset.manageToggleRole;
-          const current = btn.dataset.currentRole;
-          const newRole = current === 'admin' ? 'member' : 'admin';
+      // Role dropdown change handler
+      list.querySelectorAll('[data-manage-role-phone]').forEach((sel) => {
+        sel.addEventListener('change', async () => {
+          const phone = sel.dataset.manageRolePhone;
+          const newRole = sel.value;
           try {
             await apiFetch(api() + '/members/' + encodeURIComponent(phone), {
               method: 'PUT',
