@@ -139,6 +139,21 @@ export async function isAdmin(entryId, phone) {
   return member?.role === 'owner' || member?.role === 'admin';
 }
 
+export async function isAdminForUserEntries(phone, userId) {
+  const db = getPool();
+  const normalized = normalizePhone(phone);
+  const result = await db.query(
+    `SELECT 1 FROM sms_members m
+     JOIN entries e ON m.entry_id = e.id
+     WHERE m.phone_normalized = $1 AND e.user_id = $2
+       AND m.role IN ('admin', 'owner')
+       AND m.opted_out = FALSE AND e.deleted_at IS NULL
+     LIMIT 1`,
+    [normalized, userId]
+  );
+  return result.rows.length > 0;
+}
+
 // ============================================
 // MESSAGES
 // ============================================

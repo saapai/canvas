@@ -1212,7 +1212,11 @@ export function createRouter(options = {}) {
 
         if (loggedInPhone !== pageOwnerPhone) {
           // Check if user is an authorized editor
-          const authorized = await isEditor(pageOwnerId, req.user.id);
+          let authorized = await isEditor(pageOwnerId, req.user.id);
+          // SMS admin fallback
+          if (!authorized && req.user.phone) {
+            authorized = await smsDb.isAdminForUserEntries(req.user.phone, pageOwnerId);
+          }
           if (!authorized) {
             debugLog('[SAVE] Phone mismatch and not editor:', loggedInPhone, pageOwnerPhone);
             return res.status(403).json({ error: 'Not authorized to edit this page' });
@@ -1276,7 +1280,10 @@ export function createRouter(options = {}) {
         const pageOwnerPhone = pageOwner.phone.replace(/\s/g, '');
 
         if (loggedInPhone !== pageOwnerPhone) {
-          const authorized = await isEditor(pageOwnerId, req.user.id);
+          let authorized = await isEditor(pageOwnerId, req.user.id);
+          if (!authorized && req.user.phone) {
+            authorized = await smsDb.isAdminForUserEntries(req.user.phone, pageOwnerId);
+          }
           if (!authorized) {
             return res.status(403).json({ error: 'Not authorized to edit this page' });
           }
@@ -1332,7 +1339,10 @@ export function createRouter(options = {}) {
         const pageOwnerPhone = pageOwner.phone.replace(/\s/g, '');
 
         if (loggedInPhone !== pageOwnerPhone) {
-          const authorized = await isEditor(pageOwnerId, req.user.id);
+          let authorized = await isEditor(pageOwnerId, req.user.id);
+          if (!authorized && req.user.phone) {
+            authorized = await smsDb.isAdminForUserEntries(req.user.phone, pageOwnerId);
+          }
           if (!authorized) {
             debugLog('[DELETE] Phone mismatch and not editor:', loggedInPhone, pageOwnerPhone);
             return res.status(403).json({ error: 'Not authorized to edit this page' });
@@ -1367,7 +1377,10 @@ export function createRouter(options = {}) {
         const loggedInUser = await getUserById(req.user.id);
         const phonesMatch = loggedInUser && loggedInUser.phone === pageOwner.phone;
         if (!phonesMatch) {
-          const authorized = await isEditor(pageOwnerId, req.user.id);
+          let authorized = await isEditor(pageOwnerId, req.user.id);
+          if (!authorized && req.user.phone) {
+            authorized = await smsDb.isAdminForUserEntries(req.user.phone, pageOwnerId);
+          }
           if (!authorized) {
             return res.status(403).json({ error: 'No permission' });
           }
@@ -1414,7 +1427,10 @@ export function createRouter(options = {}) {
         const pageOwnerPhone = pageOwner.phone.replace(/\s/g, '');
 
         if (loggedInPhone !== pageOwnerPhone) {
-          const authorized = await isEditor(pageOwnerId, req.user.id);
+          let authorized = await isEditor(pageOwnerId, req.user.id);
+          if (!authorized && req.user.phone) {
+            authorized = await smsDb.isAdminForUserEntries(req.user.phone, pageOwnerId);
+          }
           if (!authorized) {
             return res.status(403).json({ error: 'Not authorized to edit this page' });
           }
@@ -1803,7 +1819,10 @@ export function createRouter(options = {}) {
 
       // Verify requester is owner or editor
       if (userId !== req.user.id) {
-        const authorized = await isEditor(userId, req.user.id);
+        let authorized = await isEditor(userId, req.user.id);
+        if (!authorized && req.user.phone) {
+          authorized = await smsDb.isAdminForUserEntries(req.user.phone, userId);
+        }
         if (!authorized) {
           // Also check if same phone (multi-space)
           const owner = await getUserById(userId);
@@ -2095,6 +2114,44 @@ export function createRouter(options = {}) {
     }
   });
 
+  // SMS admin pages — returns pages where logged-in user is an SMS admin
+  router.get('/api/sms-admin-pages', requireAuth, async (req, res) => {
+    try {
+      if (!req.user || !req.user.phone) {
+        return res.json({ adminPages: [] });
+      }
+      const memberships = await smsDb.getMembershipsByPhone(req.user.phone);
+      const adminMemberships = memberships.filter(m => m.role === 'admin' || m.role === 'owner');
+      if (adminMemberships.length === 0) {
+        return res.json({ adminPages: [] });
+      }
+      // Look up owner username for each admin page
+      const db = getPool();
+      const adminPages = [];
+      for (const m of adminMemberships) {
+        const entryResult = await db.query(
+          `SELECT e.id, e.text, e.sms_join_code, u.username AS owner_username
+           FROM entries e JOIN users u ON e.user_id = u.id
+           WHERE e.id = $1 AND e.deleted_at IS NULL`,
+          [m.entry_id]
+        );
+        if (entryResult.rows[0]) {
+          const row = entryResult.rows[0];
+          adminPages.push({
+            entryId: row.id,
+            entryText: row.text,
+            smsJoinCode: row.sms_join_code,
+            ownerUsername: row.owner_username
+          });
+        }
+      }
+      res.json({ adminPages });
+    } catch (error) {
+      console.error('Error fetching SMS admin pages:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // Serve user pages (always canvas view, editable if owner)
   // Exclude requests with file extensions (static files)
   // IMPORTANT: This must come AFTER all /api routes to avoid catching API requests
@@ -2153,6 +2210,10 @@ export function createRouter(options = {}) {
       // Check if logged-in user is an editor
       if (!isOwner && loggedInUser) {
         isEditorFlag = await isEditor(user.id, loggedInUser.id);
+        // SMS admin fallback: if not an editor, check if SMS admin for this user's entries
+        if (!isEditorFlag && loggedInUser.phone) {
+          isEditorFlag = await smsDb.isAdminForUserEntries(loggedInUser.phone, user.id);
+        }
       }
 
       // Always serve canvas view (editable if owner/editor, read-only if public)
@@ -2216,6 +2277,10 @@ export function createRouter(options = {}) {
       // Check if logged-in user is an editor
       if (!isOwner && loggedInUser) {
         isEditorFlag = await isEditor(user.id, loggedInUser.id);
+        // SMS admin fallback
+        if (!isEditorFlag && loggedInUser.phone) {
+          isEditorFlag = await smsDb.isAdminForUserEntries(loggedInUser.phone, user.id);
+        }
       }
 
       // Always serve canvas view (editable if owner/editor, read-only if public)
@@ -2240,7 +2305,10 @@ export function createRouter(options = {}) {
     const result = await db.query(`SELECT user_id FROM entries WHERE id = $1 AND deleted_at IS NULL`, [entryId]);
     if (!result.rows[0]) { res.status(404).json({ error: 'Page not found' }); return null; }
     const isOwner = result.rows[0].user_id === req.user.id;
-    const isEditorFlag = !isOwner && await isEditor(result.rows[0].user_id, req.user.id);
+    let isEditorFlag = !isOwner && await isEditor(result.rows[0].user_id, req.user.id);
+    if (!isOwner && !isEditorFlag && req.user.phone) {
+      isEditorFlag = await smsDb.isAdminForUserEntries(req.user.phone, result.rows[0].user_id);
+    }
     if (!isOwner && !isEditorFlag) { res.status(403).json({ error: 'Access denied' }); return null; }
     return { entryId, isOwner };
   }
