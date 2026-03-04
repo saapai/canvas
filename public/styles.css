@@ -3347,7 +3347,8 @@ body.has-bg-image::before {
   top: 72px;
   right: 28px;
   height: 30px;
-  padding: 0 12px;
+  padding: 0 18px;
+  font-size: 18px;
   border-radius: 999px;
   background: var(--paper);
   color: var(--ink);
