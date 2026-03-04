@@ -34,8 +34,9 @@ if (!DUTTAPAD_URL) {
   process.exit(1);
 }
 
-const jarvis = new pg.Pool({ connectionString: JARVIS_URL, ssl: { rejectUnauthorized: false } });
-const duttapad = new pg.Pool({ connectionString: DUTTAPAD_URL, ssl: { rejectUnauthorized: false } });
+const sslConfig = { rejectUnauthorized: false };
+const jarvis = new pg.Pool({ connectionString: JARVIS_URL, ssl: sslConfig });
+const duttapad = new pg.Pool({ connectionString: DUTTAPAD_URL, ssl: sslConfig });
 
 function normalizePhone(phone) {
   if (!phone) return '';
@@ -67,38 +68,20 @@ async function migrate() {
   const saathvik = userResult.rows[0] || (await duttapad.query(`SELECT id, username, phone FROM users WHERE phone_normalized = '3853687238' LIMIT 1`)).rows[0];
   console.log(`Found Duttapad user: ${saathvik.username} (id: ${saathvik.id})`);
 
-  // 3. Create SEP entry in Duttapad
-  const entryId = `sep-${crypto.randomUUID().slice(0, 8)}-entry-1`;
-  const entryResult = await duttapad.query(
-    `INSERT INTO entries (id, text, text_html, position_x, position_y, parent_entry_id, user_id, sms_join_code)
-     VALUES ($1, 'SEP', 'SEP', 0, 0, NULL, $2, 'SEP')
-     ON CONFLICT ON CONSTRAINT entries_pkey DO NOTHING
-     RETURNING id`,
-    [entryId, saathvik.id]
-  );
-
-  // Check if SEP entry already exists
+  // 3. Find or create SEP entry in Duttapad
   let sepEntryId;
-  if (entryResult.rows.length > 0) {
-    sepEntryId = entryResult.rows[0].id;
-    console.log(`Created SEP entry: ${sepEntryId}`);
+  const existing = await duttapad.query(`SELECT id FROM entries WHERE sms_join_code = 'SEP' AND deleted_at IS NULL LIMIT 1`);
+  if (existing.rows.length > 0) {
+    sepEntryId = existing.rows[0].id;
+    console.log(`SEP entry already exists: ${sepEntryId}`);
   } else {
-    // Find existing
-    const existing = await duttapad.query(`SELECT id FROM entries WHERE sms_join_code = 'SEP' AND deleted_at IS NULL LIMIT 1`);
-    if (existing.rows.length > 0) {
-      sepEntryId = existing.rows[0].id;
-      console.log(`SEP entry already exists: ${sepEntryId}`);
-    } else {
-      // Force insert with different ID handling
-      const altId = `entry-sep-${Date.now()}`;
-      await duttapad.query(
-        `INSERT INTO entries (id, text, text_html, position_x, position_y, parent_entry_id, user_id, sms_join_code)
-         VALUES ($1, 'SEP', 'SEP', 0, 0, NULL, $2, 'SEP')`,
-        [altId, saathvik.id]
-      );
-      sepEntryId = altId;
-      console.log(`Created SEP entry (alt): ${sepEntryId}`);
-    }
+    sepEntryId = `sep-${crypto.randomUUID().slice(0, 8)}-entry-1`;
+    await duttapad.query(
+      `INSERT INTO entries (id, text, text_html, position_x, position_y, parent_entry_id, user_id, sms_join_code)
+       VALUES ($1, 'SEP', 'SEP', 0, 0, NULL, $2, 'SEP')`,
+      [sepEntryId, saathvik.id]
+    );
+    console.log(`Created SEP entry: ${sepEntryId}`);
   }
 
   // 4. Migrate members: Jarvis SpaceMember + User → Duttapad sms_members
