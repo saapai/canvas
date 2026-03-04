@@ -275,21 +275,20 @@ async function loadSmsAdminPageCards() {
     const startY = 130;
 
     data.adminPages.forEach((page, index) => {
-      const card = document.createElement('div');
-      card.className = 'shared-page-card';
-      if (page.smsJoinCode) card.dataset.smsJoinCode = page.smsJoinCode;
-      card.style.left = `${offsetX + index * 200}px`;
-      card.style.top = `${startY}px`;
-      card.innerHTML = `
-        <div class="shared-page-card-title">${escapeHtml(page.ownerUsername)}</div>
-        <div class="shared-page-card-subtitle">SMS Admin</div>
-      `;
+      const el = document.createElement('div');
+      el.className = 'entry sms-admin-link';
+      el.dataset.smsJoinCode = page.smsJoinCode || '';
+      el.style.position = 'absolute';
+      el.style.left = `${offsetX + index * 200}px`;
+      el.style.top = `${startY}px`;
+      el.style.cursor = 'pointer';
+      el.textContent = page.ownerUsername;
 
-      card.addEventListener('click', () => {
+      el.addEventListener('click', () => {
         window.location.href = '/' + page.ownerUsername;
       });
 
-      world.appendChild(card);
+      world.appendChild(el);
     });
   } catch (err) {
     console.error('Error loading SMS admin pages:', err);

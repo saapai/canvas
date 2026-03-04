@@ -1042,7 +1042,7 @@ body::before{
 .bg-picker-button {
   position: fixed;
   top: 72px;
-  right: 28px;
+  right: 90px;
   height: 30px;
   padding: 0 18px;
   border-radius: 999px;
@@ -1070,7 +1070,7 @@ body::before{
 .bg-picker-dropdown {
   position: fixed;
   top: 112px;
-  right: 16px;
+  right: 78px;
   background: var(--paper);
   border: 1px solid rgba(0, 0, 0, 0.1);
   border-radius: 10px;
@@ -3307,11 +3307,6 @@ body.has-bg-image::before {
   background: rgba(214, 48, 49, 0.08);
 }
 
-.shared-page-card[data-sms-join-code] {
-  border-left: 2px solid rgba(46, 204, 113, 0.5);
-  padding-left: 6px;
-}
-
 /* ——— SMS type indicators on entries ——— */
 .entry[data-sms-type]::before {
   position: absolute;
@@ -3350,7 +3345,7 @@ body.has-bg-image::before {
 .sms-manage-button {
   position: fixed;
   top: 72px;
-  right: 90px;
+  right: 28px;
   height: 30px;
   padding: 0 12px;
   border-radius: 999px;
