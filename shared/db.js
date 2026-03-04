@@ -253,6 +253,173 @@ export async function initDatabase() {
       console.log('Note: entries updated_at index check:', error.message);
     }
 
+    // ——— SMS / Jarvis merge: new columns on entries ———
+    try {
+      await db.query(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS sms_type TEXT`);
+      await db.query(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS sms_ref_id TEXT`);
+      await db.query(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS sms_join_code TEXT`);
+      // Unique index on join code (only non-null values)
+      await db.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_entries_sms_join_code ON entries(sms_join_code) WHERE sms_join_code IS NOT NULL`);
+    } catch (error) {
+      console.log('Note: entries SMS columns migration:', error.message);
+    }
+
+    // ——— SMS Members: links phone numbers to a page entry ———
+    try {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS sms_members (
+          id TEXT PRIMARY KEY,
+          entry_id TEXT NOT NULL,
+          phone TEXT NOT NULL,
+          phone_normalized TEXT NOT NULL,
+          name TEXT,
+          role TEXT NOT NULL DEFAULT 'member',
+          opted_out BOOLEAN NOT NULL DEFAULT FALSE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(entry_id, phone_normalized)
+        );
+      `);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_sms_members_entry ON sms_members(entry_id)`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_sms_members_phone ON sms_members(phone_normalized)`);
+    } catch (error) {
+      console.log('Note: sms_members table check:', error.message);
+    }
+
+    // ——— SMS Messages: message log scoped to pages ———
+    try {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS sms_messages (
+          id TEXT PRIMARY KEY,
+          entry_id TEXT,
+          phone TEXT NOT NULL,
+          phone_normalized TEXT NOT NULL,
+          direction TEXT NOT NULL,
+          text TEXT NOT NULL,
+          meta JSONB,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_sms_messages_entry ON sms_messages(entry_id)`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_sms_messages_phone ON sms_messages(phone_normalized)`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_sms_messages_created ON sms_messages(created_at)`);
+    } catch (error) {
+      console.log('Note: sms_messages table check:', error.message);
+    }
+
+    // ——— SMS Conversation State: per-phone ephemeral state ———
+    try {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS sms_conversation_state (
+          id TEXT PRIMARY KEY,
+          phone_normalized TEXT NOT NULL,
+          active_entry_id TEXT,
+          state_type TEXT,
+          state_payload JSONB,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(phone_normalized)
+        );
+      `);
+    } catch (error) {
+      console.log('Note: sms_conversation_state table check:', error.message);
+    }
+
+    // ——— SMS Drafts: in-progress announcement/poll drafts ———
+    try {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS sms_drafts (
+          id TEXT PRIMARY KEY,
+          phone_normalized TEXT NOT NULL,
+          entry_id TEXT,
+          draft_type TEXT NOT NULL DEFAULT 'announcement',
+          draft_text TEXT NOT NULL DEFAULT '',
+          structured_payload JSONB,
+          status TEXT NOT NULL DEFAULT 'in_progress',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_sms_drafts_phone ON sms_drafts(phone_normalized)`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_sms_drafts_entry ON sms_drafts(entry_id)`);
+    } catch (error) {
+      console.log('Note: sms_drafts table check:', error.message);
+    }
+
+    // ——— Announcements: tied to pages with lifecycle ———
+    try {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS announcements (
+          id TEXT PRIMARY KEY,
+          entry_id TEXT NOT NULL,
+          content TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'draft',
+          sent_count INTEGER DEFAULT 0,
+          created_by TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          sent_at TIMESTAMP
+        );
+      `);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_announcements_entry ON announcements(entry_id)`);
+    } catch (error) {
+      console.log('Note: announcements table check:', error.message);
+    }
+
+    // ——— Polls: tied to pages ———
+    try {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS polls (
+          id TEXT PRIMARY KEY,
+          entry_id TEXT NOT NULL,
+          question_text TEXT NOT NULL,
+          requires_reason_for_no BOOLEAN NOT NULL DEFAULT FALSE,
+          is_active BOOLEAN NOT NULL DEFAULT TRUE,
+          created_by TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          closed_at TIMESTAMP
+        );
+      `);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_polls_entry ON polls(entry_id)`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_polls_active ON polls(is_active) WHERE is_active = TRUE`);
+    } catch (error) {
+      console.log('Note: polls table check:', error.message);
+    }
+
+    // ——— Poll Responses: individual yes/no/maybe ———
+    try {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS poll_responses (
+          id TEXT PRIMARY KEY,
+          poll_id TEXT NOT NULL REFERENCES polls(id),
+          phone_normalized TEXT NOT NULL,
+          response TEXT NOT NULL,
+          notes TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(poll_id, phone_normalized)
+        );
+      `);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_poll_responses_poll ON poll_responses(poll_id)`);
+    } catch (error) {
+      console.log('Note: poll_responses table check:', error.message);
+    }
+
+    // ——— Meta Instructions: admin-defined behavioral rules per page ———
+    try {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS meta_instructions (
+          id TEXT PRIMARY KEY,
+          entry_id TEXT NOT NULL,
+          instruction TEXT NOT NULL,
+          created_by TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_meta_instructions_entry ON meta_instructions(entry_id)`);
+    } catch (error) {
+      console.log('Note: meta_instructions table check:', error.message);
+    }
+
     dbInitialized = true;
     console.log('Database initialized successfully');
   } catch (error) {
@@ -270,7 +437,7 @@ export async function getAllEntries(userId, options = {}) {
     let result;
     try {
       // Try to select with text_html column
-      let query = `SELECT id, text, text_html, position_x, position_y, parent_entry_id, link_cards_data, media_card_data, latex_data
+      let query = `SELECT id, text, text_html, position_x, position_y, parent_entry_id, link_cards_data, media_card_data, latex_data, sms_type, sms_ref_id, sms_join_code
          FROM entries
          WHERE user_id = $1 AND deleted_at IS NULL
          ORDER BY created_at ASC`;
@@ -312,9 +479,12 @@ export async function getAllEntries(userId, options = {}) {
       parentEntryId: row.parent_entry_id || null,
       linkCardsData: row.link_cards_data || null,
       mediaCardData: row.media_card_data || null,
-      latexData: row.latex_data || null
+      latexData: row.latex_data || null,
+      smsType: row.sms_type || null,
+      smsRefId: row.sms_ref_id || null,
+      smsJoinCode: row.sms_join_code || null
     }));
-    
+
     return mapped;
   } catch (error) {
     console.error('Error fetching entries:', error);
@@ -632,7 +802,7 @@ export async function getEntriesByUsername(username, options = {}) {
     const { limit, offset } = options;
     const hasPagination = limit !== undefined && offset !== undefined;
     
-    let query = `SELECT e.id, e.text, e.text_html, e.position_x, e.position_y, e.parent_entry_id, e.link_cards_data, e.media_card_data, e.latex_data, e.created_at
+    let query = `SELECT e.id, e.text, e.text_html, e.position_x, e.position_y, e.parent_entry_id, e.link_cards_data, e.media_card_data, e.latex_data, e.created_at, e.sms_type, e.sms_ref_id, e.sms_join_code
        FROM entries e
        JOIN users u ON e.user_id = u.id
        WHERE u.username = $1 AND e.deleted_at IS NULL
@@ -654,7 +824,10 @@ export async function getEntriesByUsername(username, options = {}) {
       linkCardsData: row.link_cards_data || null,
       mediaCardData: row.media_card_data || null,
       latexData: row.latex_data || null,
-      createdAt: row.created_at
+      createdAt: row.created_at,
+      smsType: row.sms_type || null,
+      smsRefId: row.sms_ref_id || null,
+      smsJoinCode: row.sms_join_code || null
     }));
   } catch (error) {
     console.error('Error fetching entries by username:', error);

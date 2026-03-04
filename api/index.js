@@ -20,6 +20,7 @@ app.use(function (req, res, next) {
   if (ct.includes('multipart/form-data')) return next();
   express.json()(req, res, next);
 });
+app.use(express.urlencoded({ extended: false })); // Twilio sends form-encoded data
 
 // Serve static files
 app.use(express.static('public'));
