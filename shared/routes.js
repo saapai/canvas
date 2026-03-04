@@ -1893,15 +1893,15 @@ export function createRouter(options = {}) {
         totalSmsMembers = parseInt(smsMembersResult.rows[0].count, 10);
       } catch (e) { /* tables may not exist */ }
 
-      // Daily new users (last 30 days) — count by DISTINCT phone_normalized first signup
+      // Daily new users (last 30 days) — find each phone's actual first signup, then filter
       const dailyNewUsers = await db.query(`
         SELECT DATE(first_signup) as date, COUNT(*) as count
         FROM (
           SELECT phone_normalized, MIN(created_at) as first_signup
           FROM users
           WHERE phone_normalized IS NOT NULL
-            AND created_at >= NOW() - INTERVAL '30 days'
           GROUP BY phone_normalized
+          HAVING MIN(created_at) >= NOW() - INTERVAL '30 days'
         ) first_signups
         GROUP BY DATE(first_signup)
         ORDER BY date
