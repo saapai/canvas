@@ -8,20 +8,21 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
   <style>
     :root {
-      color-scheme: dark;
-      --bg: #0f1115;
-      --card: #161922;
-      --text: #e8ecf2;
-      --muted: #9aa4b5;
-      --accent: #6dd3f7;
-      --accent-2: #a5f59c;
-      --border: #202534;
+      --bg: #f7f2e8;
+      --card: #ffffff;
+      --text: #1d1d1f;
+      --muted: #6e6e73;
+      --accent: #b8860b;
+      --accent-2: #6b8e6b;
+      --border: rgba(0,0,0,0.08);
+      --bubble-in: #e8e3d9;
+      --bubble-out: #d4c9a8;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
-      background: radial-gradient(circle at 20% 20%, rgba(109,211,247,0.12), transparent 35%), radial-gradient(circle at 80% 0%, rgba(165,245,156,0.10), transparent 30%), var(--bg);
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
       color: var(--text);
       min-height: 100vh;
     }
@@ -30,12 +31,12 @@
       max-width: 1200px;
       margin: 0 auto;
     }
-    h1 { margin: 0 0 6px; font-size: 28px; }
+    h1 { margin: 0 0 6px; font-size: 28px; font-weight: 700; }
     p { margin: 0; color: var(--muted); }
     .grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-      gap: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 14px;
       padding: 0 24px 24px;
       max-width: 1200px;
       margin: 0 auto;
@@ -43,22 +44,130 @@
     .card {
       background: var(--card);
       border: 1px solid var(--border);
-      border-radius: 14px;
+      border-radius: 12px;
       padding: 16px;
-      box-shadow: 0 10px 40px rgba(0,0,0,0.25);
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
     }
-    .stat-value { font-size: 28px; font-weight: 700; margin: 8px 0; }
+    .stat-value { font-size: 26px; font-weight: 700; margin: 6px 0; }
     .stat-label { color: var(--muted); font-size: 13px; }
-    .charts { max-width: 1200px; margin: 0 auto 24px; padding: 0 24px; display: grid; gap: 16px; }
-    canvas { width: 100%; background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 12px; }
+    .charts { max-width: 1200px; margin: 0 auto 24px; padding: 0 24px; display: grid; gap: 14px; }
+    .chart-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+    }
+    canvas { width: 100%; }
     table { width: 100%; border-collapse: collapse; }
     th, td { padding: 10px 12px; text-align: left; }
-    th { color: var(--muted); font-weight: 600; }
-    tr:nth-child(even) { background: rgba(255,255,255,0.02); }
-    .leaderboard { max-width: 1200px; margin: 0 auto 40px; padding: 0 24px 40px; }
+    th { color: var(--muted); font-weight: 600; font-size: 13px; border-bottom: 1px solid var(--border); }
+    tr:hover { background: rgba(0,0,0,0.02); }
+    .leaderboard { max-width: 1200px; margin: 0 auto 24px; padding: 0 24px; }
     .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); font-size: 12px; }
-    .error { color: #ffb3b3; }
-    a { color: var(--accent); }
+    .error { color: #c0392b; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    td a { font-weight: 500; }
+
+    /* Conversations section */
+    .conversations-section {
+      max-width: 1200px;
+      margin: 0 auto 40px;
+      padding: 0 24px 40px;
+    }
+    .conversations-layout {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      gap: 0;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+      background: var(--card);
+      height: 600px;
+    }
+    .convo-list {
+      border-right: 1px solid var(--border);
+      overflow-y: auto;
+      background: #faf7f0;
+    }
+    .convo-item {
+      padding: 12px 16px;
+      cursor: pointer;
+      border-bottom: 1px solid var(--border);
+      transition: background 0.15s;
+    }
+    .convo-item:hover { background: rgba(0,0,0,0.03); }
+    .convo-item.active { background: rgba(184,134,11,0.08); }
+    .convo-name { font-weight: 600; font-size: 14px; margin-bottom: 2px; }
+    .convo-phone { font-size: 12px; color: var(--muted); }
+    .convo-preview { font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 4px; }
+    .convo-meta { display: flex; justify-content: space-between; align-items: center; }
+    .convo-time { font-size: 11px; color: var(--muted); }
+    .convo-count { font-size: 11px; color: var(--muted); background: rgba(0,0,0,0.05); padding: 1px 6px; border-radius: 10px; }
+
+    .convo-panel {
+      display: flex;
+      flex-direction: column;
+      background: var(--bg);
+    }
+    .convo-header {
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--card);
+      font-weight: 600;
+      font-size: 15px;
+    }
+    .convo-header .convo-header-phone { font-size: 12px; color: var(--muted); font-weight: 400; }
+    .convo-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .convo-empty {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .msg-bubble {
+      max-width: 75%;
+      padding: 8px 12px;
+      border-radius: 16px;
+      font-size: 14px;
+      line-height: 1.4;
+      word-break: break-word;
+    }
+    .msg-inbound {
+      align-self: flex-start;
+      background: var(--bubble-in);
+      border-bottom-left-radius: 4px;
+    }
+    .msg-outbound {
+      align-self: flex-end;
+      background: var(--bubble-out);
+      border-bottom-right-radius: 4px;
+    }
+    .msg-time {
+      font-size: 10px;
+      color: var(--muted);
+      margin-top: 2px;
+    }
+    .msg-inbound .msg-time { text-align: left; }
+    .msg-outbound .msg-time { text-align: right; }
+
+    @media (max-width: 768px) {
+      .conversations-layout {
+        grid-template-columns: 1fr;
+        height: auto;
+      }
+      .convo-list { max-height: 300px; border-right: none; border-bottom: 1px solid var(--border); }
+      .convo-panel { min-height: 400px; }
+    }
   </style>
 </head>
 <body>
@@ -70,48 +179,82 @@
   <section class="grid" id="stat-cards">
     <div class="card">
       <div class="stat-label">Total Users</div>
-      <div class="stat-value" id="total-users">—</div>
+      <div class="stat-value" id="total-users">&mdash;</div>
     </div>
     <div class="card">
       <div class="stat-label">Total Entries</div>
-      <div class="stat-value" id="total-entries">—</div>
+      <div class="stat-value" id="total-entries">&mdash;</div>
     </div>
     <div class="card">
-      <div class="stat-label">Avg Entries per User</div>
-      <div class="stat-value" id="avg-entries">—</div>
+      <div class="stat-label">Avg Entries / User</div>
+      <div class="stat-value" id="avg-entries">&mdash;</div>
+    </div>
+    <div class="card">
+      <div class="stat-label">Total Characters</div>
+      <div class="stat-value" id="total-characters">&mdash;</div>
+    </div>
+    <div class="card">
+      <div class="stat-label">SMS Messages</div>
+      <div class="stat-value" id="total-sms-messages">&mdash;</div>
+    </div>
+    <div class="card">
+      <div class="stat-label">SMS Members</div>
+      <div class="stat-value" id="total-sms-members">&mdash;</div>
     </div>
   </section>
 
   <section class="charts">
-    <canvas id="chart-new-users" height="140"></canvas>
-    <canvas id="chart-new-entries" height="140"></canvas>
-    <canvas id="chart-active-users" height="140"></canvas>
+    <div class="chart-card"><canvas id="chart-new-users" height="140"></canvas></div>
+    <div class="chart-card"><canvas id="chart-new-entries" height="140"></canvas></div>
+    <div class="chart-card"><canvas id="chart-active-users" height="140"></canvas></div>
   </section>
 
-  <section class="leaderboard card">
-    <h3 style="margin:0 0 12px;">Leaderboard</h3>
-    <p class="stat-label" style="margin:0 0 12px;">Sorted by total entries. Includes unique page slugs.</p>
-    <div style="overflow-x:auto;">
-      <table id="leaderboard-table">
-        <thead>
-          <tr>
-            <th>User</th>
-            <th>Entries</th>
-            <th>Total Made</th>
-            <th>Deleted</th>
-            <th>Unique Pages</th>
-            <th>Joined</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
+  <section class="leaderboard">
+    <div class="card">
+      <h3 style="margin:0 0 12px;">Leaderboard</h3>
+      <p class="stat-label" style="margin:0 0 12px;">Sorted by total entries. Usernames link to their pages.</p>
+      <div style="overflow-x:auto;">
+        <table id="leaderboard-table">
+          <thead>
+            <tr>
+              <th>User</th>
+              <th>Entries</th>
+              <th>Characters</th>
+              <th>Total Made</th>
+              <th>Deleted</th>
+              <th>Pages</th>
+              <th>Joined</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="error" class="error"></div>
     </div>
-    <div id="error" class="error"></div>
+  </section>
+
+  <section class="conversations-section">
+    <div class="card" style="padding:0;overflow:hidden;">
+      <div style="padding:16px 20px 12px;border-bottom:1px solid var(--border);">
+        <h3 style="margin:0 0 4px;">SMS Conversations</h3>
+        <p class="stat-label" style="margin:0;">All SMS messages grouped by phone number.</p>
+      </div>
+      <div class="conversations-layout" id="conversations-container">
+        <div class="convo-list" id="convo-list">
+          <div class="convo-empty">Loading...</div>
+        </div>
+        <div class="convo-panel">
+          <div class="convo-header" id="convo-header">Select a conversation</div>
+          <div class="convo-messages" id="convo-messages">
+            <div class="convo-empty">Choose a conversation from the left to view messages.</div>
+          </div>
+        </div>
+      </div>
+    </div>
   </section>
 
   <script>
     const fmt = (n) => Number(n || 0).toLocaleString();
-    const fmtDate = (iso) => iso || '—';
 
     function renderChart(el, label, labels, data, color) {
       new Chart(el, {
@@ -124,20 +267,23 @@
             fill: true,
             tension: 0.3,
             borderColor: color,
-            backgroundColor: color + '33',
+            backgroundColor: color + '22',
             pointRadius: 0
           }]
         },
         options: {
           responsive: true,
-          scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
-          plugins: { 
-            legend: { 
+          scales: {
+            y: { beginAtZero: true, ticks: { precision: 0, color: '#6e6e73' }, grid: { color: 'rgba(0,0,0,0.05)' } },
+            x: { ticks: { color: '#6e6e73' }, grid: { color: 'rgba(0,0,0,0.03)' } }
+          },
+          plugins: {
+            legend: {
               display: true,
               position: 'top',
               align: 'start',
               labels: {
-                color: '#e8ecf2',
+                color: '#1d1d1f',
                 font: { size: 13, weight: '600' },
                 padding: 12
               }
@@ -147,16 +293,26 @@
       });
     }
 
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
     function renderLeaderboard(rows) {
       const tbody = document.querySelector('#leaderboard-table tbody');
       tbody.innerHTML = '';
       rows.forEach((r) => {
         const tr = document.createElement('tr');
-        const username = r.username || '—';
-        const joined = r.created_at ? r.created_at.slice(0, 10) : '—';
+        const username = r.username || '\u2014';
+        const joined = r.created_at ? r.created_at.slice(0, 10) : '\u2014';
+        const userLink = r.username
+          ? '<a href="/' + escapeHtml(r.username) + '">' + escapeHtml(username) + '</a>'
+          : escapeHtml(username);
         tr.innerHTML = `
-          <td>${username}</td>
+          <td>${userLink}</td>
           <td>${fmt(r.entry_count)}</td>
+          <td>${fmt(r.total_characters)}</td>
           <td>${fmt(r.total_entries_made)}</td>
           <td>${fmt(r.entries_deleted)}</td>
           <td>${fmt(r.unique_pages)}</td>
@@ -165,6 +321,38 @@
         tbody.appendChild(tr);
       });
     }
+
+    function relativeTime(dateStr) {
+      if (!dateStr) return '';
+      const diff = Date.now() - new Date(dateStr).getTime();
+      const seconds = Math.floor(diff / 1000);
+      const minutes = Math.floor(seconds / 60);
+      const hours = Math.floor(minutes / 60);
+      const days = Math.floor(hours / 24);
+      if (seconds < 60) return 'just now';
+      if (minutes < 60) return minutes + 'm ago';
+      if (hours < 24) return hours + 'h ago';
+      if (days === 1) return 'yesterday';
+      if (days < 30) return days + 'd ago';
+      return new Date(dateStr).toLocaleDateString();
+    }
+
+    function maskPhone(phone) {
+      if (!phone) return '***';
+      const digits = phone.replace(/\D/g, '');
+      return '***' + digits.slice(-4);
+    }
+
+    function formatTime(dateStr) {
+      if (!dateStr) return '';
+      const d = new Date(dateStr);
+      const now = new Date();
+      const isToday = d.toDateString() === now.toDateString();
+      if (isToday) return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    // --- Stats ---
 
     async function loadStats() {
       const errorEl = document.getElementById('error');
@@ -176,18 +364,21 @@
         document.getElementById('total-users').textContent = fmt(data.totals.users);
         document.getElementById('total-entries').textContent = fmt(data.totals.entries);
         document.getElementById('avg-entries').textContent = data.totals.avgEntriesPerUser;
+        document.getElementById('total-characters').textContent = fmt(data.totals.totalCharacters);
+        document.getElementById('total-sms-messages').textContent = fmt(data.totals.totalSmsMessages);
+        document.getElementById('total-sms-members').textContent = fmt(data.totals.totalSmsMembers);
 
         const newUsersLabels = data.dailyNewUsers.map(d => d.date);
         const newUsersData = data.dailyNewUsers.map(d => d.count);
-        renderChart(document.getElementById('chart-new-users'), 'New Users per Day', newUsersLabels, newUsersData, '#6dd3f7');
+        renderChart(document.getElementById('chart-new-users'), 'New Users per Day', newUsersLabels, newUsersData, '#b8860b');
 
         const newEntriesLabels = data.dailyNewEntries.map(d => d.date);
         const newEntriesData = data.dailyNewEntries.map(d => d.count);
-        renderChart(document.getElementById('chart-new-entries'), 'New Entries per Day', newEntriesLabels, newEntriesData, '#a5f59c');
+        renderChart(document.getElementById('chart-new-entries'), 'New Entries per Day', newEntriesLabels, newEntriesData, '#6b8e6b');
 
         const activeLabels = data.dailyActiveUsers.map(d => d.date);
         const activeData = data.dailyActiveUsers.map(d => d.count);
-        renderChart(document.getElementById('chart-active-users'), 'Active Users per Day', activeLabels, activeData, '#f7c46d');
+        renderChart(document.getElementById('chart-active-users'), 'Active Users per Day', activeLabels, activeData, '#8b7355');
 
         renderLeaderboard(data.leaderboard || []);
         errorEl.textContent = '';
@@ -197,7 +388,79 @@
       }
     }
 
+    // --- Conversations ---
+
+    async function loadConversations() {
+      const list = document.getElementById('convo-list');
+      try {
+        const res = await fetch('/api/stats/conversations');
+        if (!res.ok) throw new Error('Failed to load');
+        const convos = await res.json();
+        if (!convos || convos.length === 0) {
+          list.innerHTML = '<div class="convo-empty">No SMS conversations yet.</div>';
+          return;
+        }
+        list.innerHTML = convos.map(c => {
+          const name = c.member_name || maskPhone(c.phone_normalized);
+          const preview = (c.last_message || '').slice(0, 60);
+          return '<div class="convo-item" data-phone="' + escapeHtml(c.phone_normalized) + '" data-name="' + escapeHtml(name) + '">' +
+            '<div class="convo-meta">' +
+              '<div class="convo-name">' + escapeHtml(name) + '</div>' +
+              '<span class="convo-time">' + relativeTime(c.last_message_at) + '</span>' +
+            '</div>' +
+            '<div class="convo-phone">' + maskPhone(c.phone_normalized) + ' &middot; ' + c.total_count + ' msgs</div>' +
+            '<div class="convo-preview">' + escapeHtml(preview) + '</div>' +
+          '</div>';
+        }).join('');
+
+        list.querySelectorAll('.convo-item').forEach(item => {
+          item.addEventListener('click', () => {
+            list.querySelectorAll('.convo-item').forEach(i => i.classList.remove('active'));
+            item.classList.add('active');
+            loadConversation(item.dataset.phone, item.dataset.name);
+          });
+        });
+      } catch (err) {
+        console.error(err);
+        list.innerHTML = '<div class="convo-empty">Failed to load conversations.</div>';
+      }
+    }
+
+    async function loadConversation(phone, displayName) {
+      const header = document.getElementById('convo-header');
+      const messagesEl = document.getElementById('convo-messages');
+      header.innerHTML = escapeHtml(displayName) + ' <span class="convo-header-phone">' + maskPhone(phone) + '</span>';
+      messagesEl.innerHTML = '<div class="convo-empty">Loading...</div>';
+
+      try {
+        const res = await fetch('/api/stats/conversations/' + encodeURIComponent(phone));
+        if (!res.ok) throw new Error('Failed to load');
+        const data = await res.json();
+        const messages = data.messages || [];
+
+        if (messages.length === 0) {
+          messagesEl.innerHTML = '<div class="convo-empty">No messages.</div>';
+          return;
+        }
+
+        messagesEl.innerHTML = messages.map(m => {
+          const cls = m.direction === 'inbound' ? 'msg-inbound' : 'msg-outbound';
+          return '<div class="msg-bubble ' + cls + '">' +
+            '<div>' + escapeHtml(m.text || '') + '</div>' +
+            '<div class="msg-time">' + formatTime(m.created_at) + '</div>' +
+          '</div>';
+        }).join('');
+
+        // Scroll to bottom (newest messages)
+        messagesEl.scrollTop = messagesEl.scrollHeight;
+      } catch (err) {
+        console.error(err);
+        messagesEl.innerHTML = '<div class="convo-empty">Failed to load messages.</div>';
+      }
+    }
+
     loadStats();
+    loadConversations();
   </script>
 </body>
 </html>

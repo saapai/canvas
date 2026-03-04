@@ -128,6 +128,11 @@
     </button>
   </div>
   <input type="file" id="bg-upload-input" accept="image/*" style="display:none" />
+  <button id="sms-manage-button" class="sms-manage-button hidden" title="SMS Settings">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+    </svg>
+  </button>
   <button id="help-button" class="help-button" title="Show help">?</button>
   <div id="help-modal" class="help-modal hidden">
     <div class="help-content">
@@ -328,6 +333,82 @@
   </div>
   <div id="navigator"><div id="navigator-list"></div></div>
 
+  <!-- SMS Manage Modal -->
+  <div id="manage-modal" class="manage-overlay hidden">
+    <div class="manage-backdrop"></div>
+    <div class="manage-card">
+      <div class="manage-header">
+        <h2>SMS Management</h2>
+        <button class="manage-close" id="manage-close">&times;</button>
+      </div>
+      <nav class="manage-tabs">
+        <button class="manage-tab active" data-manage-tab="members">Members</button>
+        <button class="manage-tab" data-manage-tab="announcements">Announcements</button>
+        <button class="manage-tab" data-manage-tab="polls">Polls</button>
+        <button class="manage-tab" data-manage-tab="meta-instructions">Instructions</button>
+        <button class="manage-tab" data-manage-tab="messages">Messages</button>
+      </nav>
+      <div class="manage-body">
+        <!-- Members -->
+        <section id="manage-panel-members" class="manage-panel active">
+          <form id="manage-add-member-form" class="manage-form">
+            <input type="tel" id="manage-member-phone" placeholder="Phone number" required>
+            <input type="text" id="manage-member-name" placeholder="Name" required>
+            <button type="submit" class="manage-btn manage-btn-primary">Add</button>
+          </form>
+          <div id="manage-members-list" class="manage-list"></div>
+        </section>
+        <!-- Announcements -->
+        <section id="manage-panel-announcements" class="manage-panel">
+          <form id="manage-create-announcement-form" class="manage-form">
+            <textarea id="manage-announcement-text" placeholder="Write your announcement..." rows="3" required></textarea>
+            <button type="submit" class="manage-btn manage-btn-primary">Create</button>
+          </form>
+          <div id="manage-announcements-list" class="manage-list"></div>
+        </section>
+        <!-- Polls -->
+        <section id="manage-panel-polls" class="manage-panel">
+          <form id="manage-create-poll-form" class="manage-form">
+            <textarea id="manage-poll-question" placeholder="Poll question..." rows="3" required></textarea>
+            <label class="manage-checkbox">
+              <input type="checkbox" id="manage-poll-mandatory">
+              <span>Require reason for "no"</span>
+            </label>
+            <button type="submit" class="manage-btn manage-btn-primary">Create</button>
+          </form>
+          <div id="manage-polls-list" class="manage-list"></div>
+        </section>
+        <!-- Instructions -->
+        <section id="manage-panel-meta-instructions" class="manage-panel">
+          <form id="manage-add-instruction-form" class="manage-form">
+            <input type="text" id="manage-instruction-text" placeholder="Add instruction..." required>
+            <button type="submit" class="manage-btn manage-btn-primary">Add</button>
+          </form>
+          <div id="manage-instructions-list" class="manage-list"></div>
+        </section>
+        <!-- Messages -->
+        <section id="manage-panel-messages" class="manage-panel">
+          <div class="manage-panel-header">
+            <span class="manage-auto-refresh">Auto-refresh: 30s</span>
+          </div>
+          <div id="manage-messages-list" class="manage-list"></div>
+        </section>
+      </div>
+    </div>
+    <!-- Toast container -->
+    <div id="manage-toast-container" class="manage-toast-container"></div>
+    <!-- Confirmation sub-modal -->
+    <div id="manage-confirm-modal" class="manage-confirm-overlay">
+      <div class="manage-confirm-box">
+        <p id="manage-confirm-message"></p>
+        <div class="manage-confirm-actions">
+          <button id="manage-confirm-cancel" class="manage-btn manage-btn-secondary">Cancel</button>
+          <button id="manage-confirm-ok" class="manage-btn manage-btn-danger">Confirm</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="js/state.js"></script>
   <script src="js/camera.js"></script>
   <script src="js/navigation.js"></script>
@@ -348,5 +429,6 @@
   <script src="js/chat.js"></script>
   <script src="js/spaces.js"></script>
   <script src="js/article.js"></script>
+  <script src="js/manage.js"></script>
 </body>
 </html>

@@ -383,14 +383,14 @@ async function loadUserEntries(username, editable) {
       smsManageBtn.classList.toggle('hidden', !pageHasSms && !anySmsPagesAtRoot);
       if (pageHasSms) {
         smsManageBtn.onclick = () => {
-          window.open(`/${username}/page/${currentViewEntryId}/manage`, '_blank');
+          if (window.openManageModal) window.openManageModal(currentViewEntryId);
         };
       } else if (anySmsPagesAtRoot) {
         // At root level, find the first SMS page and use that
         const smsEntry = Array.from(entries.values()).find(e => !e.parentEntryId && e.smsJoinCode);
         if (smsEntry) {
           smsManageBtn.onclick = () => {
-            window.open(`/${username}/page/${smsEntry.id}/manage`, '_blank');
+            if (window.openManageModal) window.openManageModal(smsEntry.id);
           };
         }
       }

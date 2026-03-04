@@ -1866,8 +1866,8 @@ export function createRouter(options = {}) {
     try {
       const db = getPool();
 
-      // Total users
-      const usersResult = await db.query('SELECT COUNT(*) as count FROM users');
+      // Total users (distinct phones — same phone can have multiple usernames)
+      const usersResult = await db.query('SELECT COUNT(DISTINCT phone_normalized) as count FROM users WHERE phone_normalized IS NOT NULL');
       const totalUsers = parseInt(usersResult.rows[0].count, 10);
 
       // Total entries (non-deleted)
@@ -1876,12 +1876,34 @@ export function createRouter(options = {}) {
 
       const avgEntriesPerUser = totalUsers > 0 ? (totalEntries / totalUsers).toFixed(1) : '0';
 
-      // Daily new users (last 30 days)
+      // Total characters written
+      let totalCharacters = 0;
+      try {
+        const charsResult = await db.query('SELECT COALESCE(SUM(LENGTH(text)), 0) as count FROM entries WHERE deleted_at IS NULL');
+        totalCharacters = parseInt(charsResult.rows[0].count, 10);
+      } catch (e) { /* table may not exist */ }
+
+      // Total SMS messages & members
+      let totalSmsMessages = 0;
+      let totalSmsMembers = 0;
+      try {
+        const smsMessagesResult = await db.query('SELECT COUNT(*) as count FROM sms_messages');
+        totalSmsMessages = parseInt(smsMessagesResult.rows[0].count, 10);
+        const smsMembersResult = await db.query('SELECT COUNT(*) as count FROM sms_members');
+        totalSmsMembers = parseInt(smsMembersResult.rows[0].count, 10);
+      } catch (e) { /* tables may not exist */ }
+
+      // Daily new users (last 30 days) — count by DISTINCT phone_normalized first signup
       const dailyNewUsers = await db.query(`
-        SELECT DATE(created_at) as date, COUNT(*) as count
-        FROM users
-        WHERE created_at >= NOW() - INTERVAL '30 days'
-        GROUP BY DATE(created_at)
+        SELECT DATE(first_signup) as date, COUNT(*) as count
+        FROM (
+          SELECT phone_normalized, MIN(created_at) as first_signup
+          FROM users
+          WHERE phone_normalized IS NOT NULL
+            AND created_at >= NOW() - INTERVAL '30 days'
+          GROUP BY phone_normalized
+        ) first_signups
+        GROUP BY DATE(first_signup)
         ORDER BY date
       `);
 
@@ -1903,7 +1925,7 @@ export function createRouter(options = {}) {
         ORDER BY date
       `);
 
-      // Leaderboard
+      // Leaderboard — with total characters
       const leaderboard = await db.query(`
         SELECT
           u.username,
@@ -1911,6 +1933,7 @@ export function createRouter(options = {}) {
           COUNT(e.id) as total_entries_made,
           COUNT(e.id) FILTER (WHERE e.deleted_at IS NOT NULL) as entries_deleted,
           COUNT(DISTINCT e.parent_entry_id) FILTER (WHERE e.deleted_at IS NULL) as unique_pages,
+          COALESCE(SUM(LENGTH(e.text)) FILTER (WHERE e.deleted_at IS NULL), 0) as total_characters,
           u.created_at
         FROM users u
         LEFT JOIN entries e ON e.user_id = u.id
@@ -1923,7 +1946,10 @@ export function createRouter(options = {}) {
         totals: {
           users: totalUsers,
           entries: totalEntries,
-          avgEntriesPerUser
+          avgEntriesPerUser,
+          totalCharacters,
+          totalSmsMessages,
+          totalSmsMembers
         },
         dailyNewUsers: dailyNewUsers.rows.map(r => ({ date: r.date, count: parseInt(r.count, 10) })),
         dailyNewEntries: dailyNewEntries.rows.map(r => ({ date: r.date, count: parseInt(r.count, 10) })),
@@ -1933,6 +1959,67 @@ export function createRouter(options = {}) {
     } catch (error) {
       console.error('Error fetching stats:', error);
       res.status(500).json({ error: 'Failed to load stats' });
+    }
+  });
+
+  // SMS Conversations list — all unique phone numbers with latest message
+  router.get('/api/stats/conversations', async (_req, res) => {
+    try {
+      const db = getPool();
+      const result = await db.query(`
+        SELECT
+          m.phone_normalized,
+          m.direction,
+          m.text as last_message,
+          m.created_at as last_message_at,
+          mb.name as member_name,
+          msg_counts.total_count
+        FROM sms_messages m
+        INNER JOIN (
+          SELECT phone_normalized, MAX(created_at) as max_created, COUNT(*) as total_count
+          FROM sms_messages
+          GROUP BY phone_normalized
+        ) msg_counts ON m.phone_normalized = msg_counts.phone_normalized AND m.created_at = msg_counts.max_created
+        LEFT JOIN (
+          SELECT DISTINCT ON (phone_normalized) phone_normalized, name
+          FROM sms_members
+          WHERE name IS NOT NULL AND name != ''
+          ORDER BY phone_normalized, created_at DESC
+        ) mb ON mb.phone_normalized = m.phone_normalized
+        ORDER BY m.created_at DESC
+      `);
+      res.json(result.rows);
+    } catch (error) {
+      console.error('Error fetching conversations:', error);
+      res.status(500).json({ error: 'Failed to load conversations' });
+    }
+  });
+
+  // SMS Conversation messages for a specific phone number
+  router.get('/api/stats/conversations/:phone', async (req, res) => {
+    try {
+      const db = getPool();
+      const phone = req.params.phone;
+      const result = await db.query(`
+        SELECT id, entry_id, phone_normalized, direction, text, meta, created_at
+        FROM sms_messages
+        WHERE phone_normalized = $1
+        ORDER BY created_at ASC
+      `, [phone]);
+      // Get member name
+      const memberResult = await db.query(`
+        SELECT name FROM sms_members
+        WHERE phone_normalized = $1 AND name IS NOT NULL AND name != ''
+        ORDER BY created_at DESC LIMIT 1
+      `, [phone]);
+      res.json({
+        phone,
+        name: memberResult.rows[0]?.name || null,
+        messages: result.rows
+      });
+    } catch (error) {
+      console.error('Error fetching conversation:', error);
+      res.status(500).json({ error: 'Failed to load conversation' });
     }
   });
 
@@ -2008,36 +2095,25 @@ export function createRouter(options = {}) {
     }
   });
 
-  // Management page route — must be before /:username catch-all
-  router.get('/:username/page/:entryId/manage', async (req, res) => {
-    try {
-      const managePath = join(__dirname, '..', 'public', 'manage.html');
-      res.sendFile(managePath);
-    } catch (error) {
-      console.error('Error serving manage page:', error);
-      res.status(500).send('Error loading management page');
-    }
-  });
-
   // Serve user pages (always canvas view, editable if owner)
   // Exclude requests with file extensions (static files)
   // IMPORTANT: This must come AFTER all /api routes to avoid catching API requests
-  router.get('/:username', async (req, res) => {
+  router.get('/:username', async (req, res, next) => {
     try {
       // CRITICAL: Skip API routes - check path first before processing
       // Use req.originalUrl or req.url to get the full path
       const fullPath = req.originalUrl || req.url || req.path;
       if (fullPath && fullPath.startsWith('/api/')) {
-        debugLog('[USER ROUTE] Blocked API route, fullPath:', fullPath);
-        return res.status(404).json({ error: 'API route blocked by username route' });
+        debugLog('[USER ROUTE] Passing API route to next handler, fullPath:', fullPath);
+        return next();
       }
 
       const { username } = req.params;
 
       // Skip API routes - they should have been handled already
       if (username === 'api' || username.startsWith('api')) {
-        debugLog('[USER ROUTE] Blocked API route, username:', username);
-        return res.status(404).json({ error: 'API route blocked by username route' });
+        debugLog('[USER ROUTE] Passing API route to next handler, username:', username);
+        return next();
       }
 
       // Skip if this looks like a static file request (has extension)
@@ -2090,15 +2166,15 @@ export function createRouter(options = {}) {
   // Handle nested paths for user pages (same as root - just show canvas)
   // Exclude requests with file extensions (static files)
   // IMPORTANT: This must come AFTER all /api routes to avoid catching API requests
-  router.get('/:username/*', async (req, res) => {
+  router.get('/:username/*', async (req, res, next) => {
     try {
       const { username } = req.params;
 
       // Skip API routes - they should have been handled already
       // This check must come FIRST before any other processing
       if (username === 'api') {
-        debugLog('[USER ROUTE] Blocked API route in nested path, username:', username);
-        return res.status(404).send('Not found');
+        debugLog('[USER ROUTE] Passing API route to next handler in nested path, username:', username);
+        return next();
       }
 
       // Skip if this looks like a static file request (has extension)
