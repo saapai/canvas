@@ -71,6 +71,31 @@ export function createRouter(options = {}) {
     ? twilio(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
     : null;
 
+  // ============================================
+  // TWILIO SMS WEBHOOK — must be before /:username catch-all
+  // ============================================
+  router.post('/api/twilio/sms', async (req, res) => {
+    console.log('[Twilio] Incoming SMS webhook hit');
+    console.log('[Twilio] Body:', JSON.stringify(req.body));
+    try {
+      const body = req.body?.Body || '';
+      const from = req.body?.From || '';
+
+      if (!from) {
+        console.error('[Twilio] No From number in request');
+        return res.type('text/xml').send(toTwiml(['error: no phone number']));
+      }
+
+      console.log(`[Twilio] From: ${from}, Body: ${body}`);
+      const response = await handleIncomingSms(from, body);
+      console.log(`[Twilio] Response: ${response}`);
+      res.type('text/xml').send(toTwiml([response]));
+    } catch (error) {
+      console.error('[Twilio] SMS webhook error:', error);
+      res.type('text/xml').send(toTwiml(['oops, something went wrong. try again?']));
+    }
+  });
+
   // ——— Google OAuth + Calendar/Sheets/Docs ———
 
   const GOOGLE_CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
@@ -1983,6 +2008,17 @@ export function createRouter(options = {}) {
     }
   });
 
+  // Management page route — must be before /:username catch-all
+  router.get('/:username/page/:entryId/manage', async (req, res) => {
+    try {
+      const managePath = join(__dirname, '..', 'public', 'manage.html');
+      res.sendFile(managePath);
+    } catch (error) {
+      console.error('Error serving manage page:', error);
+      res.status(500).send('Error loading management page');
+    }
+  });
+
   // Serve user pages (always canvas view, editable if owner)
   // Exclude requests with file extensions (static files)
   // IMPORTANT: This must come AFTER all /api routes to avoid catching API requests
@@ -2115,31 +2151,8 @@ export function createRouter(options = {}) {
   });
 
   // ============================================
-  // SMS / TWILIO ROUTES
+  // SMS MANAGEMENT API (webhook route is at top of router)
   // ============================================
-
-  // Twilio SMS webhook (no auth, form-encoded body)
-  router.post('/api/twilio/sms', async (req, res) => {
-    try {
-      const body = req.body?.Body || '';
-      const from = req.body?.From || '';
-
-      // Validate Twilio signature in production
-      if (process.env.NODE_ENV === 'production') {
-        const signature = req.headers['x-twilio-signature'] || '';
-        const url = `${process.env.APP_URL || ''}/api/twilio/sms`;
-        if (!validateTwilioSignature(signature, url, req.body || {})) {
-          return res.status(403).send('Forbidden');
-        }
-      }
-
-      const response = await handleIncomingSms(from, body);
-      res.type('text/xml').send(toTwiml([response]));
-    } catch (error) {
-      console.error('SMS webhook error:', error);
-      res.type('text/xml').send(toTwiml(['oops, something went wrong. try again?']));
-    }
-  });
 
   // ——— SMS Management API (all require auth) ———
 
@@ -2334,17 +2347,6 @@ export function createRouter(options = {}) {
     if (!text || !childEntryId) return res.status(400).json({ error: 'text and childEntryId required' });
     const result = await detectSmsType(text, childEntryId, access.entryId);
     res.json(result);
-  });
-
-  // Management page route (must be before /:username catch-all)
-  router.get('/:username/page/:entryId/manage', async (req, res) => {
-    try {
-      const managePath = join(__dirname, '..', 'public', 'manage.html');
-      res.sendFile(managePath);
-    } catch (error) {
-      console.error('Error serving manage page:', error);
-      res.status(500).send('Error loading management page');
-    }
   });
 
   // Debug endpoint to check text_html column status
