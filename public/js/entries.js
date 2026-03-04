@@ -324,7 +324,6 @@ async function loadUserEntries(username, editable) {
     // Load shared pages on own home page
     if (editable && window.PAGE_IS_OWNER === true) {
       loadSharedPageCards();
-      loadSmsAdminPageCards();
     }
 
     // Search button removed - using autocomplete instead
