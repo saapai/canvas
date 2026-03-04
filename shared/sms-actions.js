@@ -368,31 +368,62 @@ export async function handleContentQuery({ phone, message, userName, entryId }) 
   }
 
   try {
-    // Fetch page entries as context
     const { getPool } = await import('./db.js');
     const db = getPool();
-    const result = await db.query(
+
+    // Fetch ALL child entries (not just 50) for comprehensive search
+    const entriesResult = await db.query(
       `SELECT text, text_html, created_at FROM entries
        WHERE parent_entry_id = $1 AND deleted_at IS NULL
-       ORDER BY created_at DESC LIMIT 50`,
+       ORDER BY created_at DESC LIMIT 200`,
       [entryId]
     );
+    const entriesContext = entriesResult.rows.map(r => r.text).filter(Boolean).join('\n---\n');
 
-    const entriesContext = result.rows.map(r => r.text).filter(Boolean).join('\n---\n');
+    // Fetch announcements (sent ones are most relevant)
+    const announcements = await smsDb.getAnnouncements(entryId);
+    const announcementsContext = announcements.slice(0, 20).map(a =>
+      `[Announcement ${a.status}${a.sent_at ? ' ' + new Date(a.sent_at).toLocaleDateString() : ''}] ${a.content}`
+    ).join('\n');
 
-    // Also get past announcements/polls
-    const pastActions = await smsDb.getPastActions(entryId, 10);
-    const actionsContext = pastActions.map(a => `[${a.type}] ${a.content}`).join('\n');
+    // Fetch polls with response summaries
+    const polls = await smsDb.getPolls(entryId);
+    let pollsContext = '';
+    for (const poll of polls.slice(0, 10)) {
+      const summary = await smsDb.getPollResponseSummary(poll.id);
+      const status = poll.is_active ? 'active' : 'closed';
+      pollsContext += `[Poll ${status}] "${poll.question_text}" — Yes: ${summary.yes}, No: ${summary.no}, Maybe: ${summary.maybe} (${summary.total} total)\n`;
+    }
+
+    // Fetch member count and page info
+    const members = await smsDb.getMembers(entryId);
+    const pageEntry = await db.query(`SELECT text, sms_join_code FROM entries WHERE id = $1`, [entryId]);
+    const pageName = pageEntry.rows[0]?.text || 'this page';
+    const memberCount = members.length;
+    const adminNames = members.filter(m => m.role === 'owner' || m.role === 'admin').map(m => m.name).filter(Boolean).join(', ');
+
+    const systemPrompt = `You are an SMS assistant for "${pageName}" (${memberCount} members${adminNames ? ', admins: ' + adminNames : ''}).
+Answer questions based on the page content below. Be concise, SMS-friendly (under 300 chars if possible). Use casual tone.
+If the answer isn't in the content, say you don't know. Never make things up.
+
+Page entries/content:
+${entriesContext || '(no entries yet)'}
+
+Announcements:
+${announcementsContext || '(none)'}
+
+Polls:
+${pollsContext || '(none)'}`;
 
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: `You are answering questions about a page/organization based on its content. Be concise, SMS-friendly. If info not found, say so.\n\nPage entries:\n${entriesContext}\n\nRecent announcements/polls:\n${actionsContext}` },
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: message }
       ],
       temperature: 0.3,
-      max_tokens: 200
+      max_tokens: 250
     });
 
     const answer = response.choices[0].message.content || "couldn't find anything about that";
