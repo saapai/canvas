@@ -199,18 +199,25 @@ Return [] if nothing is superseded.`
 // ============================================
 
 export function scheduleDeadlineNotifications(userId, entryId, fact) {
-  if (!fact.deadline_date) return [];
+  if (!fact.deadline_date) {
+    console.log(`[Notification:schedule] Fact ${fact.id} has no deadline_date, skipping`);
+    return [];
+  }
 
   const eventDate = new Date(fact.deadline_date);
   const now = new Date();
   const notifications = [];
 
   const isToday = eventDate.toDateString() === now.toDateString();
+  const isFuture = eventDate > now;
+
+  console.log(`[Notification:schedule] Fact ${fact.id}: "${fact.extracted_fact?.substring(0, 60)}" | eventDate=${eventDate.toISOString()} | now=${now.toISOString()} | isToday=${isToday} | isFuture=${isFuture}`);
 
   // Morning of: 10:00 AM PST on event day
   const morningOf = new Date(eventDate);
   morningOf.setUTCHours(18, 0, 0, 0); // 10am PST = 18:00 UTC
   if (morningOf > now) {
+    console.log(`[Notification:schedule] → Scheduling morning_of for ${morningOf.toISOString()}`);
     notifications.push({
       userId,
       entryId,
@@ -220,11 +227,14 @@ export function scheduleDeadlineNotifications(userId, entryId, fact) {
       eventDate,
       message: `Reminder: ${fact.extracted_fact}`
     });
+  } else {
+    console.log(`[Notification:schedule] → morning_of already passed (was ${morningOf.toISOString()})`);
   }
 
   // 2 hours before event
   const twoHoursBefore = new Date(eventDate.getTime() - 2 * 60 * 60 * 1000);
   if (twoHoursBefore > now) {
+    console.log(`[Notification:schedule] → Scheduling two_hours_before for ${twoHoursBefore.toISOString()}`);
     notifications.push({
       userId,
       entryId,
@@ -234,22 +244,30 @@ export function scheduleDeadlineNotifications(userId, entryId, fact) {
       eventDate,
       message: `Starting soon (2 hours): ${fact.extracted_fact}`
     });
+  } else {
+    console.log(`[Notification:schedule] → two_hours_before already passed (was ${twoHoursBefore.toISOString()})`);
   }
 
   // CATCH-UP: If event is today but morning_of already passed and we have no
   // scheduled notifications yet, send a catch-up notification immediately.
-  // This handles facts synced after the morning window.
   if (isToday && morningOf <= now && notifications.length === 0) {
-    console.log(`[Notification] Event is today but all windows passed — scheduling catch-up for fact ${fact.id}`);
+    const catchUpTime = new Date(now.getTime() + 60 * 1000);
+    console.log(`[Notification:schedule] → Event is today, all windows passed — scheduling CATCH-UP for ${catchUpTime.toISOString()}`);
     notifications.push({
       userId,
       entryId,
       factId: fact.id,
       notificationType: 'catch_up',
-      scheduledFor: new Date(now.getTime() + 60 * 1000), // 1 minute from now
+      scheduledFor: catchUpTime,
       eventDate,
       message: `Heads up — happening today: ${fact.extracted_fact}`
     });
+  }
+
+  if (notifications.length === 0) {
+    console.log(`[Notification:schedule] → No notifications scheduled (event ${isToday ? 'is today but event time passed' : 'is in the past'})`);
+  } else {
+    console.log(`[Notification:schedule] → Total scheduled: ${notifications.length} notifications`);
   }
 
   return notifications;
@@ -309,12 +327,15 @@ export async function syncChannel(syncRecord) {
   await handleRecencyBias(entryId, savedFacts);
 
   // 5. Schedule notifications for deadline/event facts
-  for (const fact of savedFacts) {
-    if (fact.fact_type === 'deadline' || fact.fact_type === 'event') {
-      const notifs = scheduleDeadlineNotifications(userId, entryId, fact);
-      for (const n of notifs) {
-        await slackDb.createNotification(n);
-      }
+  console.log(`[Slack:sync] #${channelName}: checking ${savedFacts.length} facts for notifications (deadline/event types)`);
+  const deadlineEventFacts = savedFacts.filter(f => f.fact_type === 'deadline' || f.fact_type === 'event');
+  console.log(`[Slack:sync] #${channelName}: ${deadlineEventFacts.length} deadline/event facts found`);
+  for (const fact of deadlineEventFacts) {
+    console.log(`[Slack:sync] #${channelName}: scheduling for fact ${fact.id} (type=${fact.fact_type}, deadline=${fact.deadline_date}): "${fact.extracted_fact?.substring(0, 80)}"`);
+    const notifs = scheduleDeadlineNotifications(userId, entryId, fact);
+    for (const n of notifs) {
+      const saved = await slackDb.createNotification(n);
+      console.log(`[Slack:sync] #${channelName}: created notification ${saved.id} type=${n.notificationType} scheduled=${n.scheduledFor.toISOString()}`);
     }
   }
 
@@ -352,12 +373,22 @@ export async function syncAllChannels() {
 
 export async function checkAndSendNotifications() {
   const now = new Date();
+  console.log(`[Notification:cron] Checking for pending notifications at ${now.toISOString()}`);
   const pending = await slackDb.getPendingNotifications(now);
+  console.log(`[Notification:cron] Found ${pending.length} pending notifications`);
+
+  if (pending.length > 0) {
+    for (const n of pending) {
+      console.log(`[Notification:cron] Pending: id=${n.id} type=${n.notification_type} fact=${n.fact_id} scheduled=${n.scheduled_for} phone=${n.phone ? 'yes' : 'NO'} entry=${n.entry_id}`);
+    }
+  }
+
   const results = [];
 
   for (const notification of pending) {
     try {
       if (!notification.phone) {
+        console.log(`[Notification:cron] SKIP ${notification.id}: no phone number on user`);
         await slackDb.markNotificationFailed(notification.id);
         results.push({ id: notification.id, status: 'failed', reason: 'no phone' });
         continue;
@@ -367,11 +398,13 @@ export async function checkAndSendNotifications() {
       let message = notification.message;
       try {
         message = await buildEnrichedNotificationMessage(notification);
+        console.log(`[Notification:cron] Enriched message for ${notification.id}: "${message.substring(0, 100)}..."`);
       } catch (enrichErr) {
-        console.error(`[Notification] Enrichment failed for ${notification.id}, using original:`, enrichErr.message);
+        console.error(`[Notification:cron] Enrichment failed for ${notification.id}, using original:`, enrichErr.message);
       }
 
       const phone = toE164(notification.phone);
+      console.log(`[Notification:cron] Sending SMS to ${phone} for notification ${notification.id}`);
       const smsResult = await sendSms(phone, message);
       if (smsResult.ok) {
         await slackDb.markNotificationSent(notification.id);
