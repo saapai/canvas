@@ -86,6 +86,7 @@ function navigateToEntry(entryId) {
   currentViewEntryId = entryId;
   updateBreadcrumb();
   updateEntryVisibility();
+  updateSmsManageButton();
 
   // Hide and blur editor to prevent paste behavior
   if (!editor.classList.contains('idle-cursor') && document.activeElement === editor) {
@@ -218,6 +219,7 @@ function navigateBack(level = 1) {
   }
   updateBreadcrumb();
   updateEntryVisibility();
+  updateSmsManageButton();
 
   // Recalculate dimensions for all visible entries after navigation
   setTimeout(() => {
@@ -325,6 +327,7 @@ function navigateToRoot() {
   currentViewEntryId = null;
   updateBreadcrumb();
   updateEntryVisibility();
+  updateSmsManageButton();
 
   // Ensure anchor position is set correctly (use stored position, don't recalculate)
   if (anchor) {
