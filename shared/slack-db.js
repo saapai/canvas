@@ -200,3 +200,28 @@ export async function cancelNotificationsForFact(factId) {
     [factId]
   );
 }
+
+/**
+ * Get all sibling notifications for the same fact (to check missed states).
+ * Returns notifications for the same fact_id, grouped by notification_type.
+ */
+export async function getSiblingNotifications(factId) {
+  const db = getPool();
+  const result = await db.query(
+    `SELECT id, notification_type, status, scheduled_for, sent_at FROM scheduled_notifications WHERE fact_id = $1 ORDER BY scheduled_for ASC`,
+    [factId]
+  );
+  return result.rows;
+}
+
+/**
+ * Get the Slack channel name(s) synced to an entry.
+ */
+export async function getChannelNamesForEntry(entryId) {
+  const db = getPool();
+  const result = await db.query(
+    `SELECT channel_name FROM slack_syncs WHERE entry_id = $1 AND sync_enabled = TRUE ORDER BY channel_name ASC`,
+    [entryId]
+  );
+  return result.rows.map(r => r.channel_name);
+}

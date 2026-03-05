@@ -53,6 +53,7 @@ import * as smsDb from './sms-db.js';
 import { detectSmsType } from './sms-meta.js';
 import * as slackDb from './slack-db.js';
 import { listAccessibleChannels, syncChannel, syncAllChannels, checkAndSendNotifications } from './slack.js';
+import { recheckUnansweredQuestions } from './sms-actions.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -2361,6 +2362,22 @@ export function createRouter(options = {}) {
       res.json({ ok: true, results });
     } catch (error) {
       console.error('Cron notifications error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Every 30min (offset by 5): recheck unanswered SMS questions
+  router.get('/api/cron/unanswered-questions', async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization;
+      const cronSecret = process.env.CRON_SECRET;
+      if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      const results = await recheckUnansweredQuestions();
+      res.json({ ok: true, results });
+    } catch (error) {
+      console.error('Cron unanswered-questions error:', error);
       res.status(500).json({ error: error.message });
     }
   });

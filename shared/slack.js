@@ -334,8 +334,17 @@ export async function checkAndSendNotifications() {
         results.push({ id: notification.id, status: 'failed', reason: 'no phone' });
         continue;
       }
+
+      // Check if prior notifications were missed for this event
+      let message = notification.message;
+      try {
+        message = await buildEnrichedNotificationMessage(notification);
+      } catch (enrichErr) {
+        console.error(`[Notification] Enrichment failed for ${notification.id}, using original:`, enrichErr.message);
+      }
+
       const phone = toE164(notification.phone);
-      const smsResult = await sendSms(phone, notification.message);
+      const smsResult = await sendSms(phone, message);
       if (smsResult.ok) {
         await slackDb.markNotificationSent(notification.id);
         results.push({ id: notification.id, status: 'sent' });
@@ -351,4 +360,115 @@ export async function checkAndSendNotifications() {
   }
 
   return results;
+}
+
+/**
+ * Build an enriched notification message by checking:
+ * 1. Whether prior notifications (morning_of) were missed
+ * 2. All related context from Slack facts, entries, and announcements
+ * 3. Slack channel references for links
+ */
+async function buildEnrichedNotificationMessage(notification) {
+  const { fact_id, entry_id, notification_type } = notification;
+
+  // Check sibling notification states
+  const siblings = await slackDb.getSiblingNotifications(fact_id);
+  const missedTypes = [];
+  const NOTIFICATION_ORDER = ['morning_of', 'two_hours_before'];
+
+  const currentIdx = NOTIFICATION_ORDER.indexOf(notification_type);
+  for (let i = 0; i < currentIdx; i++) {
+    const priorType = NOTIFICATION_ORDER[i];
+    const priorNotif = siblings.find(s => s.notification_type === priorType);
+    if (!priorNotif || (priorNotif.status !== 'sent')) {
+      missedTypes.push(priorType);
+    }
+  }
+
+  // If no missed notifications and this is a morning_of, use original message
+  if (missedTypes.length === 0 && notification_type === 'morning_of') {
+    // Still try to enrich morning_of with comprehensive details
+  }
+
+  // Gather all context for a comprehensive message
+  const allFacts = await slackDb.getFactsByEntry(entry_id, { currentOnly: true, limit: 30 });
+  const channelNames = await slackDb.getChannelNamesForEntry(entry_id);
+
+  // Find facts related to this event (same deadline_date or related keywords)
+  const thisFact = allFacts.find(f => f.id === fact_id);
+  const eventDate = notification.event_date;
+
+  // Get all facts that share the same deadline_date (same event)
+  const relatedFacts = allFacts.filter(f => {
+    if (f.id === fact_id) return false;
+    if (f.deadline_date && eventDate) {
+      const fDate = new Date(f.deadline_date).toDateString();
+      const eDate = new Date(eventDate).toDateString();
+      if (fDate === eDate) return true;
+    }
+    return false;
+  });
+
+  // Check if any facts mention links/URLs
+  const factsWithLinks = [...(thisFact ? [thisFact] : []), ...relatedFacts].filter(f => {
+    const text = (f.raw_text || '') + ' ' + (f.extracted_fact || '');
+    return /https?:\/\/|link|sign.?up|form|rsvp/i.test(text);
+  });
+
+  // Build context for LLM
+  const factsList = [
+    thisFact ? `MAIN EVENT: ${thisFact.extracted_fact}${thisFact.raw_text ? ` (raw: "${thisFact.raw_text.substring(0, 300)}")` : ''}` : '',
+    ...relatedFacts.map(f => `RELATED: ${f.extracted_fact}${f.raw_text ? ` (raw: "${f.raw_text.substring(0, 200)}")` : ''}`)
+  ].filter(Boolean).join('\n');
+
+  const channelRef = channelNames.length > 0
+    ? `Slack channels: #${channelNames.join(', #')}`
+    : '';
+
+  const hasLinks = factsWithLinks.length > 0;
+  const missedInfo = missedTypes.length > 0
+    ? `MISSED NOTIFICATIONS: ${missedTypes.join(', ')} — this person has NOT received any prior reminder about this event.`
+    : '';
+
+  // Use LLM to compose an efficient, comprehensive message
+  if (!process.env.OPENAI_API_KEY) return notification.message;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: `You are composing an SMS event reminder. Be concise but include ALL actionable details.
+
+RULES:
+- Include: event name, time, location/address, dress code, transportation info, any deadlines
+- If there are links/signups mentioned in the facts, tell them to check Slack (mention the channel name) for links
+- Keep under 320 characters if possible, but include all critical info
+- Use casual, friendly tone
+- ${missedInfo ? 'This person missed earlier reminders — make this a comprehensive catch-up message' : 'This is a scheduled reminder'}
+- Do NOT make up details not in the facts` },
+        { role: 'user', content: `Notification type: ${notification_type}
+${missedInfo}
+
+Event facts:
+${factsList || notification.message}
+
+${hasLinks ? `NOTE: Some facts reference links/signups. Direct user to check ${channelRef || 'Slack'} for links.` : ''}
+${channelRef}
+
+Compose the SMS reminder:` }
+      ],
+      temperature: 0.3,
+      max_tokens: 300
+    });
+
+    const enriched = response.choices[0]?.message?.content?.trim();
+    if (enriched && enriched.length > 10) {
+      console.log(`[Notification] Enriched message for ${notification.id} (missed: ${missedTypes.join(',') || 'none'}): ${enriched.substring(0, 100)}...`);
+      return enriched;
+    }
+  } catch (error) {
+    console.error('[Notification] LLM enrichment failed:', error.message);
+  }
+
+  return notification.message;
 }

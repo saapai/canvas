@@ -117,6 +117,8 @@ Return ONLY the exact text to send. No quotes, no explanations.`;
 
 function isJustCommand(message, type) {
   const lower = message.toLowerCase().trim();
+  // Catch "how do I make an announcement" / "how to announce" style questions too
+  if (/^(how (do|can|to)|what'?s the way to|can i|help me)\b/i.test(lower)) return true;
   if (type === 'announcement') return /^(announce|announcement|make an announcement|send an announcement|create an announcement)$/i.test(lower);
   return /^(poll|make a poll|send a poll|create a poll|start a poll)$/i.test(lower);
 }
@@ -255,7 +257,16 @@ export async function handleDraftWrite({ phone, message, userName, isAdmin, clas
 // DRAFT SEND
 // ============================================
 
-export async function handleDraftSend({ phone, message, userName, isAdmin, sendAnnouncement, sendPoll, entryId }) {
+export async function handleDraftSend({ phone, message, userName, isAdmin, sendAnnouncement, sendPoll, entryId, classification, recentMessages }) {
+  // Safety: if the message has substantial content (not just "send"/"go"/"yes"),
+  // the user is probably writing a new announcement, not confirming a send.
+  const lower = message.toLowerCase().trim();
+  const isSendCommand = /^(send|send it|go|yes|yep|do it|blast it|fire|ship it)$/i.test(lower);
+  if (!isSendCommand && message.length > 15) {
+    console.log('[DraftSend] Message has content, redirecting to draft_write:', message.substring(0, 60));
+    return handleDraftWrite({ phone, message, userName, isAdmin, classification: { ...classification, subtype: 'announcement' }, recentMessages, entryId });
+  }
+
   const draft = await smsDb.getActiveDraft(phone, entryId);
 
   if (!draft) {
@@ -362,70 +373,69 @@ export async function handlePollResponse({ phone, message, userName, entryId }) 
 // CONTENT QUERY
 // ============================================
 
-export async function handleContentQuery({ phone, message, userName, entryId }) {
-  if (!process.env.OPENAI_API_KEY) {
-    return { action: 'content_query', response: applyPersonality({ baseResponse: "can't search right now. try again later?", userMessage: message, userName }) };
+/**
+ * Reusable: build context and query LLM for a content question.
+ * Returns { answer, pageName } or throws on error.
+ */
+export async function getContentQueryAnswer(entryId, question) {
+  const { getPool } = await import('./db.js');
+  const db = getPool();
+
+  // Fetch ALL child entries for comprehensive search
+  const entriesResult = await db.query(
+    `SELECT text, text_html, created_at FROM entries
+     WHERE parent_entry_id = $1 AND deleted_at IS NULL
+     ORDER BY created_at DESC LIMIT 200`,
+    [entryId]
+  );
+  const entriesContext = entriesResult.rows.map(r => r.text).filter(Boolean).join('\n---\n');
+
+  // Fetch announcements (sent ones are most relevant)
+  const announcements = await smsDb.getAnnouncements(entryId);
+  const announcementsContext = announcements.slice(0, 20).map(a =>
+    `[Announcement ${a.status}${a.sent_at ? ' ' + new Date(a.sent_at).toLocaleDateString() : ''}] ${a.content}`
+  ).join('\n');
+
+  // Fetch polls with response summaries
+  const polls = await smsDb.getPolls(entryId);
+  let pollsContext = '';
+  for (const poll of polls.slice(0, 10)) {
+    const summary = await smsDb.getPollResponseSummary(poll.id);
+    const status = poll.is_active ? 'active' : 'closed';
+    pollsContext += `[Poll ${status}] "${poll.question_text}" — Yes: ${summary.yes}, No: ${summary.no}, Maybe: ${summary.maybe} (${summary.total} total)\n`;
   }
 
+  // Fetch member count and page info
+  const members = await smsDb.getMembers(entryId);
+  const pageEntry = await db.query(`SELECT text, sms_join_code FROM entries WHERE id = $1`, [entryId]);
+  const pageName = pageEntry.rows[0]?.text || 'this page';
+  const memberCount = members.length;
+  const adminNames = members.filter(m => m.role === 'owner' || m.role === 'admin').map(m => m.name).filter(Boolean).join(', ');
+
+  // Fetch Slack facts for this page (from all synced channels)
+  let slackFactsContext = '';
   try {
-    const { getPool } = await import('./db.js');
-    const db = getPool();
-
-    // Fetch ALL child entries (not just 50) for comprehensive search
-    const entriesResult = await db.query(
-      `SELECT text, text_html, created_at FROM entries
-       WHERE parent_entry_id = $1 AND deleted_at IS NULL
-       ORDER BY created_at DESC LIMIT 200`,
-      [entryId]
-    );
-    const entriesContext = entriesResult.rows.map(r => r.text).filter(Boolean).join('\n---\n');
-
-    // Fetch announcements (sent ones are most relevant)
-    const announcements = await smsDb.getAnnouncements(entryId);
-    const announcementsContext = announcements.slice(0, 20).map(a =>
-      `[Announcement ${a.status}${a.sent_at ? ' ' + new Date(a.sent_at).toLocaleDateString() : ''}] ${a.content}`
-    ).join('\n');
-
-    // Fetch polls with response summaries
-    const polls = await smsDb.getPolls(entryId);
-    let pollsContext = '';
-    for (const poll of polls.slice(0, 10)) {
-      const summary = await smsDb.getPollResponseSummary(poll.id);
-      const status = poll.is_active ? 'active' : 'closed';
-      pollsContext += `[Poll ${status}] "${poll.question_text}" — Yes: ${summary.yes}, No: ${summary.no}, Maybe: ${summary.maybe} (${summary.total} total)\n`;
+    const slackDb = await import('./slack-db.js');
+    const slackFacts = await slackDb.getFactsByEntry(entryId, { currentOnly: true, limit: 50 });
+    if (slackFacts.length > 0) {
+      slackFactsContext = slackFacts.map(f => {
+        const date = f.message_date ? new Date(f.message_date).toLocaleDateString() : '';
+        const channel = f.channel_id || '';
+        let line = `[${date}${channel ? ' #' + channel : ''}] ${f.extracted_fact}`;
+        if (f.deadline_date) line += ` (DEADLINE: ${new Date(f.deadline_date).toLocaleDateString()})`;
+        if (f.raw_text && f.raw_text !== f.extracted_fact) line += ` | raw: "${f.raw_text.substring(0, 200)}"`;
+        return line;
+      }).join('\n');
     }
+    console.log('[ContentQuery] Slack facts loaded:', slackFacts.length, 'for entry', entryId);
+  } catch (e) {
+    console.log('[ContentQuery] Slack facts fetch skipped:', e.message);
+  }
 
-    // Fetch member count and page info
-    const members = await smsDb.getMembers(entryId);
-    const pageEntry = await db.query(`SELECT text, sms_join_code FROM entries WHERE id = $1`, [entryId]);
-    const pageName = pageEntry.rows[0]?.text || 'this page';
-    const memberCount = members.length;
-    const adminNames = members.filter(m => m.role === 'owner' || m.role === 'admin').map(m => m.name).filter(Boolean).join(', ');
+  console.log('[ContentQuery] Context sizes — entries:', entriesContext.length, 'announcements:', announcementsContext.length, 'polls:', pollsContext.length, 'slackFacts:', slackFactsContext.length);
+  console.log('[ContentQuery] Query:', question, '| Page:', pageName, '| EntryId:', entryId);
 
-    // Fetch Slack facts for this page (from all synced channels)
-    let slackFactsContext = '';
-    try {
-      const slackDb = await import('./slack-db.js');
-      const slackFacts = await slackDb.getFactsByEntry(entryId, { currentOnly: true, limit: 50 });
-      if (slackFacts.length > 0) {
-        slackFactsContext = slackFacts.map(f => {
-          const date = f.message_date ? new Date(f.message_date).toLocaleDateString() : '';
-          const channel = f.channel_id || '';
-          let line = `[${date}${channel ? ' #' + channel : ''}] ${f.extracted_fact}`;
-          if (f.deadline_date) line += ` (DEADLINE: ${new Date(f.deadline_date).toLocaleDateString()})`;
-          if (f.raw_text && f.raw_text !== f.extracted_fact) line += ` | raw: "${f.raw_text.substring(0, 200)}"`;
-          return line;
-        }).join('\n');
-      }
-      console.log('[ContentQuery] Slack facts loaded:', slackFacts.length, 'for entry', entryId);
-    } catch (e) {
-      console.log('[ContentQuery] Slack facts fetch skipped:', e.message);
-    }
-
-    console.log('[ContentQuery] Context sizes — entries:', entriesContext.length, 'announcements:', announcementsContext.length, 'polls:', pollsContext.length, 'slackFacts:', slackFactsContext.length);
-    console.log('[ContentQuery] Query:', message, '| Page:', pageName, '| EntryId:', entryId);
-
-    const systemPrompt = `You are an SMS assistant for "${pageName}" (${memberCount} members${adminNames ? ', admins: ' + adminNames : ''}).
+  const systemPrompt = `You are an SMS assistant for "${pageName}" (${memberCount} members${adminNames ? ', admins: ' + adminNames : ''}).
 Answer questions based on the page content below. Be concise, SMS-friendly (under 300 chars if possible). Use casual tone.
 If the answer isn't in the content, say you don't know. Never make things up.
 
@@ -441,24 +451,164 @@ ${pollsContext || '(none)'}
 Slack channel messages:
 ${slackFactsContext || '(none synced)'}`;
 
-    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: message }
-      ],
-      temperature: 0.3,
-      max_tokens: 250
-    });
+  const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  const response = await openai.chat.completions.create({
+    model: 'gpt-4o-mini',
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: question }
+    ],
+    temperature: 0.3,
+    max_tokens: 250
+  });
 
-    const answer = response.choices[0].message.content || "couldn't find anything about that";
-    console.log('[ContentQuery] Answer:', answer.substring(0, 200));
+  const answer = response.choices[0].message.content || "couldn't find anything about that";
+  console.log('[ContentQuery] Answer:', answer.substring(0, 200));
+  return { answer, pageName };
+}
+
+export async function handleContentQuery({ phone, message, userName, entryId }) {
+  if (!process.env.OPENAI_API_KEY) {
+    return { action: 'content_query', response: applyPersonality({ baseResponse: "can't search right now. try again later?", userMessage: message, userName }) };
+  }
+
+  try {
+    const { answer } = await getContentQueryAnswer(entryId, message);
+
+    // Non-blocking: evaluate if the answer actually addresses the question
+    try {
+      const quality = await evaluateAnswerQuality(message, answer);
+      if (!quality.isAnswered) {
+        console.log(`[ContentQuery] Question flagged as unanswered: "${message}" (type: ${quality.questionType}, reason: ${quality.reasoning})`);
+        const normalized = smsDb.normalizePhone(phone);
+        await smsDb.createUnansweredQuestion(normalized, entryId, message, answer, quality.questionType);
+      }
+    } catch (evalErr) {
+      console.error('[ContentQuery] Answer evaluation failed (non-blocking):', evalErr.message);
+    }
+
     return { action: 'content_query', response: answer };
   } catch (error) {
     console.error('[ContentQuery] Error:', error);
     return { action: 'content_query', response: applyPersonality({ baseResponse: "had trouble searching. try again?", userMessage: message, userName }) };
   }
+}
+
+// ============================================
+// ANSWER QUALITY EVALUATION
+// ============================================
+
+async function evaluateAnswerQuality(question, answer) {
+  if (!process.env.OPENAI_API_KEY) return { isAnswered: true, questionType: 'general', reasoning: 'no API key' };
+
+  try {
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: `Evaluate if an SMS assistant's answer adequately addresses the user's question.
+An answer is UNANSWERED if:
+- It says "I don't know" or equivalent
+- It's vague when specifics were asked (e.g., asked "what time" but answered "it's in week 9")
+- It doesn't actually address what was asked
+- It gives a non-answer or deflection
+
+Classify question type:
+- "event": about a specific event (time, location, dress code, etc.)
+- "logistics": about how to do something, transportation, signups, etc.
+- "general": everything else
+
+Respond with JSON: { "isAnswered": boolean, "questionType": "event"|"logistics"|"general", "reasoning": "brief" }` },
+        { role: 'user', content: `Question: "${question}"\nAnswer: "${answer}"` }
+      ],
+      temperature: 0.1,
+      max_tokens: 150,
+      response_format: { type: 'json_object' }
+    });
+    const parsed = JSON.parse(response.choices[0].message.content);
+    return {
+      isAnswered: parsed.isAnswered !== false,
+      questionType: parsed.questionType || 'general',
+      reasoning: parsed.reasoning || ''
+    };
+  } catch (error) {
+    console.error('[EvalQuality] LLM failed:', error.message);
+    return { isAnswered: true, questionType: 'general', reasoning: 'evaluation failed' };
+  }
+}
+
+// ============================================
+// UNANSWERED QUESTION RECHECK (CRON)
+// ============================================
+
+async function compareAnswers(question, initialAnswer, freshAnswer) {
+  if (!process.env.OPENAI_API_KEY) return { isBetter: false };
+  try {
+    const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: `Compare two answers to the same question. The new answer is "better" ONLY if it provides substantively new information that the original lacked — like specific times, dates, locations, links, or details that actually answer what was asked. Minor rewording is NOT better.
+
+Respond with JSON: { "isBetter": boolean, "reasoning": "brief" }` },
+        { role: 'user', content: `Question: "${question}"\n\nOriginal answer: "${initialAnswer}"\n\nNew answer: "${freshAnswer}"` }
+      ],
+      temperature: 0.1,
+      max_tokens: 100,
+      response_format: { type: 'json_object' }
+    });
+    const parsed = JSON.parse(response.choices[0].message.content);
+    return { isBetter: parsed.isBetter || false, reasoning: parsed.reasoning || '' };
+  } catch (error) {
+    console.error('[CompareAnswers] LLM failed:', error.message);
+    return { isBetter: false };
+  }
+}
+
+export async function recheckUnansweredQuestions() {
+  const { sendSms } = await import('./sms.js');
+
+  // Expire stale questions first
+  const expiredCount = await smsDb.expireOldQuestions();
+  if (expiredCount > 0) console.log(`[UnansweredQ] Expired ${expiredCount} old questions`);
+
+  const pending = await smsDb.getPendingUnansweredQuestions();
+  console.log(`[UnansweredQ] Rechecking ${pending.length} pending questions`);
+  const results = [];
+
+  for (const q of pending) {
+    try {
+      await smsDb.incrementAttemptCount(q.id);
+
+      const { answer: freshAnswer } = await getContentQueryAnswer(q.entry_id, q.question);
+      const comparison = await compareAnswers(q.question, q.initial_answer, freshAnswer);
+
+      if (comparison.isBetter) {
+        const phone = smsDb.toE164(q.phone_normalized);
+        const truncatedQ = q.question.length > 40 ? q.question.substring(0, 40) + '...' : q.question;
+        const smsBody = `hey! update on your question "${truncatedQ}":\n\n${freshAnswer}`;
+        const smsResult = await sendSms(phone, smsBody);
+
+        if (smsResult.ok) {
+          await smsDb.markQuestionResolved(q.id, freshAnswer);
+          console.log(`[UnansweredQ] Resolved question ${q.id}: "${q.question.substring(0, 50)}"`);
+          results.push({ id: q.id, status: 'resolved' });
+        } else {
+          console.error(`[UnansweredQ] SMS send failed for ${q.id}:`, smsResult.error);
+          await smsDb.markQuestionFailed(q.id);
+          results.push({ id: q.id, status: 'sms_failed', error: smsResult.error });
+        }
+      } else {
+        console.log(`[UnansweredQ] No better answer yet for ${q.id} (attempt ${q.attempt_count + 1}): ${comparison.reasoning}`);
+        results.push({ id: q.id, status: 'still_pending', attempt: q.attempt_count + 1 });
+      }
+    } catch (error) {
+      console.error(`[UnansweredQ] Error rechecking ${q.id}:`, error.message);
+      results.push({ id: q.id, status: 'error', error: error.message });
+    }
+  }
+
+  return results;
 }
 
 // ============================================

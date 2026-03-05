@@ -234,7 +234,7 @@ export async function handleIncomingSms(phone, message) {
         phone: normalizedPhone, message: msg, userName: member.name, isAdmin: isAdminUser,
         sendAnnouncement: (content, sender) => sendAnnouncementToAll(content, sender, activeEntryId),
         sendPoll: (question, sender, requiresExcuse) => sendPollToAll(question, sender, requiresExcuse, activeEntryId),
-        entryId: activeEntryId
+        entryId: activeEntryId, classification, recentMessages
       });
       break;
 

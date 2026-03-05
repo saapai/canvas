@@ -498,6 +498,32 @@ export async function initDatabase() {
       console.log('Note: scheduled_notifications table check:', error.message);
     }
 
+    // ——— Unanswered SMS questions (proactive follow-up) ———
+    try {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS unanswered_questions (
+          id TEXT PRIMARY KEY,
+          phone_normalized TEXT NOT NULL,
+          entry_id TEXT NOT NULL,
+          question TEXT NOT NULL,
+          initial_answer TEXT NOT NULL,
+          resolved_answer TEXT,
+          status TEXT DEFAULT 'pending',
+          attempt_count INTEGER DEFAULT 0,
+          max_attempts INTEGER DEFAULT 96,
+          question_type TEXT DEFAULT 'general',
+          expires_at TIMESTAMP NOT NULL,
+          resolved_at TIMESTAMP,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_unanswered_status ON unanswered_questions(status)`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_unanswered_entry ON unanswered_questions(entry_id)`);
+    } catch (error) {
+      console.log('Note: unanswered_questions table check:', error.message);
+    }
+
     // ——— Add slack_channel_id column to entries ———
     try {
       await db.query(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS slack_channel_id TEXT`);

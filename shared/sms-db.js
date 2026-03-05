@@ -606,6 +606,70 @@ export async function findEntryByJoinCode(joinCode) {
 // UPDATE ENTRY SMS FIELDS
 // ============================================
 
+// ============================================
+// UNANSWERED QUESTIONS
+// ============================================
+
+export async function createUnansweredQuestion(phone, entryId, question, initialAnswer, questionType = 'general') {
+  const db = getPool();
+  const id = crypto.randomUUID();
+  const normalized = normalizePhone(phone);
+  // event/logistics: 48h expiry, general: 7 days
+  const expiryHours = (questionType === 'event' || questionType === 'logistics') ? 48 : 168;
+  const expiresAt = new Date(Date.now() + expiryHours * 60 * 60 * 1000);
+  const result = await db.query(
+    `INSERT INTO unanswered_questions (id, phone_normalized, entry_id, question, initial_answer, question_type, expires_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     RETURNING *`,
+    [id, normalized, entryId, question, initialAnswer, questionType, expiresAt]
+  );
+  return result.rows[0];
+}
+
+export async function getPendingUnansweredQuestions() {
+  const db = getPool();
+  const result = await db.query(
+    `SELECT * FROM unanswered_questions
+     WHERE status = 'pending' AND expires_at > NOW()
+     ORDER BY created_at ASC`
+  );
+  return result.rows;
+}
+
+export async function markQuestionResolved(id, resolvedAnswer) {
+  const db = getPool();
+  await db.query(
+    `UPDATE unanswered_questions SET status = 'resolved', resolved_answer = $2, resolved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+    [id, resolvedAnswer]
+  );
+}
+
+export async function markQuestionFailed(id) {
+  const db = getPool();
+  await db.query(
+    `UPDATE unanswered_questions SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+    [id]
+  );
+}
+
+export async function incrementAttemptCount(id) {
+  const db = getPool();
+  await db.query(
+    `UPDATE unanswered_questions SET attempt_count = attempt_count + 1, updated_at = CURRENT_TIMESTAMP WHERE id = $1`,
+    [id]
+  );
+}
+
+export async function expireOldQuestions() {
+  const db = getPool();
+  const result = await db.query(
+    `UPDATE unanswered_questions SET status = 'expired', updated_at = CURRENT_TIMESTAMP
+     WHERE status = 'pending' AND (expires_at <= NOW() OR attempt_count >= max_attempts)
+     RETURNING id`
+  );
+  return result.rows.length;
+}
+
 export async function updateEntrySmsFields(entryId, { smsType, smsRefId }) {
   const db = getPool();
   const setClauses = ['updated_at = CURRENT_TIMESTAMP'];

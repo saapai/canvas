@@ -19,6 +19,11 @@ function patternMatch(message, context) {
     return { action: 'poll_response', confidence: 0.95 };
   }
 
+  // "Announce this: X" / "Announce: X" — always draft_write (creating new content)
+  if (/^announce\s*(this)?[\s:]+\S/i.test(lower)) {
+    return { action: 'draft_write', confidence: 0.95, subtype: 'announcement' };
+  }
+
   // ONLY match explicit send commands when draft is ready AND not waiting for mandatory confirmation
   if (activeDraft && activeDraft.status === 'ready' && !activeDraft.pendingMandatory) {
     if (/^(send|send it|go|yes|yep)$/i.test(lower)) {
