@@ -1538,6 +1538,45 @@ export function createRouter(options = {}) {
         getEntriesCountByUsername(username)
       ]);
 
+      // On first page, append virtual entries for SMS pages this user admins
+      if (page === 1 && user.phone) {
+        try {
+          const memberships = await smsDb.getMembershipsByPhone(user.phone);
+          const adminPages = memberships.filter(m => m.role === 'admin' || m.role === 'owner');
+          const db = getPool();
+          for (const m of adminPages) {
+            const entryResult = await db.query(
+              `SELECT e.id, e.text, e.sms_join_code, u.username AS owner_username
+               FROM entries e JOIN users u ON e.user_id = u.id
+               WHERE e.id = $1 AND e.deleted_at IS NULL`,
+              [m.entry_id]
+            );
+            if (entryResult.rows[0]) {
+              const row = entryResult.rows[0];
+              // Skip if this entry already belongs to this user's page
+              if (entries.some(e => e.id === row.id)) continue;
+              // Find a position that doesn't overlap existing root entries
+              const rootEntries = entries.filter(e => !e.parentEntryId);
+              const maxX = rootEntries.reduce((max, e) => Math.max(max, (e.position?.x || 0)), 200);
+              entries.push({
+                id: `sms-admin-${row.id}`,
+                text: row.text || row.owner_username,
+                textHtml: null,
+                position: { x: maxX + 200, y: 60 },
+                parentEntryId: null,
+                linkCardsData: null,
+                mediaCardData: null,
+                latexData: null,
+                smsJoinCode: row.sms_join_code,
+                smsAdminLink: '/' + row.owner_username
+              });
+            }
+          }
+        } catch (e) {
+          debugLog('[SMS-ADMIN-ENTRIES] Error appending admin pages:', e.message);
+        }
+      }
+
       debugLog(`[DEBUG] User: ${username}, Total entries: ${totalCount}, Loaded: ${entries.length}`);
 
       res.json({

@@ -292,9 +292,19 @@ async function loadUserEntries(username, editable) {
         mediaCardData: entryData.mediaCardData || null,
         smsType: entryData.smsType || null,
         smsRefId: entryData.smsRefId || null,
-        smsJoinCode: entryData.smsJoinCode || null
+        smsJoinCode: entryData.smsJoinCode || null,
+        smsAdminLink: entryData.smsAdminLink || null
       };
       entries.set(entryData.id, storedEntryData);
+
+      // SMS admin link entries navigate on click
+      if (entryData.smsAdminLink) {
+        entry.style.cursor = 'pointer';
+        entry.addEventListener('click', (e) => {
+          e.stopPropagation();
+          window.location.href = entryData.smsAdminLink;
+        });
+      }
 
       if (!isImageOnly && !isFileEntry && entryData.mediaCardData && entryData.mediaCardData.type !== 'image') {
         const card = createMediaCard(entryData.mediaCardData);
@@ -328,7 +338,6 @@ async function loadUserEntries(username, editable) {
     // Load shared pages on own home page
     if (editable && window.PAGE_IS_OWNER === true) {
       loadSharedPageCards();
-      loadSmsAdminPageCards();
     }
 
     // Search button removed - using autocomplete instead
