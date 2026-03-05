@@ -51,6 +51,8 @@ import { upload, supabase, supabaseBucket } from './upload.js';
 import { handleIncomingSms, toTwiml, validateTwilioSignature } from './sms.js';
 import * as smsDb from './sms-db.js';
 import { detectSmsType } from './sms-meta.js';
+import * as slackDb from './slack-db.js';
+import { listAccessibleChannels, syncChannel, syncAllChannels, checkAndSendNotifications } from './slack.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -1467,6 +1469,17 @@ export function createRouter(options = {}) {
         currentViewEntryId: payload.currentViewEntryId,
         hasUserMessage: !!payload.userMessage
       });
+      // Inject external sources (Slack facts, calendar events) into chat context
+      try {
+        const slackFacts = await slackDb.getFactsForChat(req.user.id, 50);
+        if (slackFacts.length > 0) {
+          payload.externalSources = payload.externalSources || {};
+          payload.externalSources.slackFacts = slackFacts;
+        }
+      } catch (e) {
+        console.log('[CHAT] Slack facts fetch skipped:', e.message);
+      }
+
       const result = await chatWithCanvas(payload);
       if (!result.ok) {
         console.error('[CHAT] chatWithCanvas failed:', result.error);
@@ -2187,6 +2200,122 @@ export function createRouter(options = {}) {
       res.json({ adminPages });
     } catch (error) {
       console.error('Error fetching SMS admin pages:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ——— SLACK INTEGRATION ROUTES ———
+
+  // List Slack channels the bot can access
+  router.get('/api/slack/channels', requireAuth, async (req, res) => {
+    try {
+      const channels = await listAccessibleChannels();
+      res.json({ channels });
+    } catch (error) {
+      console.error('Error listing Slack channels:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Enable sync for a channel on a page
+  router.post('/api/pages/:entryId/slack/sync', requireAuth, async (req, res) => {
+    try {
+      const { channelId, channelName } = req.body;
+      if (!channelId) return res.status(400).json({ error: 'channelId required' });
+      const sync = await slackDb.createSlackSync(req.user.id, req.params.entryId, channelId, channelName || channelId);
+      // Also set slack_channel_id on the entry
+      const db = getPool();
+      await db.query(`UPDATE entries SET slack_channel_id = $1 WHERE id = $2 AND user_id = $3`, [channelId, req.params.entryId, req.user.id]);
+      res.json({ sync });
+    } catch (error) {
+      console.error('Error creating Slack sync:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get sync status for a page
+  router.get('/api/pages/:entryId/slack/sync', requireAuth, async (req, res) => {
+    try {
+      const sync = await slackDb.getSlackSync(req.user.id, req.params.entryId);
+      res.json({ sync });
+    } catch (error) {
+      console.error('Error getting Slack sync:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Disable sync for a page
+  router.delete('/api/pages/:entryId/slack/sync', requireAuth, async (req, res) => {
+    try {
+      const sync = await slackDb.getSlackSync(req.user.id, req.params.entryId);
+      if (sync) {
+        await slackDb.disableSync(sync.id);
+        const db = getPool();
+        await db.query(`UPDATE entries SET slack_channel_id = NULL WHERE id = $1 AND user_id = $2`, [req.params.entryId, req.user.id]);
+      }
+      res.json({ ok: true });
+    } catch (error) {
+      console.error('Error disabling Slack sync:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Manual sync trigger
+  router.post('/api/pages/:entryId/slack/sync/trigger', requireAuth, async (req, res) => {
+    try {
+      const sync = await slackDb.getSlackSync(req.user.id, req.params.entryId);
+      if (!sync) return res.status(404).json({ error: 'No active sync for this page' });
+      const result = await syncChannel(sync);
+      res.json({ ok: true, ...result });
+    } catch (error) {
+      console.error('Error triggering Slack sync:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get extracted facts for a page
+  router.get('/api/pages/:entryId/slack/facts', requireAuth, async (req, res) => {
+    try {
+      const currentOnly = req.query.currentOnly !== 'false';
+      const limit = parseInt(req.query.limit) || 50;
+      const facts = await slackDb.getFactsByEntry(req.params.entryId, { currentOnly, limit });
+      res.json({ facts });
+    } catch (error) {
+      console.error('Error fetching Slack facts:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ——— CRON ENDPOINTS ———
+
+  // Hourly: sync all enabled channels
+  router.get('/api/cron/slack-sync', async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization;
+      const cronSecret = process.env.CRON_SECRET;
+      if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      const results = await syncAllChannels();
+      res.json({ ok: true, results });
+    } catch (error) {
+      console.error('Cron slack-sync error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Every 5min: send pending notifications
+  router.get('/api/cron/notifications', async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization;
+      const cronSecret = process.env.CRON_SECRET;
+      if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      const results = await checkAndSendNotifications();
+      res.json({ ok: true, results });
+    } catch (error) {
+      console.error('Cron notifications error:', error);
       res.status(500).json({ error: error.message });
     }
   });

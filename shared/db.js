@@ -420,6 +420,91 @@ export async function initDatabase() {
       console.log('Note: meta_instructions table check:', error.message);
     }
 
+    // ——— Slack sync state per channel per canvas page ———
+    try {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS slack_syncs (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          entry_id TEXT NOT NULL,
+          channel_id TEXT NOT NULL,
+          channel_name TEXT,
+          last_sync_ts TEXT,
+          last_sync_at TIMESTAMP,
+          sync_enabled BOOLEAN DEFAULT TRUE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(user_id, entry_id, channel_id)
+        );
+      `);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_slack_syncs_user ON slack_syncs(user_id)`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_slack_syncs_entry ON slack_syncs(entry_id)`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_slack_syncs_enabled ON slack_syncs(sync_enabled)`);
+    } catch (error) {
+      console.log('Note: slack_syncs table check:', error.message);
+    }
+
+    // ——— Slack extracted facts with recency tracking ———
+    try {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS slack_facts (
+          id TEXT PRIMARY KEY,
+          sync_id TEXT NOT NULL REFERENCES slack_syncs(id),
+          entry_id TEXT NOT NULL,
+          channel_id TEXT NOT NULL,
+          message_ts TEXT NOT NULL,
+          message_date TIMESTAMP,
+          author TEXT,
+          raw_text TEXT,
+          extracted_fact TEXT NOT NULL,
+          fact_type TEXT DEFAULT 'info',
+          deadline_date TIMESTAMP,
+          superseded_by TEXT,
+          is_current BOOLEAN DEFAULT TRUE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(sync_id, message_ts)
+        );
+      `);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_slack_facts_entry ON slack_facts(entry_id)`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_slack_facts_sync ON slack_facts(sync_id)`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_slack_facts_current ON slack_facts(is_current)`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_slack_facts_type ON slack_facts(fact_type)`);
+    } catch (error) {
+      console.log('Note: slack_facts table check:', error.message);
+    }
+
+    // ——— Scheduled SMS notifications for deadline/event facts ———
+    try {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS scheduled_notifications (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL,
+          entry_id TEXT NOT NULL,
+          fact_id TEXT NOT NULL REFERENCES slack_facts(id),
+          notification_type TEXT NOT NULL,
+          scheduled_for TIMESTAMP NOT NULL,
+          event_date TIMESTAMP,
+          message TEXT NOT NULL,
+          sent_at TIMESTAMP,
+          status TEXT DEFAULT 'pending',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          UNIQUE(fact_id, notification_type)
+        );
+      `);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_notifications_status ON scheduled_notifications(status)`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_notifications_scheduled ON scheduled_notifications(scheduled_for)`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_notifications_user ON scheduled_notifications(user_id)`);
+    } catch (error) {
+      console.log('Note: scheduled_notifications table check:', error.message);
+    }
+
+    // ——— Add slack_channel_id column to entries ———
+    try {
+      await db.query(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS slack_channel_id TEXT`);
+    } catch (error) {
+      console.log('Note: slack_channel_id column check:', error.message);
+    }
+
     dbInitialized = true;
     console.log('Database initialized successfully');
   } catch (error) {
@@ -437,7 +522,7 @@ export async function getAllEntries(userId, options = {}) {
     let result;
     try {
       // Try to select with text_html column
-      let query = `SELECT id, text, text_html, position_x, position_y, parent_entry_id, link_cards_data, media_card_data, latex_data, sms_type, sms_ref_id, sms_join_code
+      let query = `SELECT id, text, text_html, position_x, position_y, parent_entry_id, link_cards_data, media_card_data, latex_data, sms_type, sms_ref_id, sms_join_code, slack_channel_id
          FROM entries
          WHERE user_id = $1 AND deleted_at IS NULL
          ORDER BY created_at ASC`;
@@ -482,7 +567,8 @@ export async function getAllEntries(userId, options = {}) {
       latexData: row.latex_data || null,
       smsType: row.sms_type || null,
       smsRefId: row.sms_ref_id || null,
-      smsJoinCode: row.sms_join_code || null
+      smsJoinCode: row.sms_join_code || null,
+      slackChannelId: row.slack_channel_id || null
     }));
 
     return mapped;
@@ -802,7 +888,7 @@ export async function getEntriesByUsername(username, options = {}) {
     const { limit, offset } = options;
     const hasPagination = limit !== undefined && offset !== undefined;
     
-    let query = `SELECT e.id, e.text, e.text_html, e.position_x, e.position_y, e.parent_entry_id, e.link_cards_data, e.media_card_data, e.latex_data, e.created_at, e.sms_type, e.sms_ref_id, e.sms_join_code
+    let query = `SELECT e.id, e.text, e.text_html, e.position_x, e.position_y, e.parent_entry_id, e.link_cards_data, e.media_card_data, e.latex_data, e.created_at, e.sms_type, e.sms_ref_id, e.sms_join_code, e.slack_channel_id
        FROM entries e
        JOIN users u ON e.user_id = u.id
        WHERE u.username = $1 AND e.deleted_at IS NULL
@@ -827,7 +913,8 @@ export async function getEntriesByUsername(username, options = {}) {
       createdAt: row.created_at,
       smsType: row.sms_type || null,
       smsRefId: row.sms_ref_id || null,
-      smsJoinCode: row.sms_join_code || null
+      smsJoinCode: row.sms_join_code || null,
+      slackChannelId: row.slack_channel_id || null
     }));
   } catch (error) {
     console.error('Error fetching entries by username:', error);

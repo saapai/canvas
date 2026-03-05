@@ -45,6 +45,8 @@ async function insertTemplate(templateType) {
     await insertCalendarTemplate();
   } else if (templateType === 'google') {
     handleGoogleConnection();
+  } else if (templateType === 'slack') {
+    await insertSlackSyncTemplate();
   }
 }
 

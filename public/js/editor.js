@@ -203,10 +203,11 @@ async function commitEditor(){
   const raw = editor.innerText;
   const trimmedRight = raw.replace(/\s+$/g,'');
 
-  // Check if content is a deadline table, calendar card, or has formatting tags
+  // Check if content is a deadline table, calendar card, slack card, or has formatting tags
   const isDeadlineTable = htmlContent.includes('deadline-table');
   const isCalendarCard = htmlContent.includes('gcal-card');
-  const hasFormatting = isDeadlineTable || isCalendarCard || /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(htmlContent);
+  const isSlackCard = htmlContent.includes('slack-sync-card');
+  const hasFormatting = isDeadlineTable || isCalendarCard || isSlackCard || /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(htmlContent);
   const trimmedHtml = hasFormatting ? htmlContent : null;
 
   console.log('[COMMIT] HTML content length:', htmlContent.length, 'hasFormatting:', hasFormatting);
@@ -315,12 +316,16 @@ async function commitEditor(){
         // Clear latex data when latex mode is off
         entryData.latexData = null;
 
-      if (isDeadlineTable || isCalendarCard) {
-        // Deadline tables / calendar cards: use raw HTML directly, no melt animation
+      if (isDeadlineTable || isCalendarCard || isSlackCard) {
+        // Deadline tables / calendar cards / slack cards: use raw HTML directly, no melt animation
         entryData.element.innerHTML = trimmedHtml;
         if (isCalendarCard) {
           const card = entryData.element.querySelector('.gcal-card');
           if (card) setupCalendarCardHandlers(card);
+        }
+        if (isSlackCard) {
+          const card = entryData.element.querySelector('.slack-sync-card');
+          if (card) setupSlackSyncCardHandlers(card);
         }
       } else {
         // Text appears immediately (no melt animation)

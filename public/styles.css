@@ -3774,3 +3774,222 @@ body.has-bg-image::before {
     justify-content: flex-end;
   }
 }
+
+/* ========================================
+   SLACK SYNC CARD
+   ======================================== */
+
+.entry:has(.slack-sync-card) {
+  white-space: normal;
+  overflow: visible;
+}
+
+.entry.editing:has(.slack-sync-card) {
+  padding: 0;
+  border: none !important;
+  border-radius: 10px;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+#editor:has(.slack-sync-card) {
+  white-space: normal;
+  min-width: 420px;
+}
+
+.slack-sync-card {
+  background: rgba(255, 255, 255, 0.52);
+  backdrop-filter: blur(14px);
+  border-radius: 10px;
+  padding: 16px 18px;
+  user-select: none;
+  min-width: 380px;
+  max-width: 500px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  border: 1px solid rgba(97, 31, 105, 0.12);
+}
+
+.slack-sync-card .melt-char {
+  display: inline;
+  position: static;
+  animation: none !important;
+}
+
+.slack-sync-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.slack-sync-icon {
+  font-size: 18px;
+  font-weight: 700;
+  color: #611F69;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(97, 31, 105, 0.08);
+  border-radius: 6px;
+}
+
+.slack-sync-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1d1c1d;
+  flex: 1;
+}
+
+.slack-sync-status {
+  font-size: 11px;
+  font-weight: 500;
+  color: #2EB67D;
+  background: rgba(46, 182, 125, 0.1);
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+/* Channel picker */
+.slack-channel-picker {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.slack-channel-select {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 6px;
+  font-size: 13px;
+  background: rgba(255, 255, 255, 0.8);
+  outline: none;
+}
+
+.slack-channel-select:focus {
+  border-color: #611F69;
+}
+
+.slack-connect-btn,
+.slack-refresh-btn,
+.slack-disconnect-btn {
+  padding: 6px 14px;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.slack-connect-btn {
+  background: #611F69;
+  color: white;
+}
+
+.slack-refresh-btn {
+  background: rgba(97, 31, 105, 0.08);
+  color: #611F69;
+}
+
+.slack-disconnect-btn {
+  background: rgba(0, 0, 0, 0.05);
+  color: #666;
+  font-size: 12px;
+}
+
+.slack-connect-btn:hover,
+.slack-refresh-btn:hover {
+  opacity: 0.85;
+}
+
+.slack-disconnect-btn:hover {
+  color: #c0392b;
+  background: rgba(192, 57, 43, 0.08);
+}
+
+.slack-connect-btn:disabled,
+.slack-refresh-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Sync actions bar */
+.slack-sync-actions {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+/* Facts list */
+.slack-facts-list {
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.slack-facts-loading,
+.slack-facts-empty {
+  font-size: 12px;
+  color: #888;
+  padding: 8px 0;
+  text-align: center;
+}
+
+.slack-fact-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.slack-fact-item:last-child {
+  border-bottom: none;
+}
+
+.slack-fact-date {
+  font-size: 11px;
+  color: #999;
+  white-space: nowrap;
+  min-width: 60px;
+}
+
+.slack-fact-text {
+  flex: 1;
+  color: #1d1c1d;
+}
+
+.slack-fact-deadline {
+  font-size: 11px;
+  font-weight: 500;
+  color: #E01E5A;
+  background: rgba(224, 30, 90, 0.08);
+  padding: 1px 6px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+
+.slack-fact-type {
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  color: #611F69;
+  background: rgba(97, 31, 105, 0.06);
+  padding: 1px 5px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+.slack-fact-event { border-left: 2px solid #2EB67D; padding-left: 6px; }
+.slack-fact-deadline { border-left: 2px solid #E01E5A; padding-left: 6px; }
+.slack-fact-announcement { border-left: 2px solid #ECB22E; padding-left: 6px; }
+
+.slack-disconnected-msg {
+  font-size: 13px;
+  color: #888;
+  margin: 8px 0 0;
+}
