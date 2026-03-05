@@ -1,4 +1,18 @@
 // entries.js — Entry loading, saving, deleting, and bootstrap initialization
+
+function updateSmsManageButton() {
+  const smsManageBtn = document.getElementById('sms-manage-button');
+  if (!smsManageBtn) return;
+  const currentPageEntry = currentViewEntryId ? entries.get(currentViewEntryId) : null;
+  const pageHasSms = currentPageEntry && currentPageEntry.smsJoinCode;
+  smsManageBtn.classList.toggle('hidden', !pageHasSms);
+  if (pageHasSms) {
+    smsManageBtn.onclick = () => {
+      if (window.openManageModal) window.openManageModal(currentViewEntryId);
+    };
+  }
+}
+
 async function bootstrap() {
   // Check if we're on a user page FIRST, before anything else runs
   const pageUsername = window.PAGE_USERNAME;
@@ -384,27 +398,8 @@ async function loadUserEntries(username, editable) {
     updateBreadcrumb();
     updateEntryVisibility();
 
-    // Show SMS manage button — must run AFTER navigation resolves so currentViewEntryId is set
-    const smsManageBtn = document.getElementById('sms-manage-button');
-    if (smsManageBtn) {
-      const currentPageEntry = currentViewEntryId ? entries.get(currentViewEntryId) : null;
-      const pageHasSms = currentPageEntry && currentPageEntry.smsJoinCode;
-      const anySmsPagesAtRoot = !currentViewEntryId && Array.from(entries.values()).some(e => !e.parentEntryId && e.smsJoinCode);
-      smsManageBtn.classList.toggle('hidden', !pageHasSms && !anySmsPagesAtRoot);
-      if (pageHasSms) {
-        smsManageBtn.onclick = () => {
-          if (window.openManageModal) window.openManageModal(currentViewEntryId);
-        };
-      } else if (anySmsPagesAtRoot) {
-        // At root level, find the first SMS page and use that
-        const smsEntry = Array.from(entries.values()).find(e => !e.parentEntryId && e.smsJoinCode);
-        if (smsEntry) {
-          smsManageBtn.onclick = () => {
-            if (window.openManageModal) window.openManageModal(smsEntry.id);
-          };
-        }
-      }
-    }
+    // Show SMS manage button only when navigated inside an SMS page
+    updateSmsManageButton();
 
     // Recalculate dimensions for all existing entries to fix old fixed-width entries
     setTimeout(() => {
