@@ -2209,66 +2209,110 @@ export function createRouter(options = {}) {
   // List Slack channels the bot can access
   router.get('/api/slack/channels', requireAuth, async (req, res) => {
     try {
+      console.log('[Slack] Listing channels for user:', req.user.id);
       const channels = await listAccessibleChannels();
+      console.log('[Slack] Found', channels.length, 'accessible channels');
       res.json({ channels });
     } catch (error) {
-      console.error('Error listing Slack channels:', error);
+      console.error('[Slack] Error listing channels:', error);
       res.status(500).json({ error: error.message });
     }
   });
 
-  // Enable sync for a channel on a page
+  // Bulk sync: connect/disconnect multiple channels at once
+  // Body: { channels: [{ channelId, channelName, enabled }] }
   router.post('/api/pages/:entryId/slack/sync', requireAuth, async (req, res) => {
     try {
-      const { channelId, channelName } = req.body;
+      const { channelId, channelName, channels } = req.body;
+
+      // Support bulk: array of channels
+      if (Array.isArray(channels)) {
+        console.log('[Slack] Bulk sync for entry', req.params.entryId, ':', channels.length, 'channels');
+        const results = [];
+        for (const ch of channels) {
+          if (ch.enabled) {
+            const sync = await slackDb.createSlackSync(req.user.id, req.params.entryId, ch.channelId, ch.channelName || ch.channelId);
+            console.log('[Slack] Connected channel:', ch.channelName || ch.channelId, '-> sync', sync.id);
+            results.push({ channelId: ch.channelId, enabled: true, syncId: sync.id });
+          } else {
+            await slackDb.disableSyncByChannel(req.user.id, req.params.entryId, ch.channelId);
+            console.log('[Slack] Disconnected channel:', ch.channelName || ch.channelId);
+            results.push({ channelId: ch.channelId, enabled: false });
+          }
+        }
+        res.json({ ok: true, results });
+        return;
+      }
+
+      // Legacy single-channel support
       if (!channelId) return res.status(400).json({ error: 'channelId required' });
       const sync = await slackDb.createSlackSync(req.user.id, req.params.entryId, channelId, channelName || channelId);
-      // Also set slack_channel_id on the entry
+      console.log('[Slack] Connected single channel:', channelName || channelId, '-> sync', sync.id);
       const db = getPool();
       await db.query(`UPDATE entries SET slack_channel_id = $1 WHERE id = $2 AND user_id = $3`, [channelId, req.params.entryId, req.user.id]);
       res.json({ sync });
     } catch (error) {
-      console.error('Error creating Slack sync:', error);
+      console.error('[Slack] Error creating sync:', error);
       res.status(500).json({ error: error.message });
     }
   });
 
-  // Get sync status for a page
+  // Get all sync statuses for a page (all channels, enabled or not)
   router.get('/api/pages/:entryId/slack/sync', requireAuth, async (req, res) => {
     try {
-      const sync = await slackDb.getSlackSync(req.user.id, req.params.entryId);
-      res.json({ sync });
+      const syncs = await slackDb.getSlackSyncsByEntry(req.user.id, req.params.entryId);
+      res.json({ syncs });
     } catch (error) {
-      console.error('Error getting Slack sync:', error);
+      console.error('[Slack] Error getting syncs:', error);
       res.status(500).json({ error: error.message });
     }
   });
 
-  // Disable sync for a page
+  // Disable sync for a specific channel on a page
   router.delete('/api/pages/:entryId/slack/sync', requireAuth, async (req, res) => {
     try {
-      const sync = await slackDb.getSlackSync(req.user.id, req.params.entryId);
-      if (sync) {
-        await slackDb.disableSync(sync.id);
-        const db = getPool();
-        await db.query(`UPDATE entries SET slack_channel_id = NULL WHERE id = $1 AND user_id = $2`, [req.params.entryId, req.user.id]);
+      const { channelId } = req.query;
+      if (channelId) {
+        await slackDb.disableSyncByChannel(req.user.id, req.params.entryId, channelId);
+        console.log('[Slack] Disabled sync for channel', channelId, 'on entry', req.params.entryId);
+      } else {
+        // Disable all syncs for this page
+        const syncs = await slackDb.getSlackSyncsByEntry(req.user.id, req.params.entryId);
+        for (const s of syncs) {
+          if (s.sync_enabled) await slackDb.disableSync(s.id);
+        }
+        console.log('[Slack] Disabled all syncs for entry', req.params.entryId);
       }
       res.json({ ok: true });
     } catch (error) {
-      console.error('Error disabling Slack sync:', error);
+      console.error('[Slack] Error disabling sync:', error);
       res.status(500).json({ error: error.message });
     }
   });
 
-  // Manual sync trigger
+  // Manual sync trigger — syncs ALL enabled channels for this page
   router.post('/api/pages/:entryId/slack/sync/trigger', requireAuth, async (req, res) => {
     try {
-      const sync = await slackDb.getSlackSync(req.user.id, req.params.entryId);
-      if (!sync) return res.status(404).json({ error: 'No active sync for this page' });
-      const result = await syncChannel(sync);
-      res.json({ ok: true, ...result });
+      const syncs = await slackDb.getSlackSyncsByEntry(req.user.id, req.params.entryId);
+      const enabled = syncs.filter(s => s.sync_enabled);
+      if (enabled.length === 0) return res.status(404).json({ error: 'No active syncs for this page' });
+      console.log('[Slack] Triggering sync for', enabled.length, 'channels on entry', req.params.entryId);
+      let totalFacts = 0;
+      const results = [];
+      for (const sync of enabled) {
+        try {
+          const result = await syncChannel(sync);
+          console.log('[Slack] Synced', sync.channel_name, ':', result.newFacts, 'new facts');
+          totalFacts += result.newFacts;
+          results.push({ channel: sync.channel_name, ...result });
+        } catch (err) {
+          console.error('[Slack] Sync failed for', sync.channel_name, ':', err.message);
+          results.push({ channel: sync.channel_name, error: err.message });
+        }
+      }
+      res.json({ ok: true, totalFacts, results });
     } catch (error) {
-      console.error('Error triggering Slack sync:', error);
+      console.error('[Slack] Error triggering sync:', error);
       res.status(500).json({ error: error.message });
     }
   });
@@ -2279,9 +2323,10 @@ export function createRouter(options = {}) {
       const currentOnly = req.query.currentOnly !== 'false';
       const limit = parseInt(req.query.limit) || 50;
       const facts = await slackDb.getFactsByEntry(req.params.entryId, { currentOnly, limit });
+      console.log('[Slack] Fetched', facts.length, 'facts for entry', req.params.entryId);
       res.json({ facts });
     } catch (error) {
-      console.error('Error fetching Slack facts:', error);
+      console.error('[Slack] Error fetching facts:', error);
       res.status(500).json({ error: error.message });
     }
   });

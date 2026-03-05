@@ -244,8 +244,11 @@ export function scheduleDeadlineNotifications(userId, entryId, fact) {
 export async function syncChannel(syncRecord) {
   const { id: syncId, user_id: userId, entry_id: entryId, channel_id: channelId, channel_name: channelName, last_sync_ts: lastSyncTs } = syncRecord;
 
+  console.log(`[Slack:sync] Starting sync for #${channelName} (${channelId}), lastTs: ${lastSyncTs || 'none'}`);
+
   // 1. Fetch new messages since last sync
   const messages = await fetchChannelMessages(channelId, lastSyncTs);
+  console.log(`[Slack:sync] #${channelName}: fetched ${messages.length} new messages`);
   if (!messages.length) {
     await slackDb.updateSyncTimestamp(syncId, lastSyncTs || '0');
     return { newFacts: 0 };
@@ -253,6 +256,7 @@ export async function syncChannel(syncRecord) {
 
   // 2. Extract facts via LLM
   const extractedFacts = await extractFacts(messages, channelName);
+  console.log(`[Slack:sync] #${channelName}: extracted ${extractedFacts.length} facts from ${messages.length} messages`);
 
   // 3. Save facts to DB
   const savedFacts = [];

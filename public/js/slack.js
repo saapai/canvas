@@ -1,6 +1,5 @@
-// slack.js — Slack sync card: channel picker, sync status, fact display
+// slack.js — Slack sync card: checkbox channel list, auto-connect all, green for connected
 
-// Keywords that indicate announcement-like channels (sorted to top)
 const ANNOUNCEMENT_KEYWORDS = ['announce', 'announcement', 'announcements', 'bulletin', 'news', 'updates', 'notices', 'broadcast', 'important', 'general', 'alerts'];
 
 function sortChannels(channels) {
@@ -9,10 +8,10 @@ function sortChannels(channels) {
     const bName = (b.name || '').toLowerCase();
     const aPurpose = (a.purpose || '').toLowerCase();
     const bPurpose = (b.purpose || '').toLowerCase();
-    const aIsAnnouncement = ANNOUNCEMENT_KEYWORDS.some(k => aName.includes(k) || aPurpose.includes(k));
-    const bIsAnnouncement = ANNOUNCEMENT_KEYWORDS.some(k => bName.includes(k) || bPurpose.includes(k));
-    if (aIsAnnouncement && !bIsAnnouncement) return -1;
-    if (!aIsAnnouncement && bIsAnnouncement) return 1;
+    const aIs = ANNOUNCEMENT_KEYWORDS.some(k => aName.includes(k) || aPurpose.includes(k));
+    const bIs = ANNOUNCEMENT_KEYWORDS.some(k => bName.includes(k) || bPurpose.includes(k));
+    if (aIs && !bIs) return -1;
+    if (!aIs && bIs) return 1;
     return aName.localeCompare(bName);
   });
 }
@@ -34,193 +33,152 @@ async function insertSlackSyncTemplate() {
     return;
   }
 
-  // Sort: announcement-adjacent channels first
   const sorted = sortChannels(channels);
 
-  const optionsHtml = sorted.map(ch => {
+  // Build checkbox list — all checked by default
+  const listHtml = sorted.map(ch => {
     const isAnnouncement = ANNOUNCEMENT_KEYWORDS.some(k =>
       (ch.name || '').toLowerCase().includes(k) || (ch.purpose || '').toLowerCase().includes(k)
     );
-    const star = isAnnouncement ? '\u2605 ' : '';
-    const desc = ch.purpose ? ' \u2014 ' + ch.purpose.substring(0, 50) : '';
-    return `<option value="${ch.id}" data-name="${ch.name}">${star}#${ch.name}${desc}</option>`;
+    const tag = isAnnouncement ? '<span class="slack-ch-tag">announcements</span>' : '';
+    return `<label class="slack-ch-row slack-ch-connected" data-channel-id="${ch.id}" data-channel-name="${ch.name}">
+      <input type="checkbox" checked class="slack-ch-check" value="${ch.id}">
+      <span class="slack-ch-name">#${ch.name}</span>
+      ${tag}
+    </label>`;
   }).join('');
 
   editor.innerHTML = `
     <div class="slack-sync-card" contenteditable="false">
       <div class="slack-sync-header">
         <span class="slack-sync-icon">#</span>
-        <span class="slack-sync-title">Connect Slack Channel</span>
+        <span class="slack-sync-title">Slack Channels</span>
+        <button class="slack-save-btn" type="button">Save & Sync</button>
       </div>
-      <div class="slack-channel-picker">
-        <select class="slack-channel-select">${optionsHtml}</select>
-        <button class="slack-connect-btn" type="button">Connect</button>
-      </div>
+      <div class="slack-sync-info">All channels connected — syncs every 30 min. Uncheck to stop syncing a channel.</div>
+      <div class="slack-channel-list">${listHtml}</div>
     </div>`;
   editor.classList.add('has-content');
 
   const card = editor.querySelector('.slack-sync-card');
   if (card) setupSlackSyncCardHandlers(card);
+
+  // Auto-connect all channels on first creation
+  const entryId = editingEntryId || currentViewEntryId;
+  if (entryId) {
+    const bulk = sorted.map(ch => ({ channelId: ch.id, channelName: ch.name, enabled: true }));
+    fetch(`/api/pages/${entryId}/slack/sync`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ channels: bulk })
+    }).then(r => r.json()).then(data => {
+      console.log('[Slack] Auto-connected all channels:', data);
+      // Trigger initial sync
+      fetch(`/api/pages/${entryId}/slack/sync/trigger`, {
+        method: 'POST',
+        credentials: 'include'
+      }).then(r => r.json()).then(syncData => {
+        console.log('[Slack] Initial sync result:', syncData);
+      }).catch(() => {});
+    }).catch(err => console.error('[Slack] Auto-connect failed:', err));
+  }
 }
 
 function setupSlackSyncCardHandlers(cardElement) {
-  // Ensure all interactive elements inside the card work
+  // Stop canvas drag on interactive elements
   cardElement.addEventListener('mousedown', (e) => {
-    if (e.target.closest('select, button, input, label, a')) {
+    if (e.target.closest('input, button, label, select, a')) {
       e.stopPropagation();
     }
   });
 
-  // Connect button in channel picker
-  const connectBtn = cardElement.querySelector('.slack-connect-btn');
-  if (connectBtn) {
-    connectBtn.onclick = async (e) => {
+  // Checkbox toggle — update row styling
+  cardElement.querySelectorAll('.slack-ch-check').forEach(cb => {
+    cb.onchange = () => {
+      const row = cb.closest('.slack-ch-row');
+      if (row) row.classList.toggle('slack-ch-connected', cb.checked);
+    };
+  });
+
+  // Save button
+  const saveBtn = cardElement.querySelector('.slack-save-btn');
+  if (saveBtn) {
+    saveBtn.onclick = async (e) => {
       e.preventDefault();
       e.stopPropagation();
-      const select = cardElement.querySelector('.slack-channel-select');
-      if (!select) return;
-      const channelId = select.value;
-      const channelName = select.options[select.selectedIndex]?.dataset?.name || channelId;
+      const entryId = cardElement.dataset.entryId || editingEntryId || currentViewEntryId;
+      if (!entryId) return;
 
-      const entryId = editingEntryId || currentViewEntryId;
-      if (!entryId) {
-        alert('Please save this entry first before connecting Slack.');
-        return;
-      }
+      const rows = cardElement.querySelectorAll('.slack-ch-row');
+      const channels = [];
+      rows.forEach(row => {
+        const cb = row.querySelector('.slack-ch-check');
+        channels.push({
+          channelId: row.dataset.channelId,
+          channelName: row.dataset.channelName,
+          enabled: cb?.checked || false
+        });
+      });
 
-      connectBtn.textContent = 'Connecting...';
-      connectBtn.disabled = true;
+      saveBtn.textContent = 'Saving...';
+      saveBtn.disabled = true;
 
       try {
         const res = await fetch(`/api/pages/${entryId}/slack/sync`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ channelId, channelName })
+          body: JSON.stringify({ channels })
         });
-        if (!res.ok) throw new Error('Failed to connect');
+        const data = await res.json();
+        console.log('[Slack] Bulk save result:', data);
 
-        renderSlackConnectedCard(cardElement, channelName, channelId, entryId);
+        saveBtn.textContent = 'Saved!';
+        setTimeout(() => { saveBtn.textContent = 'Save & Sync'; saveBtn.disabled = false; }, 1500);
 
-        // Trigger initial sync in background
+        // Trigger sync for newly enabled channels
         fetch(`/api/pages/${entryId}/slack/sync/trigger`, {
           method: 'POST',
           credentials: 'include'
-        }).then(r => r.json()).then(data => {
-          if (data.newFacts > 0) refreshSlackFacts(cardElement, entryId);
+        }).then(r => r.json()).then(syncData => {
+          console.log('[Slack] Sync after save:', syncData);
         }).catch(() => {});
       } catch (err) {
-        connectBtn.textContent = 'Connect';
-        connectBtn.disabled = false;
-        alert('Failed to connect: ' + err.message);
-      }
-    };
-  }
-
-  // Refresh button on connected card
-  const refreshBtn = cardElement.querySelector('.slack-refresh-btn');
-  if (refreshBtn) {
-    refreshBtn.onclick = async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const entryId = cardElement.dataset.entryId || editingEntryId || currentViewEntryId;
-      if (!entryId) return;
-
-      refreshBtn.textContent = 'Syncing...';
-      refreshBtn.disabled = true;
-      try {
-        await fetch(`/api/pages/${entryId}/slack/sync/trigger`, {
-          method: 'POST',
-          credentials: 'include'
-        });
-        await refreshSlackFacts(cardElement, entryId);
-      } catch (err) {
-        console.error('Slack sync failed:', err);
-      }
-      refreshBtn.textContent = 'Sync Now';
-      refreshBtn.disabled = false;
-    };
-  }
-
-  // Disconnect button
-  const disconnectBtn = cardElement.querySelector('.slack-disconnect-btn');
-  if (disconnectBtn) {
-    disconnectBtn.onclick = async (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      const entryId = cardElement.dataset.entryId || editingEntryId || currentViewEntryId;
-      if (!entryId) return;
-      if (!confirm('Disconnect this Slack channel? Future syncs will stop.')) return;
-
-      try {
-        await fetch(`/api/pages/${entryId}/slack/sync`, {
-          method: 'DELETE',
-          credentials: 'include'
-        });
-        cardElement.innerHTML = `
-          <div class="slack-sync-header">
-            <span class="slack-sync-icon">#</span>
-            <span class="slack-sync-title">Slack Disconnected</span>
-          </div>
-          <p class="slack-disconnected-msg">Channel disconnected. No future syncs will occur.</p>`;
-      } catch (err) {
-        alert('Failed to disconnect: ' + err.message);
+        saveBtn.textContent = 'Save & Sync';
+        saveBtn.disabled = false;
+        alert('Failed to save: ' + err.message);
       }
     };
   }
 }
 
-function renderSlackConnectedCard(cardElement, channelName, channelId, entryId) {
-  cardElement.dataset.entryId = entryId;
-  cardElement.dataset.channelId = channelId;
-  cardElement.innerHTML = `
-    <div class="slack-sync-header">
-      <span class="slack-sync-icon">#</span>
-      <span class="slack-sync-title">${channelName}</span>
-      <span class="slack-sync-status">Connected</span>
-    </div>
-    <div class="slack-sync-info">Syncs every 30 minutes</div>
-    <div class="slack-sync-actions">
-      <button class="slack-refresh-btn" type="button">Sync Now</button>
-      <button class="slack-disconnect-btn" type="button">Disconnect</button>
-    </div>
-    <div class="slack-facts-list">
-      <div class="slack-facts-loading">Loading facts...</div>
-    </div>`;
-  setupSlackSyncCardHandlers(cardElement);
-  refreshSlackFacts(cardElement, entryId);
-}
-
-async function refreshSlackFacts(cardElement, entryId) {
-  const factsList = cardElement.querySelector('.slack-facts-list');
-  if (!factsList) return;
+// Re-hydrate a saved card: fetch sync state from backend and update checkboxes
+async function hydrateSlackCard(cardElement) {
+  const entryId = cardElement.dataset.entryId || editingEntryId || currentViewEntryId;
+  if (!entryId) return;
 
   try {
-    const res = await fetch(`/api/pages/${entryId}/slack/facts?currentOnly=true&limit=20`, {
-      credentials: 'include'
-    });
-    if (!res.ok) throw new Error('Failed to load facts');
+    const res = await fetch(`/api/pages/${entryId}/slack/sync`, { credentials: 'include' });
+    if (!res.ok) return;
     const data = await res.json();
-    const facts = data.facts || [];
+    const syncs = data.syncs || [];
 
-    if (facts.length === 0) {
-      factsList.innerHTML = '<div class="slack-facts-empty">No facts extracted yet. Click "Sync Now" to fetch messages.</div>';
-      return;
-    }
+    // Build a map of channel_id -> sync_enabled
+    const syncMap = {};
+    syncs.forEach(s => { syncMap[s.channel_id] = s.sync_enabled; });
 
-    factsList.innerHTML = facts.map(f => {
-      const date = f.message_date ? new Date(f.message_date).toLocaleDateString() : '';
-      const typeClass = f.fact_type !== 'info' ? ` slack-fact-${f.fact_type}` : '';
-      const deadlineTag = f.deadline_date ? `<span class="slack-fact-deadline">${new Date(f.deadline_date).toLocaleDateString()}</span>` : '';
-      return `<div class="slack-fact-item${typeClass}">
-        <span class="slack-fact-date">${date}</span>
-        <span class="slack-fact-text">${f.extracted_fact}</span>
-        ${deadlineTag}
-        ${f.fact_type !== 'info' ? `<span class="slack-fact-type">${f.fact_type}</span>` : ''}
-      </div>`;
-    }).join('');
-  } catch (err) {
-    factsList.innerHTML = '<div class="slack-facts-empty">Failed to load facts.</div>';
+    // Update checkboxes
+    cardElement.querySelectorAll('.slack-ch-row').forEach(row => {
+      const chId = row.dataset.channelId;
+      const cb = row.querySelector('.slack-ch-check');
+      if (cb && chId in syncMap) {
+        cb.checked = syncMap[chId];
+        row.classList.toggle('slack-ch-connected', syncMap[chId]);
+      }
+    });
+  } catch (e) {
+    console.log('[Slack] Hydrate failed:', e.message);
   }
 }
 
@@ -232,6 +190,5 @@ function handleSlackCardKeydown(e) {
   }
 }
 
-// Make functions available globally
 window.insertSlackSyncTemplate = insertSlackSyncTemplate;
 window.setupSlackSyncCardHandlers = setupSlackSyncCardHandlers;

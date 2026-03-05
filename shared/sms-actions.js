@@ -402,6 +402,29 @@ export async function handleContentQuery({ phone, message, userName, entryId }) 
     const memberCount = members.length;
     const adminNames = members.filter(m => m.role === 'owner' || m.role === 'admin').map(m => m.name).filter(Boolean).join(', ');
 
+    // Fetch Slack facts for this page (from all synced channels)
+    let slackFactsContext = '';
+    try {
+      const slackDb = await import('./slack-db.js');
+      const slackFacts = await slackDb.getFactsByEntry(entryId, { currentOnly: true, limit: 50 });
+      if (slackFacts.length > 0) {
+        slackFactsContext = slackFacts.map(f => {
+          const date = f.message_date ? new Date(f.message_date).toLocaleDateString() : '';
+          const channel = f.channel_id || '';
+          let line = `[${date}${channel ? ' #' + channel : ''}] ${f.extracted_fact}`;
+          if (f.deadline_date) line += ` (DEADLINE: ${new Date(f.deadline_date).toLocaleDateString()})`;
+          if (f.raw_text && f.raw_text !== f.extracted_fact) line += ` | raw: "${f.raw_text.substring(0, 200)}"`;
+          return line;
+        }).join('\n');
+      }
+      console.log('[ContentQuery] Slack facts loaded:', slackFacts.length, 'for entry', entryId);
+    } catch (e) {
+      console.log('[ContentQuery] Slack facts fetch skipped:', e.message);
+    }
+
+    console.log('[ContentQuery] Context sizes — entries:', entriesContext.length, 'announcements:', announcementsContext.length, 'polls:', pollsContext.length, 'slackFacts:', slackFactsContext.length);
+    console.log('[ContentQuery] Query:', message, '| Page:', pageName, '| EntryId:', entryId);
+
     const systemPrompt = `You are an SMS assistant for "${pageName}" (${memberCount} members${adminNames ? ', admins: ' + adminNames : ''}).
 Answer questions based on the page content below. Be concise, SMS-friendly (under 300 chars if possible). Use casual tone.
 If the answer isn't in the content, say you don't know. Never make things up.
@@ -413,7 +436,10 @@ Announcements:
 ${announcementsContext || '(none)'}
 
 Polls:
-${pollsContext || '(none)'}`;
+${pollsContext || '(none)'}
+
+Slack channel messages:
+${slackFactsContext || '(none synced)'}`;
 
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const response = await openai.chat.completions.create({
@@ -427,6 +453,7 @@ ${pollsContext || '(none)'}`;
     });
 
     const answer = response.choices[0].message.content || "couldn't find anything about that";
+    console.log('[ContentQuery] Answer:', answer.substring(0, 200));
     return { action: 'content_query', response: answer };
   } catch (error) {
     console.error('[ContentQuery] Error:', error);
