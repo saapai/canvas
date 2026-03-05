@@ -409,12 +409,17 @@ export async function handleContentQuery({ phone, message, userName, entryId }) 
       const slackFacts = await slackDb.getFactsByEntry(entryId, { currentOnly: true, limit: 50 });
       if (slackFacts.length > 0) {
         // Group facts by channel name for clearer context
+        const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
         const byChannel = {};
         for (const f of slackFacts) {
           const chName = f.channel_name || f.channel_id || 'unknown';
           if (!byChannel[chName]) byChannel[chName] = [];
-          const date = f.message_date ? new Date(f.message_date).toLocaleDateString() : '';
-          let line = `[${date}] ${f.extracted_fact}`;
+          let dateStr = '';
+          if (f.message_date) {
+            const d = new Date(f.message_date);
+            dateStr = `${dayNames[d.getDay()]} ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+          }
+          let line = `[sent ${dateStr}] ${f.extracted_fact}`;
           if (f.deadline_date) line += ` (DEADLINE: ${new Date(f.deadline_date).toLocaleDateString()})`;
           if (f.raw_text && f.raw_text !== f.extracted_fact) line += ` | raw: "${f.raw_text.substring(0, 200)}"`;
           byChannel[chName].push(line);
@@ -431,11 +436,16 @@ export async function handleContentQuery({ phone, message, userName, entryId }) 
     console.log('[ContentQuery] Context sizes — entries:', entriesContext.length, 'announcements:', announcementsContext.length, 'polls:', pollsContext.length, 'slackFacts:', slackFactsContext.length);
     console.log('[ContentQuery] Query:', message, '| Page:', pageName, '| EntryId:', entryId);
 
+    const today = new Date();
+    const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+    const todayStr = `${dayNames[today.getDay()]} ${today.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+
     const systemPrompt = `You are an SMS assistant for "${pageName}" (${memberCount} members${adminNames ? ', admins: ' + adminNames : ''}).
+Today is ${todayStr}.
 Answer questions based on the page content below. Be concise, SMS-friendly (under 300 chars if possible). Use casual tone.
 If the answer isn't in the content, say you don't know. Never make things up.
 
-IMPORTANT: When answering about a specific event, give ALL relevant details from the messages (time, location, address, logistics). Multiple Slack channels may discuss the same event — combine the details into one coherent answer. Include specifics like addresses, times, and instructions. Don't mix up different events.
+IMPORTANT: Each Slack message has a "sent" date. When a message says "today" it means the day it was SENT, not today's date. Use sent dates to resolve relative times. Different event names (e.g. "formal", "PFC", "mixer") are SEPARATE events on potentially different days — do NOT combine their details. Only answer with details for the specific event the user asked about.
 
 Page entries/content:
 ${entriesContext || '(no entries yet)'}
