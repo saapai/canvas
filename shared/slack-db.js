@@ -227,3 +227,26 @@ export async function getChannelNamesForEntry(entryId) {
   );
   return result.rows.map(r => r.channel_name);
 }
+
+/**
+ * Get today's event/deadline facts that have NO scheduled notifications yet.
+ * These are facts that were synced before catch-up logic existed.
+ */
+export async function getTodayUnnotifiedEventFacts() {
+  const db = getPool();
+  const result = await db.query(
+    `SELECT f.*, s.user_id, s.entry_id AS sync_entry_id
+     FROM slack_facts f
+     JOIN slack_syncs s ON f.sync_id = s.id
+     WHERE f.is_current = TRUE
+       AND f.deadline_date IS NOT NULL
+       AND f.fact_type IN ('deadline', 'event')
+       AND f.deadline_date::date = CURRENT_DATE
+       AND NOT EXISTS (
+         SELECT 1 FROM scheduled_notifications n
+         WHERE n.fact_id = f.id AND n.status IN ('pending', 'sent')
+       )
+     ORDER BY f.deadline_date ASC`
+  );
+  return result.rows;
+}

@@ -374,6 +374,23 @@ export async function syncAllChannels() {
 export async function checkAndSendNotifications() {
   const now = new Date();
   console.log(`[Notification:cron] Checking for pending notifications at ${now.toISOString()}`);
+
+  // First: backfill catch-up notifications for today's events that have none
+  try {
+    const unnotified = await slackDb.getTodayUnnotifiedEventFacts();
+    console.log(`[Notification:cron] Today's unnotified event facts: ${unnotified.length}`);
+    for (const fact of unnotified) {
+      console.log(`[Notification:cron] Backfilling catch-up for fact ${fact.id}: "${fact.extracted_fact?.substring(0, 80)}" (deadline=${fact.deadline_date})`);
+      const notifs = scheduleDeadlineNotifications(fact.user_id, fact.entry_id, fact);
+      for (const n of notifs) {
+        const saved = await slackDb.createNotification(n);
+        console.log(`[Notification:cron] Backfilled notification ${saved.id} type=${n.notificationType} scheduled=${n.scheduledFor.toISOString()}`);
+      }
+    }
+  } catch (backfillErr) {
+    console.error(`[Notification:cron] Backfill error:`, backfillErr.message);
+  }
+
   const pending = await slackDb.getPendingNotifications(now);
   console.log(`[Notification:cron] Found ${pending.length} pending notifications`);
 
