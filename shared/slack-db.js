@@ -36,6 +36,26 @@ export async function getSlackSync(userId, entryId) {
   return result.rows[0] || null;
 }
 
+export async function getSlackSyncsByEntry(userId, entryId) {
+  const db = getPool();
+  const result = await db.query(
+    `SELECT * FROM slack_syncs
+     WHERE user_id = $1 AND entry_id = $2
+     ORDER BY channel_name ASC`,
+    [userId, entryId]
+  );
+  return result.rows;
+}
+
+export async function disableSyncByChannel(userId, entryId, channelId) {
+  const db = getPool();
+  await db.query(
+    `UPDATE slack_syncs SET sync_enabled = FALSE, updated_at = CURRENT_TIMESTAMP
+     WHERE user_id = $1 AND entry_id = $2 AND channel_id = $3`,
+    [userId, entryId, channelId]
+  );
+}
+
 export async function getSlackSyncById(syncId) {
   const db = getPool();
   const result = await db.query(

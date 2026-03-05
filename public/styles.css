@@ -3852,25 +3852,54 @@ body.has-bg-image::before {
   border-radius: 10px;
 }
 
-/* Channel picker */
-.slack-channel-picker {
+/* Channel checkbox list */
+.slack-channel-list {
+  max-height: 320px;
+  overflow-y: auto;
+  margin-bottom: 4px;
+}
+
+.slack-ch-row {
   display: flex;
-  gap: 8px;
   align-items: center;
-}
-
-.slack-channel-select {
-  flex: 1;
-  padding: 8px 10px;
-  border: 1px solid rgba(0, 0, 0, 0.15);
+  gap: 8px;
+  padding: 6px 8px;
   border-radius: 6px;
-  font-size: 13px;
-  background: rgba(255, 255, 255, 0.8);
-  outline: none;
+  cursor: pointer;
+  transition: background 0.12s;
+  border-left: 3px solid transparent;
 }
 
-.slack-channel-select:focus {
-  border-color: #611F69;
+.slack-ch-row:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.slack-ch-row.slack-ch-connected {
+  border-left-color: #2EB67D;
+}
+
+.slack-ch-check {
+  accent-color: #2EB67D;
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.slack-ch-name {
+  font-size: 13px;
+  color: #1d1c1d;
+  flex: 1;
+}
+
+.slack-ch-tag {
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  color: #611F69;
+  background: rgba(97, 31, 105, 0.06);
+  padding: 1px 6px;
+  border-radius: 6px;
+  white-space: nowrap;
 }
 
 .slack-sync-info {
@@ -3879,6 +3908,7 @@ body.has-bg-image::before {
   margin-bottom: 8px;
 }
 
+.slack-save-btn,
 .slack-connect-btn,
 .slack-refresh-btn,
 .slack-disconnect-btn {
@@ -3891,6 +3921,7 @@ body.has-bg-image::before {
   transition: opacity 0.15s;
 }
 
+.slack-save-btn,
 .slack-connect-btn {
   background: #611F69;
   color: white;
@@ -3907,6 +3938,7 @@ body.has-bg-image::before {
   font-size: 12px;
 }
 
+.slack-save-btn:hover,
 .slack-connect-btn:hover,
 .slack-refresh-btn:hover {
   opacity: 0.85;
@@ -3917,6 +3949,7 @@ body.has-bg-image::before {
   background: rgba(192, 57, 43, 0.08);
 }
 
+.slack-save-btn:disabled,
 .slack-connect-btn:disabled,
 .slack-refresh-btn:disabled {
   opacity: 0.5;
