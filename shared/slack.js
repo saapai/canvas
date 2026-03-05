@@ -205,6 +205,8 @@ export function scheduleDeadlineNotifications(userId, entryId, fact) {
   const now = new Date();
   const notifications = [];
 
+  const isToday = eventDate.toDateString() === now.toDateString();
+
   // Morning of: 10:00 AM PST on event day
   const morningOf = new Date(eventDate);
   morningOf.setUTCHours(18, 0, 0, 0); // 10am PST = 18:00 UTC
@@ -231,6 +233,22 @@ export function scheduleDeadlineNotifications(userId, entryId, fact) {
       scheduledFor: twoHoursBefore,
       eventDate,
       message: `Starting soon (2 hours): ${fact.extracted_fact}`
+    });
+  }
+
+  // CATCH-UP: If event is today but morning_of already passed and we have no
+  // scheduled notifications yet, send a catch-up notification immediately.
+  // This handles facts synced after the morning window.
+  if (isToday && morningOf <= now && notifications.length === 0) {
+    console.log(`[Notification] Event is today but all windows passed — scheduling catch-up for fact ${fact.id}`);
+    notifications.push({
+      userId,
+      entryId,
+      factId: fact.id,
+      notificationType: 'catch_up',
+      scheduledFor: new Date(now.getTime() + 60 * 1000), // 1 minute from now
+      eventDate,
+      message: `Heads up — happening today: ${fact.extracted_fact}`
     });
   }
 
@@ -384,7 +402,7 @@ async function buildEnrichedNotificationMessage(notification) {
   // Check sibling notification states
   const siblings = await slackDb.getSiblingNotifications(fact_id);
   const missedTypes = [];
-  const NOTIFICATION_ORDER = ['morning_of', 'two_hours_before'];
+  const NOTIFICATION_ORDER = ['morning_of', 'two_hours_before', 'catch_up'];
 
   const currentIdx = NOTIFICATION_ORDER.indexOf(notification_type);
   for (let i = 0; i < currentIdx; i++) {
@@ -395,9 +413,9 @@ async function buildEnrichedNotificationMessage(notification) {
     }
   }
 
-  // If no missed notifications and this is a morning_of, use original message
-  if (missedTypes.length === 0 && notification_type === 'morning_of') {
-    // Still try to enrich morning_of with comprehensive details
+  // catch_up always means all prior notifications were missed
+  if (notification_type === 'catch_up') {
+    missedTypes.push('morning_of', 'two_hours_before');
   }
 
   // Gather all context for a comprehensive message

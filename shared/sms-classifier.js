@@ -83,14 +83,17 @@ Current message: "${currentMessage}"
 
 Classify this message into ONE of these actions:
 
-1. **draft_write** - Creating or editing an announcement/poll draft
+1. **draft_write** - Actually creating or editing announcement/poll content (e.g. "announce meeting at 5pm", "poll: are you coming?")
 2. **draft_send** - ONLY explicit send confirmations when draft is ready
 3. **poll_response** - Responding to an active poll (yes/no/maybe with optional notes)
 4. **content_query** - Questions about page content (events, info, etc.)
-5. **capability_query** - Questions about what the bot can do
+5. **capability_query** - Questions about what the bot can do or how to use features
 6. **chat** - Everything else (casual conversation, banter, greetings)
 
-CONTEXT UNDERSTANDING:
+CRITICAL DISTINCTIONS:
+- "How do I make an announcement" / "How do I send a poll" = capability_query (asking for help)
+- "Announce: meeting at 5pm" / "Make an announcement saying X" = draft_write (has actual content to send)
+- draft_write requires actual MESSAGE CONTENT to send. If the user is just asking HOW to do it, that's capability_query.
 - Pay attention to conversation history
 - Words like "wait", "no", "actually", "instead" signal draft edits
 - Questions like "tell me about X", "what is X" are ALWAYS content_query

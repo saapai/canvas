@@ -117,8 +117,6 @@ Return ONLY the exact text to send. No quotes, no explanations.`;
 
 function isJustCommand(message, type) {
   const lower = message.toLowerCase().trim();
-  // Catch "how do I make an announcement" / "how to announce" style questions too
-  if (/^(how (do|can|to)|what'?s the way to|can i|help me)\b/i.test(lower)) return true;
   if (type === 'announcement') return /^(announce|announcement|make an announcement|send an announcement|create an announcement)$/i.test(lower);
   return /^(poll|make a poll|send a poll|create a poll|start a poll)$/i.test(lower);
 }
