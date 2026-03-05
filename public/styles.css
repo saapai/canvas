@@ -3873,6 +3873,12 @@ body.has-bg-image::before {
   border-color: #611F69;
 }
 
+.slack-sync-info {
+  font-size: 11px;
+  color: #999;
+  margin-bottom: 8px;
+}
+
 .slack-connect-btn,
 .slack-refresh-btn,
 .slack-disconnect-btn {

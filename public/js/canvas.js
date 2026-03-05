@@ -323,6 +323,12 @@ viewport.addEventListener('mousedown', (e) => {
     const isLinkCard = e.target.closest('.link-card, .link-card-placeholder');
     const isMediaCard = e.target.closest('.media-card');
 
+    // Slack card: let interactive elements (select, button, input) receive native events
+    if (entryEl.querySelector('.slack-sync-card') && e.target.closest('select, button, input, label, a')) {
+      isProcessingClick = false;
+      return;
+    }
+
     // Cancel any pending edit timeout since we're starting to drag
     if (pendingEditTimeout) {
       clearTimeout(pendingEditTimeout);
