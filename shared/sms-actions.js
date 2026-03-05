@@ -419,9 +419,13 @@ export async function handleContentQuery({ phone, message, userName, entryId }) 
             const d = new Date(f.message_date);
             dateStr = `${dayNames[d.getDay()]} ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
           }
-          let line = `[sent ${dateStr}] ${f.extracted_fact}`;
-          if (f.deadline_date) line += ` (DEADLINE: ${new Date(f.deadline_date).toLocaleDateString()})`;
-          if (f.raw_text && f.raw_text !== f.extracted_fact) line += ` | raw: "${f.raw_text.substring(0, 200)}"`;
+          let eventDateStr = '';
+          if (f.deadline_date) {
+            const ed = new Date(f.deadline_date);
+            eventDateStr = ` [EVENT DATE: ${dayNames[ed.getDay()]} ${ed.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}]`;
+          }
+          let line = `[sent ${dateStr}]${eventDateStr} ${f.extracted_fact}`;
+          if (f.raw_text && f.raw_text !== f.extracted_fact) line += ` | original msg: "${f.raw_text.substring(0, 500)}"`;
           byChannel[chName].push(line);
         }
         slackFactsContext = Object.entries(byChannel).map(([ch, lines]) =>
