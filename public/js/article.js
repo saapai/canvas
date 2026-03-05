@@ -262,6 +262,40 @@ async function loadSharedPageCards() {
   }
 }
 
+// ——— SMS admin page links on own home page ———
+
+async function loadSmsAdminPageCards() {
+  try {
+    const res = await fetch('/api/sms-admin-pages', { credentials: 'include' });
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data.adminPages || data.adminPages.length === 0) return;
+
+    // Place after shared page cards
+    let offsetX = 250;
+    const startY = 130;
+
+    data.adminPages.forEach((page, index) => {
+      const el = document.createElement('div');
+      el.className = 'entry sms-admin-link';
+      el.dataset.smsJoinCode = page.smsJoinCode || '';
+      el.style.position = 'absolute';
+      el.style.left = `${offsetX + index * 200}px`;
+      el.style.top = `${startY}px`;
+      el.style.cursor = 'pointer';
+      el.textContent = page.entryText || page.ownerUsername;
+
+      el.addEventListener('click', () => {
+        window.location.href = '/' + page.ownerUsername;
+      });
+
+      world.appendChild(el);
+    });
+  } catch (err) {
+    console.error('Error loading SMS admin pages:', err);
+  }
+}
+
 // ——— Live sync via polling ———
 
 let syncInterval = null;
