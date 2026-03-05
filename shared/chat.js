@@ -17,6 +17,12 @@ Your job: be proactive and genuinely interesting. When you get context:
 - For specific entries (like "acura vs subaru"), enrich with external knowledge and synthesize with their personal context
 - Reference specific media: "I see you've got [Movie Title] in your 'best' collection—that's a bold choice because..."
 
+EXTERNAL DATA SOURCES: You may also receive Slack announcements, calendar events, and other external data. When present:
+- Use Slack facts to answer questions about upcoming deadlines, events, announcements
+- Cross-reference Slack info with canvas content for richer answers
+- Note when a Slack fact has a deadline and warn about approaching dates
+- Treat Slack facts as authoritative, up-to-date information
+
 Be specific, curious, and insightful. Reference actual titles, artists, years. Make connections they might not see. Tone: warm, slightly irreverent, genuinely curious. No generic responses. If they ask about something, traverse ALL relevant trenches to find the answer.
 
 When you have no context, say something brief and inviting—still distinctive, not corporate.`;
@@ -274,9 +280,30 @@ export async function chatWithCanvas(payload) {
     preview: context.substring(0, 200) + '...'
   });
 
+  // Add external data sources (Slack facts, calendar events)
+  const { externalSources } = payload;
+  let externalBlock = '';
+  if (externalSources?.slackFacts?.length) {
+    externalBlock += '\n\n=== SLACK ANNOUNCEMENTS ===\n';
+    for (const f of externalSources.slackFacts) {
+      const date = f.message_date ? new Date(f.message_date).toLocaleDateString() : 'unknown date';
+      const channel = f.channel_id || 'unknown';
+      let line = `[${date}] #${channel}: ${f.extracted_fact}`;
+      if (f.deadline_date) line += ` (DEADLINE: ${new Date(f.deadline_date).toLocaleDateString()})`;
+      if (f.fact_type && f.fact_type !== 'info') line += ` [${f.fact_type}]`;
+      externalBlock += line + '\n';
+    }
+  }
+  if (externalSources?.calendarEvents?.length) {
+    externalBlock += '\n\n=== CALENDAR EVENTS ===\n';
+    for (const e of externalSources.calendarEvents) {
+      externalBlock += `[${e.date || e.start}] ${e.summary || e.title}${e.location ? ` @ ${e.location}` : ''}\n`;
+    }
+  }
+
   // Enrich with external context for vague/specific entries
   const enrichments = await enrichWithExternalContext(context, userMessage);
-  let enrichedContext = context;
+  let enrichedContext = context + externalBlock;
   if (enrichments.length > 0) {
     console.log('[CHAT] Enrichments found:', enrichments.length);
     enrichedContext += '\n\n=== EXTERNAL CONTEXT & SYNTHESIS ===\n';

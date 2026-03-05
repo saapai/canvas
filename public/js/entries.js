@@ -225,6 +225,10 @@ async function loadUserEntries(username, editable) {
           entry.innerHTML = entryData.textHtml;
           const card = entry.querySelector('.gcal-card');
           if (card) setupCalendarCardHandlers(card);
+        } else if (entryData.textHtml && entryData.textHtml.includes('slack-sync-card')) {
+          entry.innerHTML = entryData.textHtml;
+          const card = entry.querySelector('.slack-sync-card');
+          if (card) setupSlackSyncCardHandlers(card);
         } else if (processedText) {
           if (entryData.textHtml && /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(entryData.textHtml)) {
             // Strip URLs from HTML — they're shown as link cards
@@ -307,7 +311,8 @@ async function loadUserEntries(username, editable) {
         smsType: entryData.smsType || null,
         smsRefId: entryData.smsRefId || null,
         smsJoinCode: entryData.smsJoinCode || null,
-        smsAdminLink: entryData.smsAdminLink || null
+        smsAdminLink: entryData.smsAdminLink || null,
+        slackChannelId: entryData.slackChannelId || null
       };
       entries.set(entryData.id, storedEntryData);
 
@@ -838,6 +843,10 @@ async function loadEntriesFromServer() {
         entry.innerHTML = entryData.textHtml;
         const card = entry.querySelector('.gcal-card');
         if (card) setupCalendarCardHandlers(card);
+      } else if (entryData.textHtml && entryData.textHtml.includes('slack-sync-card')) {
+        entry.innerHTML = entryData.textHtml;
+        const card = entry.querySelector('.slack-sync-card');
+        if (card) setupSlackSyncCardHandlers(card);
       } else if (processedText) {
         if (entryData.textHtml && /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(entryData.textHtml)) {
           // Has formatting — strip URLs from HTML (they're shown as link cards)
@@ -868,7 +877,8 @@ async function loadEntriesFromServer() {
         latexData: entryData.latexData || null,
         position: entryData.position,
         parentEntryId: entryData.parentEntryId,
-        mediaCardData: entryData.mediaCardData || null
+        mediaCardData: entryData.mediaCardData || null,
+        slackChannelId: entryData.slackChannelId || null
       };
       entries.set(entryData.id, storedEntryData);
 

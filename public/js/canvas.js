@@ -195,7 +195,8 @@ viewport.addEventListener('mousedown', (e) => {
       if(trimmedRight) {
         const isDeadline = htmlContent.includes('deadline-table');
         const isCalendarCard = htmlContent.includes('gcal-card');
-        const hasFmt = isDeadline || isCalendarCard || /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(htmlContent);
+        const isSlackCard = htmlContent.includes('slack-sync-card');
+        const hasFmt = isDeadline || isCalendarCard || isSlackCard || /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(htmlContent);
         entryData.text = trimmedRight;
         entryData.textHtml = hasFmt ? htmlContent : null;
         if (isDeadline) {
@@ -204,6 +205,10 @@ viewport.addEventListener('mousedown', (e) => {
           entryData.element.innerHTML = htmlContent;
           const card = entryData.element.querySelector('.gcal-card');
           if (card) setupCalendarCardHandlers(card);
+        } else if (isSlackCard) {
+          entryData.element.innerHTML = htmlContent;
+          const card = entryData.element.querySelector('.slack-sync-card');
+          if (card) setupSlackSyncCardHandlers(card);
         } else if (!hasCards) {
           const { processedText, urls } = processTextWithLinks(trimmedRight);
           if (hasFmt) {
@@ -619,6 +624,8 @@ window.addEventListener('mouseup', async (e) => {
               selectOnlyEntry(draggingEntry.id);
             } else if(draggingEntry.querySelector('.gcal-card')) {
               // Calendar card: no edit mode, do nothing on click
+            } else if(draggingEntry.querySelector('.slack-sync-card')) {
+              // Slack card: no edit mode, do nothing on click
             } else if(draggingEntry.querySelector('.deadline-table')) {
               const alreadyEditing = editingEntryId === draggingEntry.id;
               if (!alreadyEditing) {
@@ -815,7 +822,7 @@ window.addEventListener('mouseup', async (e) => {
             const urls = extractUrls(entryData.text);
             if (urls.length > 0) window.open(urls[0], '_blank');
           }
-        } else if (entryEl.id !== 'anchor' && entryEl.id && !editingEntryId && !entryEl.querySelector('.deadline-table') && !entryEl.querySelector('.gcal-card')) {
+        } else if (entryEl.id !== 'anchor' && entryEl.id && !editingEntryId && !entryEl.querySelector('.deadline-table') && !entryEl.querySelector('.gcal-card') && !entryEl.querySelector('.slack-sync-card')) {
           navigateToEntry(entryEl.id);
         }
       }
@@ -833,7 +840,7 @@ viewport.addEventListener('dblclick', (e) => {
   }
   const entryEl = findEntryElement(e.target);
   if (e.target.closest('.link-card, .link-card-placeholder, .media-card')) return;
-  if (entryEl && (entryEl.querySelector('.deadline-table') || entryEl.querySelector('.gcal-card'))) return;
+  if (entryEl && (entryEl.querySelector('.deadline-table') || entryEl.querySelector('.gcal-card') || entryEl.querySelector('.slack-sync-card'))) return;
   if (entryEl && entryEl.id !== 'anchor' && entryEl.id && !editingEntryId) {
     e.preventDefault();
     e.stopPropagation();
@@ -1208,8 +1215,8 @@ editor.addEventListener('keydown', (e) => {
       }
     }
 
-    // Deadline tables handle Enter themselves; calendar cards don't commit on Enter
-    if (editor.querySelector('.deadline-table') || editor.querySelector('.gcal-card')) {
+    // Deadline tables handle Enter themselves; calendar/slack cards don't commit on Enter
+    if (editor.querySelector('.deadline-table') || editor.querySelector('.gcal-card') || editor.querySelector('.slack-sync-card')) {
       return;
     }
 
@@ -1257,10 +1264,11 @@ editor.addEventListener('keydown', (e) => {
 function updateEditingBorderDimensions(entry) {
   if (!entry || !entry.classList.contains('editing')) return;
 
-  // Deadline tables / calendar cards: size border to match content dimensions
+  // Deadline tables / calendar cards / slack cards: size border to match content dimensions
   const deadlineTable = entry.querySelector('.deadline-table');
   const gcalCard = entry.querySelector('.gcal-card');
-  if (deadlineTable || gcalCard) {
+  const slackCard = entry.querySelector('.slack-sync-card');
+  if (deadlineTable || gcalCard || slackCard) {
     entry.style.removeProperty('width');
     entry.style.removeProperty('height');
     return;
@@ -1532,7 +1540,7 @@ viewport.addEventListener('contextmenu', (e) => {
       selectOnlyEntry(entryEl.id);
       return;
     }
-    if(entryEl.querySelector('.gcal-card')){
+    if(entryEl.querySelector('.gcal-card') || entryEl.querySelector('.slack-sync-card')){
       e.preventDefault();
       e.stopPropagation();
       return;
