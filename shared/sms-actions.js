@@ -433,11 +433,13 @@ export async function handleContentQuery({ phone, message, userName, entryId }) 
         ).join('\n\n');
       }
       console.log('[ContentQuery] Slack facts loaded:', slackFacts.length, 'for entry', entryId);
+      if (slackFactsContext) console.log('[ContentQuery] Slack facts content:\n' + slackFactsContext);
     } catch (e) {
       console.log('[ContentQuery] Slack facts fetch skipped:', e.message);
     }
 
     console.log('[ContentQuery] Context sizes — entries:', entriesContext.length, 'announcements:', announcementsContext.length, 'polls:', pollsContext.length, 'slackFacts:', slackFactsContext.length);
+    console.log('[ContentQuery] Entries context:\n' + (entriesContext || '(none)').substring(0, 500));
     console.log('[ContentQuery] Query:', message, '| Page:', pageName, '| EntryId:', entryId);
 
     const today = new Date();
@@ -446,10 +448,17 @@ export async function handleContentQuery({ phone, message, userName, entryId }) 
 
     const systemPrompt = `You are an SMS assistant for "${pageName}" (${memberCount} members${adminNames ? ', admins: ' + adminNames : ''}).
 Today is ${todayStr}.
-Answer questions based on the page content below. Be concise, SMS-friendly (under 300 chars if possible). Use casual tone.
+Answer questions based on the content below. Be concise, SMS-friendly (under 300 chars if possible). Use casual tone.
 If the answer isn't in the content, say you don't know. Never make things up.
 
-IMPORTANT: Each Slack message has a "sent" date. When a message says "today" it means the day it was SENT, not today's date. Use sent dates to resolve relative times. Different event names (e.g. "formal", "PFC", "mixer") are SEPARATE events on potentially different days — do NOT combine their details. Only answer with details for the specific event the user asked about.
+CRITICAL RULES:
+1. Slack channel messages are the MOST RELIABLE source — they have specific dates, times, addresses, and logistics. ALWAYS prefer Slack details over vague page entries.
+2. Each Slack message has a "sent" date. When a message says "today" it means the day it was SENT, not today's date. Resolve relative times using the sent date.
+3. Different event names (e.g. "formal", "PFC", "mixer", "meeting") are SEPARATE events on potentially different days. Do NOT combine details from different events. Only answer with details for the specific event asked about.
+4. Include specific details: times, addresses, logistics, dress code — whatever is in the Slack messages.
+
+Slack channel messages (MOST IMPORTANT — grouped by channel):
+${slackFactsContext || '(none synced)'}
 
 Page entries/content:
 ${entriesContext || '(no entries yet)'}
@@ -458,10 +467,7 @@ Announcements:
 ${announcementsContext || '(none)'}
 
 Polls:
-${pollsContext || '(none)'}
-
-Slack channel messages (grouped by channel):
-${slackFactsContext || '(none synced)'}`;
+${pollsContext || '(none)'}`;
 
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
     const response = await openai.chat.completions.create({
