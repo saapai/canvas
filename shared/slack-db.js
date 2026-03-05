@@ -234,6 +234,7 @@ export async function getChannelNamesForEntry(entryId) {
  */
 export async function getTodayUnnotifiedEventFacts() {
   const db = getPool();
+  // Use PST timezone for "today" comparison (America/Los_Angeles)
   const result = await db.query(
     `SELECT f.*, s.user_id, s.entry_id AS sync_entry_id
      FROM slack_facts f
@@ -241,7 +242,7 @@ export async function getTodayUnnotifiedEventFacts() {
      WHERE f.is_current = TRUE
        AND f.deadline_date IS NOT NULL
        AND f.fact_type IN ('deadline', 'event')
-       AND f.deadline_date::date = CURRENT_DATE
+       AND (f.deadline_date AT TIME ZONE 'America/Los_Angeles')::date = (NOW() AT TIME ZONE 'America/Los_Angeles')::date
        AND NOT EXISTS (
          SELECT 1 FROM scheduled_notifications n
          WHERE n.fact_id = f.id AND n.status IN ('pending', 'sent')
