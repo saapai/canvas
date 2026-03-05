@@ -402,20 +402,26 @@ export async function handleContentQuery({ phone, message, userName, entryId }) 
     const memberCount = members.length;
     const adminNames = members.filter(m => m.role === 'owner' || m.role === 'admin').map(m => m.name).filter(Boolean).join(', ');
 
-    // Fetch Slack facts for this page (from all synced channels)
+    // Fetch Slack facts for this page (from all synced channels), grouped by channel
     let slackFactsContext = '';
     try {
       const slackDb = await import('./slack-db.js');
       const slackFacts = await slackDb.getFactsByEntry(entryId, { currentOnly: true, limit: 50 });
       if (slackFacts.length > 0) {
-        slackFactsContext = slackFacts.map(f => {
+        // Group facts by channel name for clearer context
+        const byChannel = {};
+        for (const f of slackFacts) {
+          const chName = f.channel_name || f.channel_id || 'unknown';
+          if (!byChannel[chName]) byChannel[chName] = [];
           const date = f.message_date ? new Date(f.message_date).toLocaleDateString() : '';
-          const channel = f.channel_id || '';
-          let line = `[${date}${channel ? ' #' + channel : ''}] ${f.extracted_fact}`;
+          let line = `[${date}] ${f.extracted_fact}`;
           if (f.deadline_date) line += ` (DEADLINE: ${new Date(f.deadline_date).toLocaleDateString()})`;
           if (f.raw_text && f.raw_text !== f.extracted_fact) line += ` | raw: "${f.raw_text.substring(0, 200)}"`;
-          return line;
-        }).join('\n');
+          byChannel[chName].push(line);
+        }
+        slackFactsContext = Object.entries(byChannel).map(([ch, lines]) =>
+          `#${ch}:\n${lines.join('\n')}`
+        ).join('\n\n');
       }
       console.log('[ContentQuery] Slack facts loaded:', slackFacts.length, 'for entry', entryId);
     } catch (e) {
@@ -429,6 +435,8 @@ export async function handleContentQuery({ phone, message, userName, entryId }) 
 Answer questions based on the page content below. Be concise, SMS-friendly (under 300 chars if possible). Use casual tone.
 If the answer isn't in the content, say you don't know. Never make things up.
 
+IMPORTANT: When answering about a specific event, give ALL relevant details from the messages (time, location, address, logistics). Multiple Slack channels may discuss the same event — combine the details into one coherent answer. Include specifics like addresses, times, and instructions. Don't mix up different events.
+
 Page entries/content:
 ${entriesContext || '(no entries yet)'}
 
@@ -438,7 +446,7 @@ ${announcementsContext || '(none)'}
 Polls:
 ${pollsContext || '(none)'}
 
-Slack channel messages:
+Slack channel messages (grouped by channel):
 ${slackFactsContext || '(none synced)'}`;
 
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
