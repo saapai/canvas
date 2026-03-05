@@ -210,8 +210,14 @@ viewport.addEventListener('mousedown', (e) => {
           const card = entryData.element.querySelector('.slack-sync-card');
           if (card) setupSlackSyncCardHandlers(card);
         } else if (!hasCards) {
-          const { processedText } = processTextWithLinks(trimmedRight);
-          entryData.element.innerHTML = hasFmt ? meltifyHtml(htmlContent) : meltify(processedText || '');
+          const { processedText, urls } = processTextWithLinks(trimmedRight);
+          if (hasFmt) {
+            let cleanHtml = htmlContent;
+            urls.forEach(url => { cleanHtml = cleanHtml.replace(url, ''); });
+            entryData.element.innerHTML = cleanHtml.trim() ? meltifyHtml(cleanHtml.trim()) : '';
+          } else {
+            entryData.element.innerHTML = meltify(processedText || '');
+          }
         }
         applyEntryFontSize(entryData.element, hasFmt ? htmlContent : null);
         updateEntryDimensions(entryData.element);

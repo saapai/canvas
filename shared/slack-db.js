@@ -110,9 +110,11 @@ export async function saveFact({ syncId, entryId, channelId, messageTs, messageD
 
 export async function getFactsByEntry(entryId, { currentOnly = true, limit = 50 } = {}) {
   const db = getPool();
-  let query = `SELECT * FROM slack_facts WHERE entry_id = $1`;
-  if (currentOnly) query += ` AND is_current = TRUE`;
-  query += ` ORDER BY message_date DESC NULLS LAST, created_at DESC LIMIT $2`;
+  let query = `SELECT f.*, s.channel_name FROM slack_facts f
+    LEFT JOIN slack_syncs s ON f.sync_id = s.id
+    WHERE f.entry_id = $1`;
+  if (currentOnly) query += ` AND f.is_current = TRUE`;
+  query += ` ORDER BY f.message_date DESC NULLS LAST, f.created_at DESC LIMIT $2`;
   const result = await db.query(query, [entryId, limit]);
   return result.rows;
 }

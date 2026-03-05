@@ -247,7 +247,17 @@ export async function syncChannel(syncRecord) {
   console.log(`[Slack:sync] Starting sync for #${channelName} (${channelId}), lastTs: ${lastSyncTs || 'none'}`);
 
   // 1. Fetch new messages since last sync
-  const messages = await fetchChannelMessages(channelId, lastSyncTs);
+  let messages;
+  try {
+    messages = await fetchChannelMessages(channelId, lastSyncTs);
+  } catch (err) {
+    if (err.message?.includes('not_in_channel')) {
+      console.log(`[Slack:sync] Bot not in #${channelName}, disabling sync`);
+      await slackDb.disableSync(syncId);
+      return { newFacts: 0, skipped: 'not_in_channel' };
+    }
+    throw err;
+  }
   console.log(`[Slack:sync] #${channelName}: fetched ${messages.length} new messages`);
   if (!messages.length) {
     await slackDb.updateSyncTimestamp(syncId, lastSyncTs || '0');

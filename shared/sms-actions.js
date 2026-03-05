@@ -412,32 +412,63 @@ export async function getContentQueryAnswer(entryId, question) {
   const memberCount = members.length;
   const adminNames = members.filter(m => m.role === 'owner' || m.role === 'admin').map(m => m.name).filter(Boolean).join(', ');
 
-  // Fetch Slack facts for this page (from all synced channels)
+  // Fetch Slack facts for this page (from all synced channels), grouped by channel
   let slackFactsContext = '';
   try {
     const slackDb = await import('./slack-db.js');
     const slackFacts = await slackDb.getFactsByEntry(entryId, { currentOnly: true, limit: 50 });
     if (slackFacts.length > 0) {
-      slackFactsContext = slackFacts.map(f => {
-        const date = f.message_date ? new Date(f.message_date).toLocaleDateString() : '';
-        const channel = f.channel_id || '';
-        let line = `[${date}${channel ? ' #' + channel : ''}] ${f.extracted_fact}`;
-        if (f.deadline_date) line += ` (DEADLINE: ${new Date(f.deadline_date).toLocaleDateString()})`;
-        if (f.raw_text && f.raw_text !== f.extracted_fact) line += ` | raw: "${f.raw_text.substring(0, 200)}"`;
-        return line;
-      }).join('\n');
+      // Group facts by channel name for clearer context
+      const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+      const byChannel = {};
+      for (const f of slackFacts) {
+        const chName = f.channel_name || f.channel_id || 'unknown';
+        if (!byChannel[chName]) byChannel[chName] = [];
+        let dateStr = '';
+        if (f.message_date) {
+          const d = new Date(f.message_date);
+          dateStr = `${dayNames[d.getDay()]} ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+        }
+        let eventDateStr = '';
+        if (f.deadline_date) {
+          const ed = new Date(f.deadline_date);
+          eventDateStr = ` [EVENT DATE: ${dayNames[ed.getDay()]} ${ed.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}]`;
+        }
+        let line = `[sent ${dateStr}]${eventDateStr} ${f.extracted_fact}`;
+        if (f.raw_text && f.raw_text !== f.extracted_fact) line += ` | original msg: "${f.raw_text.substring(0, 500)}"`;
+        byChannel[chName].push(line);
+      }
+      slackFactsContext = Object.entries(byChannel).map(([ch, lines]) =>
+        `#${ch}:\n${lines.join('\n')}`
+      ).join('\n\n');
     }
     console.log('[ContentQuery] Slack facts loaded:', slackFacts.length, 'for entry', entryId);
+    if (slackFactsContext) console.log('[ContentQuery] Slack facts content:\n' + slackFactsContext);
   } catch (e) {
     console.log('[ContentQuery] Slack facts fetch skipped:', e.message);
   }
 
   console.log('[ContentQuery] Context sizes — entries:', entriesContext.length, 'announcements:', announcementsContext.length, 'polls:', pollsContext.length, 'slackFacts:', slackFactsContext.length);
+  console.log('[ContentQuery] Entries context:\n' + (entriesContext || '(none)').substring(0, 500));
   console.log('[ContentQuery] Query:', question, '| Page:', pageName, '| EntryId:', entryId);
 
+  const today = new Date();
+  const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const todayStr = `${dayNames[today.getDay()]} ${today.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+
   const systemPrompt = `You are an SMS assistant for "${pageName}" (${memberCount} members${adminNames ? ', admins: ' + adminNames : ''}).
-Answer questions based on the page content below. Be concise, SMS-friendly (under 300 chars if possible). Use casual tone.
+Today is ${todayStr}.
+Answer questions based on the content below. Be concise, SMS-friendly (under 300 chars if possible). Use casual tone.
 If the answer isn't in the content, say you don't know. Never make things up.
+
+CRITICAL RULES:
+1. Slack channel messages are the MOST RELIABLE source — they have specific dates, times, addresses, and logistics. ALWAYS prefer Slack details over vague page entries.
+2. Each Slack message has a "sent" date. When a message says "today" it means the day it was SENT, not today's date. Resolve relative times using the sent date.
+3. Different event names (e.g. "formal", "PFC", "mixer", "meeting") are SEPARATE events on potentially different days. Do NOT combine details from different events. Only answer with details for the specific event asked about.
+4. Include specific details: times, addresses, logistics, dress code — whatever is in the Slack messages.
+
+Slack channel messages (MOST IMPORTANT — grouped by channel):
+${slackFactsContext || '(none synced)'}
 
 Page entries/content:
 ${entriesContext || '(no entries yet)'}
@@ -446,10 +477,7 @@ Announcements:
 ${announcementsContext || '(none)'}
 
 Polls:
-${pollsContext || '(none)'}
-
-Slack channel messages:
-${slackFactsContext || '(none synced)'}`;
+${pollsContext || '(none)'}`;
 
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const response = await openai.chat.completions.create({
