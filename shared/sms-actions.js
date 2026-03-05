@@ -460,10 +460,15 @@ Answer questions based on the content below. Be concise, SMS-friendly (under 300
 If the answer isn't in the content, say you don't know. Never make things up.
 
 CRITICAL RULES:
-1. Slack channel messages are the MOST RELIABLE source — they have specific dates, times, addresses, and logistics. ALWAYS prefer Slack details over vague page entries.
-2. Each Slack message has a "sent" date. When a message says "today" it means the day it was SENT, not today's date. Resolve relative times using the sent date.
-3. Different event names (e.g. "formal", "PFC", "mixer", "meeting") are SEPARATE events on potentially different days. Do NOT combine details from different events. Only answer with details for the specific event asked about.
-4. Include specific details: times, addresses, logistics, dress code — whatever is in the Slack messages.
+1. Slack messages are the MOST RELIABLE source. ALWAYS prefer Slack details over vague page entries.
+2. "today" in a Slack message means the day it was SENT, not today's date. Resolve relative times using the sent date.
+3. IMPORTANT — SEPARATE EVENTS: A single Slack message may mention MULTIPLE events (e.g. "No meeting because of PFC" + "pregame at Allie's" + "formal is Thursday"). You MUST carefully distinguish which details belong to which event:
+   - "formal" = the formal event (venue, dress code, uber time, formal address)
+   - "PFC" / "pregame" / "buses" = Pan-Fraternity Council event (different event, different logistics)
+   - If a message cross-posts info about another event, those details belong to THAT other event, not the one being asked about
+   - When user asks about "formal", ONLY include formal-specific details (venue address, uber time, dress code). Do NOT include PFC pregame address, bus departure, or wristband info.
+4. Always include the most specific details available: exact times, addresses, dress code, logistics.
+5. When asked "when" — give the actual TIME (e.g. "10pm"), not just the date.
 
 Slack channel messages (MOST IMPORTANT — grouped by channel):
 ${slackFactsContext || '(none synced)'}
