@@ -3,28 +3,13 @@
 function updateSmsManageButton() {
   const smsManageBtn = document.getElementById('sms-manage-button');
   if (!smsManageBtn) return;
-
-  if (currentViewEntryId) {
-    // Inside a subpage — show gear if this entry has SMS
-    const currentPageEntry = entries.get(currentViewEntryId);
-    const pageHasSms = currentPageEntry && currentPageEntry.smsJoinCode;
-    smsManageBtn.classList.toggle('hidden', !pageHasSms);
-    if (pageHasSms) {
-      smsManageBtn.onclick = () => {
-        if (window.openManageModal) window.openManageModal(currentViewEntryId);
-      };
-    }
-  } else {
-    // Root page — show gear if ANY root-level entry has SMS
-    const smsEntries = Array.from(entries.values()).filter(e =>
-      !e.parentEntryId && e.smsJoinCode
-    );
-    smsManageBtn.classList.toggle('hidden', smsEntries.length === 0);
-    if (smsEntries.length > 0) {
-      smsManageBtn.onclick = () => {
-        if (window.openManageModal) window.openManageModal(smsEntries[0].id);
-      };
-    }
+  const currentPageEntry = currentViewEntryId ? entries.get(currentViewEntryId) : null;
+  const pageHasSms = currentPageEntry && currentPageEntry.smsJoinCode;
+  smsManageBtn.classList.toggle('hidden', !pageHasSms);
+  if (pageHasSms) {
+    smsManageBtn.onclick = () => {
+      if (window.openManageModal) window.openManageModal(currentViewEntryId);
+    };
   }
 }
 
