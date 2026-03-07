@@ -416,13 +416,13 @@ async function loadUserEntries(username, editable) {
       });
     }, 100);
 
-    // Zoom to fit all entries on initial load — instant (no animation)
+    // Zoom to fit all entries on initial load — gentle animation
     if (!hasZoomedToFit) {
       hasZoomedToFit = true;
       // Wait for link cards to load and dimension recalculation, then fit
       setTimeout(() => {
         requestAnimationFrame(() => {
-          zoomToFitEntries({ instant: true });
+          zoomToFitEntries();
         });
       }, 600);
     }
@@ -904,10 +904,10 @@ async function loadEntriesFromServer() {
     // Zoom to fit all entries on initial load — instant (no animation)
     if (!hasZoomedToFit) {
       hasZoomedToFit = true;
-      // Wait for link cards to load and then fit
+      // Wait for link cards to load and then fit — gentle animation
       setTimeout(() => {
         requestAnimationFrame(() => {
-          zoomToFitEntries({ instant: true });
+          zoomToFitEntries();
         });
       }, 500);
     }

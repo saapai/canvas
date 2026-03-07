@@ -116,7 +116,7 @@ function navigateToEntry(entryId) {
 
     // Zoom to fit all visible entries
     requestAnimationFrame(() => {
-      zoomToFitEntries();
+      zoomToFitEntries({ instant: true });
     });
   }, 100);
 
@@ -239,7 +239,7 @@ function navigateBack(level = 1) {
 
     // Zoom to fit all visible entries
     requestAnimationFrame(() => {
-      zoomToFitEntries();
+      zoomToFitEntries({ instant: true });
     });
   }, 100);
 
@@ -356,7 +356,7 @@ function navigateToRoot() {
 
     // Zoom to fit all visible entries (same as initial load)
     requestAnimationFrame(() => {
-      zoomToFitEntries();
+      zoomToFitEntries({ instant: true });
     });
   }, 100);
 
