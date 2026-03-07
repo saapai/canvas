@@ -502,19 +502,33 @@ async function buildEnrichedNotificationMessage(notification) {
   const relevantFacts = [...todayFacts, ...todayInfoFacts];
   console.log(`[Notification:enrich] Entry ${entry_id}: ${todayFacts.length} today event facts, ${todayInfoFacts.length} today info facts`);
 
-  // Check if any facts mention links
-  const hasLinks = relevantFacts.some(f => {
-    const text = (f.raw_text || '') + ' ' + (f.extracted_fact || '');
-    return /https?:\/\/|link|sign.?up|form|rsvp/i.test(text);
-  });
+  // Extract actual URLs from raw_text and track which channels they came from
+  const extractedLinks = [];
+  const channelsWithLinks = new Set();
+  for (const f of relevantFacts) {
+    const text = f.raw_text || '';
+    // Match Slack-formatted links <url|label> and plain URLs
+    const slackLinks = [...text.matchAll(/<(https?:\/\/[^|>]+)(?:\|[^>]*)?>|(?<!="|'|<)(https?:\/\/[^\s>]+)/g)];
+    for (const match of slackLinks) {
+      const url = match[1] || match[2];
+      if (url && !url.includes('slack.com') && !extractedLinks.includes(url)) {
+        extractedLinks.push(url);
+        if (f.channel_name || f.channel_id) channelsWithLinks.add(f.channel_name || f.channel_id);
+      }
+    }
+  }
 
-  const channelRef = channelNames.length > 0
-    ? `#${channelNames.join(', #')}`
-    : 'Slack';
+  const linkInfo = extractedLinks.length > 0
+    ? `\nEXTRACTED LINKS (include these directly in the SMS):\n${extractedLinks.join('\n')}`
+    : '';
+  const channelRefForLinks = channelsWithLinks.size > 0
+    ? `#${[...channelsWithLinks].join(', #')}`
+    : '';
 
-  // Build facts list for LLM
+  // Build facts list for LLM, include channel name per fact
   const factsList = relevantFacts.map(f => {
-    let line = f.extracted_fact;
+    const ch = f.channel_name || f.channel_id || '';
+    let line = `[#${ch}] ${f.extracted_fact}`;
     if (f.raw_text && f.raw_text !== f.extracted_fact) {
       line += ` | original: "${f.raw_text.substring(0, 400)}"`;
     }
@@ -527,25 +541,26 @@ async function buildEnrichedNotificationMessage(notification) {
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: `You write clean, elegant SMS event reminders. One text, all the key details.
+        { role: 'system', content: `You write clean SMS event reminders. Plain text only.
 
-STYLE:
-- Clean and organized, use line breaks between sections
-- No emoji spam, max 2-3 relevant ones
-- Bold key info with caps sparingly (just times/addresses)
-- Friendly but not try-hard casual
+FORMAT RULES:
+- PLAIN TEXT ONLY. No markdown, no asterisks, no bullet points, no bold, no formatting.
+- Use line breaks to separate sections
+- Keep it natural and readable, like a text from a friend
 - Under 400 chars ideally
+- 1-2 emoji max, only if natural
 
 CONTENT RULES:
 - Include ALL actionable details: times, addresses, dress code, transport
-- ONLY include facts from today's events. Do NOT mix in details from other days.
-- If facts mention links/signups/forms, say "check ${channelRef} on Slack for links"
+- ONLY include details from today's events
+- If actual URLs are provided in the extracted links, include the URL directly in the text
+- If links are mentioned but no URL is available, say "check #channel-name on Slack" (only the SPECIFIC channel, not all channels)
 - Do NOT make up any details not in the facts
-- Do NOT include the word "catch-up" or reference missed notifications` },
-        { role: 'user', content: `Today's event details:\n${factsList || notification.message}\n\n${hasLinks ? `Some facts reference links — mention checking ${channelRef} on Slack.` : ''}\n\nCompose the SMS:` }
+- Do NOT say "catch-up" or "reminder" in the header` },
+        { role: 'user', content: `Today's event details:\n${factsList || notification.message}${linkInfo}\n\nCompose the SMS:` }
       ],
       temperature: 0.3,
-      max_tokens: 350
+      max_tokens: 400
     });
 
     const enriched = response.choices[0]?.message?.content?.trim();

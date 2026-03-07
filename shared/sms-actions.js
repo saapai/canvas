@@ -456,6 +456,7 @@ export async function getContentQueryAnswer(entryId, question) {
 
   const systemPrompt = `You are an SMS assistant for "${pageName}" (${memberCount} members${adminNames ? ', admins: ' + adminNames : ''}).
 Today is ${todayStr}.
+PLAIN TEXT ONLY. No markdown, no asterisks, no bullet points, no bold formatting. Write like a normal text message.
 Answer questions based on the content below. Be concise, SMS-friendly (under 300 chars if possible). Use casual tone.
 If the answer isn't in the content, say you don't know. Never make things up.
 
@@ -469,6 +470,7 @@ CRITICAL RULES:
    - When user asks about "formal", ONLY include formal-specific details (venue address, uber time, dress code). Do NOT include PFC pregame address, bus departure, or wristband info.
 4. Always include the most specific details available: exact times, addresses, dress code, logistics.
 5. When asked "when" — give the actual TIME (e.g. "10pm"), not just the date.
+6. Slack links look like <https://url.com|label text> — the URL is BEFORE the pipe, the label is AFTER. When you see these, include the actual URL (the part before |) in your answer. For example, <https://forms.gle/abc123|HERE> means the link is https://forms.gle/abc123. Include it directly. Only say "check Slack" if no URL is available in the raw text.
 
 Slack channel messages (MOST IMPORTANT — grouped by channel):
 ${slackFactsContext || '(none synced)'}
