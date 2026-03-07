@@ -857,12 +857,23 @@ viewport.addEventListener('dblclick', (e) => {
 viewport.addEventListener('wheel', (e) => {
   e.preventDefault();
 
-  // Scroll = pan (zoom via trackpad pinch / mobile pinch only)
-  cam.x -= e.deltaX;
-  cam.y -= e.deltaY;
+  // Trackpad pinch-to-zoom fires wheel with ctrlKey=true
+  if (e.ctrlKey) {
+    const mouse = { x: e.clientX, y: e.clientY };
+    const before = screenToWorld(mouse.x, mouse.y);
+    const delta = -e.deltaY;
+    const zoomFactor = Math.exp(delta * 0.01);
+    cam.z = clamp(cam.z * zoomFactor, 0.12, 8);
+    const after = screenToWorld(mouse.x, mouse.y);
+    cam.x += (after.x - before.x) * cam.z;
+    cam.y += (after.y - before.y) * cam.z;
+  } else {
+    // Normal scroll = pan
+    cam.x -= e.deltaX;
+    cam.y -= e.deltaY;
+  }
 
   applyTransform();
-  updateScrollbar();
 }, { passive: false });
 
 // ——— Two-finger touch: pan + pinch-to-zoom ———
@@ -981,14 +992,22 @@ function updateScrollbar() {
 
   const trackH = scrollbarTrack.offsetHeight;
   const vpH = window.innerHeight;
+  // Total world content height in screen pixels
   const contentH = (bounds.maxY - bounds.minY) * cam.z;
+  // Top edge of content in screen pixels
+  const contentTopScreen = bounds.minY * cam.z + cam.y;
+  // Bottom edge of content in screen pixels
+  const contentBottomScreen = bounds.maxY * cam.z + cam.y;
 
-  if (contentH <= vpH) { scrollbarTrack.classList.remove('visible'); return; }
+  // Show scrollbar if any content is off-screen vertically (above or below viewport)
+  const hasOverflow = contentTopScreen < -20 || contentBottomScreen > vpH + 20 || contentH > vpH;
+  if (!hasOverflow) { scrollbarTrack.classList.remove('visible'); return; }
 
-  const scrollRange = contentH - vpH;
+  // Virtual scroll range: how far the camera can move
+  const scrollRange = Math.max(contentH - vpH, 1);
   const scrolled = -(cam.y + bounds.minY * cam.z);
   const ratio = clamp(scrolled / scrollRange, 0, 1);
-  const thumbH = clamp((vpH / contentH) * trackH, 24, trackH);
+  const thumbH = clamp((vpH / Math.max(contentH, vpH + 1)) * trackH, 24, trackH);
 
   scrollbarThumb.style.height = thumbH + 'px';
   scrollbarThumb.style.top = (ratio * (trackH - thumbH)) + 'px';

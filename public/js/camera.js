@@ -30,6 +30,8 @@ let isProcessingClick = false; // Flag to prevent cursor updates during click ha
 function applyTransform(){
   world.style.transform = `translate3d(${cam.x}px, ${cam.y}px, 0) scale(${cam.z})`;
   world.style.transformOrigin = '0 0';
+  // Update scrollbar on every camera change (function defined in canvas.js, may not exist yet at load)
+  if (typeof updateScrollbar === 'function') updateScrollbar();
 }
 applyTransform();
 
