@@ -179,12 +179,19 @@ export async function getPendingNotifications(beforeTime) {
   return result.rows;
 }
 
-export async function markNotificationSent(id) {
+export async function markNotificationSent(id, enrichedMessage) {
   const db = getPool();
-  await db.query(
-    `UPDATE scheduled_notifications SET status = 'sent', sent_at = CURRENT_TIMESTAMP WHERE id = $1`,
-    [id]
-  );
+  if (enrichedMessage) {
+    await db.query(
+      `UPDATE scheduled_notifications SET status = 'sent', sent_at = CURRENT_TIMESTAMP, message = $2 WHERE id = $1`,
+      [id, enrichedMessage]
+    );
+  } else {
+    await db.query(
+      `UPDATE scheduled_notifications SET status = 'sent', sent_at = CURRENT_TIMESTAMP WHERE id = $1`,
+      [id]
+    );
+  }
 }
 
 export async function markNotificationFailed(id) {

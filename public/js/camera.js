@@ -69,7 +69,8 @@ function centerAnchor(){
   anchor.style.top = `${anchorPos.y}px`;
 }
 
-function zoomToFitEntries() {
+function zoomToFitEntries(opts = {}) {
+  const skipAnimation = opts.instant === true;
   const visibleEntries = Array.from(entries.values()).filter(entryData => {
     const element = entryData.element;
     if (!element) return false;
@@ -245,9 +246,20 @@ function zoomToFitEntries() {
     }
   }
 
-  if (needsAnimation) {
+  if (needsAnimation && !skipAnimation) {
     console.log('[ZOOM] Starting animation');
     requestAnimationFrame(animate);
+  } else if (needsAnimation && skipAnimation) {
+    // Instant jump — no animation
+    cam.x = targetX;
+    cam.y = targetY;
+    cam.z = targetZ;
+    applyTransform();
+    if (navigationJustCompleted) navigationJustCompleted = false;
+    isNavigating = false;
+    if (!isReadOnly) {
+      requestAnimationFrame(() => showCursorInDefaultPosition());
+    }
   } else {
     // No animation needed, but still show cursor after traversal
     console.log('[ZOOM] No animation needed, showing cursor immediately');

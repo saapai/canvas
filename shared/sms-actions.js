@@ -452,17 +452,24 @@ export async function getContentQueryAnswer(entryId, question, opts = {}) {
   if (phone) {
     try {
       const notifResult = await db.query(
-        `SELECT sn.message, sn.sent_at FROM scheduled_notifications sn
+        `SELECT sn.message, sn.sent_at, sf.extracted_fact, sf.raw_text, sf.fact_type
+         FROM scheduled_notifications sn
          JOIN users u ON sn.user_id = u.id
+         LEFT JOIN slack_facts sf ON sn.fact_id = sf.id
          WHERE u.phone_normalized = $1
          AND sn.status = 'sent' AND sn.sent_at > NOW() - INTERVAL '48 hours'
          ORDER BY sn.sent_at DESC LIMIT 5`,
         [phone.replace(/[\s\-\(\)]/g, '').replace(/^\+1/, '').replace(/^1/, '')]
       );
       if (notifResult.rows.length > 0) {
-        recentNotificationsContext = notifResult.rows.map(r =>
-          `[Sent ${new Date(r.sent_at).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}] ${r.message}`
-        ).join('\n');
+        recentNotificationsContext = notifResult.rows.map(r => {
+          let line = `[Sent ${new Date(r.sent_at).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}] ${r.message}`;
+          // Include the underlying fact and original Slack message for full context
+          if (r.raw_text && r.raw_text !== r.message) {
+            line += ` | Original Slack message: "${r.raw_text.substring(0, 400)}"`;
+          }
+          return line;
+        }).join('\n');
       }
     } catch (e) {
       console.log('[ContentQuery] Recent notifications fetch skipped:', e.message);
@@ -473,7 +480,7 @@ export async function getContentQueryAnswer(entryId, question, opts = {}) {
   let conversationContext = '';
   if (recentMessages && recentMessages.length > 0) {
     conversationContext = recentMessages.slice(0, 6).reverse().map(m =>
-      `${m.direction === 'outbound' ? 'Bot' : 'User'}: ${m.message_text?.substring(0, 200)}`
+      `${m.direction === 'outbound' ? 'Bot' : 'User'}: ${(m.text || '').substring(0, 200)}`
     ).join('\n');
   }
 
@@ -502,8 +509,15 @@ CRITICAL RULES:
 4. Always include the most specific details available: exact times, addresses, dress code, logistics.
 5. When asked "when" — give the actual TIME (e.g. "10pm"), not just the date.
 6. Slack links look like <https://url.com|label text> — the URL is BEFORE the pipe, the label is AFTER. When you see these, include the actual URL (the part before |) in your answer. For example, <https://forms.gle/abc123|HERE> means the link is https://forms.gle/abc123. Include it directly. Only say "check Slack" if no URL is available in the raw text.
-7. The user may ask follow-up questions like "what work?", "what form?", "tell me more" — use the CONVERSATION HISTORY and RECENT NOTIFICATIONS to understand what they're referring to.
+7. FOLLOW-UP QUESTIONS — CRITICAL: When the user asks vague questions like "what work?", "what form?", "what do you mean?", "tell me more", they are ALWAYS referring to something the bot recently said. You MUST:
+   a. Look at RECENT NOTIFICATIONS and CONVERSATION HISTORY to find what was last said
+   b. Find the matching Slack fact/original message for that notification
+   c. Answer with the SPECIFIC details from the original Slack message (form names, URLs, exact actions)
+   d. NEVER say "I don't know" when recent notifications/conversation provide context — trace back to the source
+   e. Example: If notification said "submit your work by weekend" and user asks "what work?" → find the original Slack message which might say "submit uber reimbursement form" and answer with THAT specific detail + URL if available
 
+${recentNotificationsContext ? `RECENT NOTIFICATIONS SENT TO THIS USER (check these FIRST for follow-up questions):\n${recentNotificationsContext}\n` : ''}
+${conversationContext ? `RECENT CONVERSATION (use to understand what user is referring to):\n${conversationContext}\n` : ''}
 Slack channel messages (MOST IMPORTANT — grouped by channel):
 ${slackFactsContext || '(none synced)'}
 
@@ -514,9 +528,7 @@ Announcements:
 ${announcementsContext || '(none)'}
 
 Polls:
-${pollsContext || '(none)'}
-${recentNotificationsContext ? `\nRecent notifications sent to this user:\n${recentNotificationsContext}` : ''}
-${conversationContext ? `\nRecent conversation:\n${conversationContext}` : ''}`;
+${pollsContext || '(none)'}`;
 
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const response = await openai.chat.completions.create({

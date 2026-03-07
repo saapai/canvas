@@ -119,6 +119,7 @@ CRITICAL — PRESERVE SPECIFIC DETAILS:
 - Include WHO posted and context about what the action is for
 - Keep form names, URLs, specific instructions, exact actions
 - Keep the full meaning — never generalize action items
+- REPLY CONTEXT: If a message starts with "^" or is clearly a reply/follow-up to a previous message in the batch (e.g. "^ pls submit by end of weekend"), combine it with the referenced message. The fact should describe WHAT to submit, not just "submit by weekend".
 
 For each fact, determine:
 - factType: "info" (general), "deadline" (has a due date), "event" (has a date/time), "announcement" (broadcast)
@@ -538,7 +539,7 @@ export async function checkAndSendNotifications() {
       console.log(`[Notification:cron] Sending SMS to ${phone} for notification ${notification.id}`);
       const smsResult = await sendSms(phone, message);
       if (smsResult.ok) {
-        await slackDb.markNotificationSent(notification.id);
+        await slackDb.markNotificationSent(notification.id, message);
         results.push({ id: notification.id, status: 'sent' });
       } else {
         await slackDb.markNotificationFailed(notification.id);
@@ -635,10 +636,15 @@ FORMAT RULES:
 CONTENT RULES:
 - Include ALL actionable details: times, addresses, dress code, transport
 - ONLY include details from today's events
+- NEVER generalize or paraphrase action items. Use SPECIFIC terms from the facts:
+  "submit uber reimbursement form" NOT "submit your work"
+  "fill out pledge parent application" NOT "complete your forms"
+  "sign up for formal cars" NOT "sign up for things"
 - If actual URLs are provided in the extracted links, include the URL directly in the text
 - If links are mentioned but no URL is available, say "check #channel-name on Slack" (only the SPECIFIC channel, not all channels)
 - Do NOT make up any details not in the facts
-- Do NOT say "catch-up" or "reminder" in the header` },
+- Do NOT say "catch-up" or "reminder" in the header
+- Look at ALL facts together — if one says "submit by weekend" and an adjacent one mentions a specific form/URL, they are related. Combine the specifics.` },
         { role: 'user', content: `Today's event details:\n${factsList || notification.message}${linkInfo}\n\nCompose the SMS:` }
       ],
       temperature: 0.3,

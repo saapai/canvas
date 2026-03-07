@@ -988,22 +988,20 @@ function getEntryBounds() {
 function updateScrollbar() {
   if (!scrollbarTrack || !scrollbarThumb) return;
   const bounds = getEntryBounds();
-  if (!bounds) { scrollbarTrack.classList.remove('visible'); return; }
+  if (!bounds) { scrollbarTrack.classList.add('hidden-track'); return; }
 
   const trackH = scrollbarTrack.offsetHeight;
   const vpH = window.innerHeight;
-  // Total world content height in screen pixels
   const contentH = (bounds.maxY - bounds.minY) * cam.z;
-  // Top edge of content in screen pixels
   const contentTopScreen = bounds.minY * cam.z + cam.y;
-  // Bottom edge of content in screen pixels
   const contentBottomScreen = bounds.maxY * cam.z + cam.y;
 
-  // Show scrollbar if any content is off-screen vertically (above or below viewport)
   const hasOverflow = contentTopScreen < -20 || contentBottomScreen > vpH + 20 || contentH > vpH;
-  if (!hasOverflow) { scrollbarTrack.classList.remove('visible'); return; }
+  if (!hasOverflow) { scrollbarTrack.classList.add('hidden-track'); return; }
 
-  // Virtual scroll range: how far the camera can move
+  // Always visible when content overflows (Notion-style)
+  scrollbarTrack.classList.remove('hidden-track');
+
   const scrollRange = Math.max(contentH - vpH, 1);
   const scrolled = -(cam.y + bounds.minY * cam.z);
   const ratio = clamp(scrolled / scrollRange, 0, 1);
@@ -1012,10 +1010,11 @@ function updateScrollbar() {
   scrollbarThumb.style.height = thumbH + 'px';
   scrollbarThumb.style.top = (ratio * (trackH - thumbH)) + 'px';
 
-  scrollbarTrack.classList.add('visible');
+  // Briefly highlight on scroll activity
+  scrollbarTrack.classList.add('active');
   clearTimeout(_scrollbarHideTimer);
   if (!_scrollbarDragging) {
-    _scrollbarHideTimer = setTimeout(() => scrollbarTrack.classList.remove('visible'), 1500);
+    _scrollbarHideTimer = setTimeout(() => scrollbarTrack.classList.remove('active'), 1200);
   }
 }
 
@@ -1047,7 +1046,7 @@ if (scrollbarTrack && scrollbarThumb) {
     if (_scrollbarDragging) {
       _scrollbarDragging = false;
       scrollbarTrack.classList.remove('dragging');
-      _scrollbarHideTimer = setTimeout(() => scrollbarTrack.classList.remove('visible'), 1500);
+      _scrollbarHideTimer = setTimeout(() => scrollbarTrack.classList.remove('active'), 1200);
     }
   });
 }

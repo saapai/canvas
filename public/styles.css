@@ -4042,27 +4042,32 @@ body.has-bg-image::before {
   bottom: 8px;
   width: 6px;
   z-index: 9999;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.3s ease;
-}
-#scrollbar-track.visible {
-  opacity: 1;
   pointer-events: auto;
+  opacity: 1;
+  transition: opacity 0.4s ease;
+}
+#scrollbar-track.hidden-track {
+  opacity: 0;
+  pointer-events: none;
 }
 #scrollbar-thumb {
   position: absolute;
   width: 100%;
   min-height: 24px;
   border-radius: 3px;
-  background: rgba(0, 0, 0, 0.22);
+  background: rgba(0, 0, 0, 0.10);
   cursor: grab;
-  transition: background 0.15s;
+  transition: background 0.2s, width 0.15s, right 0.15s;
+}
+#scrollbar-track:hover #scrollbar-thumb,
+#scrollbar-track.active #scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.25);
 }
 #scrollbar-thumb:hover,
 #scrollbar-thumb:active {
   background: rgba(0, 0, 0, 0.38);
 }
 #scrollbar-track.dragging #scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.38);
   cursor: grabbing;
 }
