@@ -4033,3 +4033,36 @@ body.has-bg-image::before {
   color: #888;
   margin: 8px 0 0;
 }
+
+/* ── Virtual scrollbar (Notion-style) ────────────────────── */
+#scrollbar-track {
+  position: fixed;
+  right: 4px;
+  top: 48px;
+  bottom: 8px;
+  width: 6px;
+  z-index: 9999;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+#scrollbar-track.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+#scrollbar-thumb {
+  position: absolute;
+  width: 100%;
+  min-height: 24px;
+  border-radius: 3px;
+  background: rgba(0, 0, 0, 0.22);
+  cursor: grab;
+  transition: background 0.15s;
+}
+#scrollbar-thumb:hover,
+#scrollbar-thumb:active {
+  background: rgba(0, 0, 0, 0.38);
+}
+#scrollbar-track.dragging #scrollbar-thumb {
+  cursor: grabbing;
+}

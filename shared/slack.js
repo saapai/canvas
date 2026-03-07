@@ -105,17 +105,25 @@ export async function extractFacts(messages, channelName) {
         messages: [
           {
             role: 'system',
-            content: `You extract key facts from Slack #${channelName} messages. For each message that contains actionable or notable information, extract a concise fact. Focus on:
+            content: `You extract key facts from Slack #${channelName} messages. For each message that contains actionable or notable information, extract a DETAILED fact. Focus on:
 - Announcements, deadlines, events, schedule changes
 - Important decisions or policy updates
-- Action items or assignments
+- Action items or assignments (include WHAT to submit, WHERE, form names, URLs)
 - Meeting times and locations
 
 Skip casual chat, reactions, and trivial messages.
 
+CRITICAL — PRESERVE SPECIFIC DETAILS:
+- "submit uber reimbursement form" NOT "submit your work"
+- "fill out Google form for PFC" NOT "complete a form"
+- Include WHO posted and context about what the action is for
+- Keep form names, URLs, specific instructions, exact actions
+- Keep the full meaning — never generalize action items
+
 For each fact, determine:
 - factType: "info" (general), "deadline" (has a due date), "event" (has a date/time), "announcement" (broadcast)
-- deadlineDate: ISO 8601 date string if applicable, null otherwise. Resolve relative dates ("next Tuesday") based on the message date.
+- deadlineDate: ISO 8601 datetime string if applicable, null otherwise. Resolve relative dates ("next Tuesday") based on the message date.
+  IMPORTANT: If a SPECIFIC TIME is mentioned (e.g. "7pm", "at 3:00", "doors open at 6"), include it in the ISO string (e.g. "2026-03-06T19:00:00-08:00"). If only a DATE is mentioned with no time, use date-only format (e.g. "2026-03-06T00:00:00Z"). This distinction matters for notification scheduling.
 
 Return JSON array:
 [{"messageTs": "...", "extractedFact": "...", "factType": "...", "deadlineDate": "..." or null}]
@@ -215,9 +223,13 @@ export function scheduleDeadlineNotifications(userId, entryId, fact) {
   const isToday = eventPST === nowPST;
   const isFuture = eventDate > now;
 
-  console.log(`[Notification:schedule] Fact ${fact.id}: "${fact.extracted_fact?.substring(0, 60)}" | eventDate=${eventDate.toISOString()} | now=${now.toISOString()} | isToday=${isToday} | isFuture=${isFuture}`);
+  // Detect if event has a specific time (not just a date).
+  // If UTC time is midnight (00:00:00), the LLM likely extracted a date-only value like "2026-03-06".
+  const hasSpecificTime = eventDate.getUTCHours() !== 0 || eventDate.getUTCMinutes() !== 0 || eventDate.getUTCSeconds() !== 0;
 
-  // Morning of: 10:00 AM PST on event day
+  console.log(`[Notification:schedule] Fact ${fact.id}: "${fact.extracted_fact?.substring(0, 60)}" | eventDate=${eventDate.toISOString()} | now=${now.toISOString()} | isToday=${isToday} | isFuture=${isFuture} | hasTime=${hasSpecificTime}`);
+
+  // Morning of: 10:00 AM PST on event day — ALWAYS send for day-of events/deadlines
   const morningOf = new Date(eventDate);
   morningOf.setUTCHours(18, 0, 0, 0); // 10am PST = 18:00 UTC
   if (morningOf > now) {
@@ -235,21 +247,25 @@ export function scheduleDeadlineNotifications(userId, entryId, fact) {
     console.log(`[Notification:schedule] → morning_of already passed (was ${morningOf.toISOString()})`);
   }
 
-  // 2 hours before event
-  const twoHoursBefore = new Date(eventDate.getTime() - 2 * 60 * 60 * 1000);
-  if (twoHoursBefore > now) {
-    console.log(`[Notification:schedule] → Scheduling two_hours_before for ${twoHoursBefore.toISOString()}`);
-    notifications.push({
-      userId,
-      entryId,
-      factId: fact.id,
-      notificationType: 'two_hours_before',
-      scheduledFor: twoHoursBefore,
-      eventDate,
-      message: `Starting soon (2 hours): ${fact.extracted_fact}`
-    });
+  // 2 hours before event — ONLY when event has a specific time
+  if (hasSpecificTime) {
+    const twoHoursBefore = new Date(eventDate.getTime() - 2 * 60 * 60 * 1000);
+    if (twoHoursBefore > now) {
+      console.log(`[Notification:schedule] → Scheduling two_hours_before for ${twoHoursBefore.toISOString()}`);
+      notifications.push({
+        userId,
+        entryId,
+        factId: fact.id,
+        notificationType: 'two_hours_before',
+        scheduledFor: twoHoursBefore,
+        eventDate,
+        message: `Starting soon (2 hours): ${fact.extracted_fact}`
+      });
+    } else {
+      console.log(`[Notification:schedule] → two_hours_before already passed (was ${twoHoursBefore.toISOString()})`);
+    }
   } else {
-    console.log(`[Notification:schedule] → two_hours_before already passed (was ${twoHoursBefore.toISOString()})`);
+    console.log(`[Notification:schedule] → Skipping two_hours_before (date-only event, no specific time)`);
   }
 
   // CATCH-UP: If event is today but morning_of already passed and we have no
@@ -343,11 +359,55 @@ export async function syncChannel(syncRecord) {
     }
   }
 
-  // 6. Update sync timestamp to latest message
+  // 6. Auto-create canvas entries for actionable facts
+  const actionableFacts = savedFacts.filter(f =>
+    f.fact_type === 'deadline' || f.fact_type === 'event' || f.fact_type === 'announcement'
+  );
+  let autoEntriesCreated = 0;
+  if (actionableFacts.length > 0) {
+    const { saveEntry, getPool } = await import('./db.js');
+    const dbPool = getPool();
+    for (const fact of actionableFacts) {
+      // Check if an auto-entry already exists for this fact
+      const existing = await dbPool.query(
+        `SELECT id FROM entries WHERE id = $1 AND deleted_at IS NULL`,
+        [`slack-fact-${fact.id}`]
+      );
+      if (existing.rows.length > 0) continue;
+
+      // Build entry text
+      let text = fact.extracted_fact;
+      if (fact.deadline_date) {
+        const d = new Date(fact.deadline_date);
+        text += ` (${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })})`;
+      }
+
+      // Position: stagger auto-entries vertically
+      const yOffset = autoEntriesCreated * 60;
+      try {
+        await saveEntry({
+          id: `slack-fact-${fact.id}`,
+          text,
+          position: { x: 40, y: 40 + yOffset },
+          parentEntryId: entryId,
+          userId,
+          mediaCardData: { source: 'slack_auto', factId: fact.id, factType: fact.fact_type, channelName }
+        });
+        autoEntriesCreated++;
+      } catch (entryErr) {
+        console.error(`[Slack:sync] Failed to create auto-entry for fact ${fact.id}:`, entryErr.message);
+      }
+    }
+    if (autoEntriesCreated > 0) {
+      console.log(`[Slack:sync] #${channelName}: created ${autoEntriesCreated} auto-entries`);
+    }
+  }
+
+  // 7. Update sync timestamp to latest message
   const latestTs = messages.reduce((max, m) => m.ts > max ? m.ts : max, lastSyncTs || '0');
   await slackDb.updateSyncTimestamp(syncId, latestTs);
 
-  return { newFacts: savedFacts.length };
+  return { newFacts: savedFacts.length, autoEntries: autoEntriesCreated };
 }
 
 // ============================================
@@ -366,6 +426,28 @@ export async function syncAllChannels() {
       console.error(`Sync failed for channel ${sync.channel_name}:`, error.message);
       results.push({ syncId: sync.id, channelName: sync.channel_name, error: error.message });
     }
+  }
+
+  // Cleanup: soft-delete old auto-created entries whose event date has passed
+  try {
+    const { getPool } = await import('./db.js');
+    const db = getPool();
+    const cleaned = await db.query(
+      `UPDATE entries SET deleted_at = CURRENT_TIMESTAMP
+       WHERE id LIKE 'slack-fact-%'
+       AND deleted_at IS NULL
+       AND media_card_data->>'source' = 'slack_auto'
+       AND media_card_data->>'factId' IN (
+         SELECT id::text FROM slack_facts
+         WHERE deadline_date < CURRENT_DATE AND deadline_date IS NOT NULL
+       )
+       RETURNING id`
+    );
+    if (cleaned.rows.length > 0) {
+      console.log(`[Slack:cleanup] Soft-deleted ${cleaned.rows.length} old auto-entries`);
+    }
+  } catch (cleanupErr) {
+    console.error('[Slack:cleanup] Error:', cleanupErr.message);
   }
 
   return results;

@@ -240,7 +240,7 @@ export async function handleIncomingSms(phone, message) {
 
     case 'content_query':
       actionResult = await actions.handleContentQuery({
-        phone: normalizedPhone, message: msg, userName: member.name, entryId: activeEntryId
+        phone: normalizedPhone, message: msg, userName: member.name, entryId: activeEntryId, recentMessages
       });
       break;
 

@@ -532,11 +532,13 @@ function handleDeadlineTableKeydown(e) {
     });
   }
 
-  // --- API persistence ---
+  // --- API persistence (per-page or user-level) ---
   function saveBgToAPI() {
     clearTimeout(_saveTimer);
     _saveTimer = setTimeout(function() {
-      fetch('/api/user/background', {
+      var entryId = typeof currentViewEntryId !== 'undefined' ? currentViewEntryId : null;
+      var url = entryId ? '/api/entries/' + entryId + '/background' : '/api/user/background';
+      fetch(url, {
         method: 'PUT',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -590,11 +592,12 @@ function handleDeadlineTableKeydown(e) {
   }
 
   // --- Core functions ---
-  function loadBg() {
-    fetch('/api/user/background', { credentials: 'include' })
+  function loadBg(entryId) {
+    var url = entryId ? '/api/entries/' + entryId + '/background' : '/api/user/background';
+    fetch(url, { credentials: 'include' })
       .then(function(res) { return res.ok ? res.json() : null; })
       .then(function(data) {
-        if (!data) return;
+        if (!data) { removeBg(); _bgUrl = null; _bgUploads = []; renderSavedUploads(); return; }
         _bgUrl = data.bgUrl || null;
         _bgUploads = Array.isArray(data.bgUploads) ? data.bgUploads.filter(function(u) { return typeof u === 'string' && u.startsWith('http'); }) : [];
         renderSavedUploads();
@@ -607,6 +610,9 @@ function handleDeadlineTableKeydown(e) {
             _bgUrl = null;
             saveBgToAPI();
           });
+        } else {
+          removeBg();
+          markActive(null);
         }
       })
       .catch(function(err) { console.warn('Failed to load background settings:', err); });
@@ -737,5 +743,7 @@ function handleDeadlineTableKeydown(e) {
   });
 
   // Expose loadBg so bootstrap can call it after auth
-  window._loadBgAfterAuth = loadBg;
+  window._loadBgAfterAuth = function() { loadBg(null); };
+  // Expose for navigation: load per-page background
+  window._loadPageBg = function(entryId) { loadBg(entryId || null); };
 })();

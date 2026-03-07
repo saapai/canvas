@@ -154,6 +154,14 @@ export async function initDatabase() {
       console.log('Note: bg columns migration:', error.message);
     }
 
+    // Per-page background columns on entries
+    try {
+      await db.query(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS background_image TEXT;`);
+      await db.query(`ALTER TABLE entries ADD COLUMN IF NOT EXISTS background_uploads JSONB DEFAULT '[]'::jsonb;`);
+    } catch (error) {
+      console.log('Note: entry bg columns migration:', error.message);
+    }
+
     // Google OAuth tokens table
     try {
       await db.query(`
@@ -565,6 +573,27 @@ export async function setUserBackground(userId, bgUrl, bgUploads) {
     console.error('Error setting user background:', error);
     throw error;
   }
+}
+
+export async function getEntryBackground(entryId) {
+  const db = getPool();
+  const result = await db.query(
+    `SELECT background_image, background_uploads FROM entries WHERE id = $1`,
+    [entryId]
+  );
+  if (!result.rows[0]) return null;
+  return {
+    bgUrl: result.rows[0].background_image || null,
+    bgUploads: result.rows[0].background_uploads || []
+  };
+}
+
+export async function setEntryBackground(entryId, bgUrl, bgUploads) {
+  const db = getPool();
+  await db.query(
+    `UPDATE entries SET background_image = $1, background_uploads = $2 WHERE id = $3`,
+    [bgUrl, JSON.stringify(bgUploads), entryId]
+  );
 }
 
 export async function getUserByPhone(phone) {

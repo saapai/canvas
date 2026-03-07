@@ -857,21 +857,12 @@ viewport.addEventListener('dblclick', (e) => {
 viewport.addEventListener('wheel', (e) => {
   e.preventDefault();
 
-  const mouse = { x: e.clientX, y: e.clientY };
-  const before = screenToWorld(mouse.x, mouse.y);
-
-  const delta = -e.deltaY;
-  const zoomFactor = Math.exp(delta * 0.0012);
-
-  const newZ = clamp(cam.z * zoomFactor, 0.12, 8);
-  cam.z = newZ;
-
-  const after = screenToWorld(mouse.x, mouse.y);
-
-  cam.x += (after.x - before.x) * cam.z;
-  cam.y += (after.y - before.y) * cam.z;
+  // Scroll = pan (zoom via trackpad pinch / mobile pinch only)
+  cam.x -= e.deltaX;
+  cam.y -= e.deltaY;
 
   applyTransform();
+  updateScrollbar();
 }, { passive: false });
 
 // ——— Two-finger touch: pan + pinch-to-zoom ———
@@ -925,6 +916,122 @@ viewport.addEventListener('touchend', (e) => {
     touchState.active = false;
   }
 }, { passive: false });
+
+// ——— Mobile double-tap to navigate into entry ———
+let _lastTapTime = 0;
+let _lastTapEntry = null;
+
+function findEntryElement(el) {
+  while (el && el !== viewport) {
+    if (el.classList && el.classList.contains('entry')) return el;
+    el = el.parentElement;
+  }
+  return null;
+}
+
+viewport.addEventListener('touchend', (e) => {
+  if (e.touches.length > 0) return; // multi-finger, skip
+  if (touchState.active) return;    // was a pinch gesture
+  const now = Date.now();
+  const entryEl = findEntryElement(e.target);
+  if (now - _lastTapTime < 350 && _lastTapEntry && _lastTapEntry === entryEl) {
+    if (entryEl && entryEl.id !== 'anchor' && entryEl.id && !editingEntryId && !isReadOnly) {
+      e.preventDefault();
+      navigateToEntry(entryEl.id);
+    }
+  }
+  _lastTapTime = now;
+  _lastTapEntry = entryEl;
+}, { passive: false });
+
+// ——— Virtual scrollbar ———
+const scrollbarTrack = document.getElementById('scrollbar-track');
+const scrollbarThumb = document.getElementById('scrollbar-thumb');
+let _scrollbarHideTimer = null;
+let _scrollbarDragging = false;
+let _scrollbarDragStartY = 0;
+let _scrollbarDragStartCamY = 0;
+
+function getEntryBounds() {
+  let minY = Infinity, maxY = -Infinity;
+  entries.forEach((d, id) => {
+    if (id === 'anchor') return;
+    if (d.element && d.element.style.display !== 'none') {
+      const y = parseFloat(d.element.style.top) || 0;
+      const h = d.element.offsetHeight || 40;
+      if (y < minY) minY = y;
+      if (y + h > maxY) maxY = y + h;
+    }
+  });
+  // Include anchor when at root
+  if (!currentViewEntryId && anchor) {
+    const ay = parseFloat(anchor.style.top) || 0;
+    const ah = anchor.offsetHeight || 40;
+    if (ay < minY) minY = ay;
+    if (ay + ah > maxY) maxY = ay + ah;
+  }
+  if (minY === Infinity) return null;
+  return { minY: minY - 80, maxY: maxY + 80 };
+}
+
+function updateScrollbar() {
+  if (!scrollbarTrack || !scrollbarThumb) return;
+  const bounds = getEntryBounds();
+  if (!bounds) { scrollbarTrack.classList.remove('visible'); return; }
+
+  const trackH = scrollbarTrack.offsetHeight;
+  const vpH = window.innerHeight;
+  const contentH = (bounds.maxY - bounds.minY) * cam.z;
+
+  if (contentH <= vpH) { scrollbarTrack.classList.remove('visible'); return; }
+
+  const scrollRange = contentH - vpH;
+  const scrolled = -(cam.y + bounds.minY * cam.z);
+  const ratio = clamp(scrolled / scrollRange, 0, 1);
+  const thumbH = clamp((vpH / contentH) * trackH, 24, trackH);
+
+  scrollbarThumb.style.height = thumbH + 'px';
+  scrollbarThumb.style.top = (ratio * (trackH - thumbH)) + 'px';
+
+  scrollbarTrack.classList.add('visible');
+  clearTimeout(_scrollbarHideTimer);
+  if (!_scrollbarDragging) {
+    _scrollbarHideTimer = setTimeout(() => scrollbarTrack.classList.remove('visible'), 1500);
+  }
+}
+
+if (scrollbarTrack && scrollbarThumb) {
+  scrollbarThumb.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    _scrollbarDragging = true;
+    _scrollbarDragStartY = e.clientY;
+    _scrollbarDragStartCamY = cam.y;
+    scrollbarTrack.classList.add('dragging');
+    clearTimeout(_scrollbarHideTimer);
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!_scrollbarDragging) return;
+    const bounds = getEntryBounds();
+    if (!bounds) return;
+    const trackH = scrollbarTrack.offsetHeight;
+    const vpH = window.innerHeight;
+    const contentH = (bounds.maxY - bounds.minY) * cam.z;
+    const thumbH = clamp((vpH / contentH) * trackH, 24, trackH);
+    const scrollRange = contentH - vpH;
+    const dy = e.clientY - _scrollbarDragStartY;
+    const camDelta = (dy / (trackH - thumbH)) * scrollRange;
+    cam.y = _scrollbarDragStartCamY - camDelta;
+    applyTransform();
+    updateScrollbar();
+  });
+  window.addEventListener('mouseup', () => {
+    if (_scrollbarDragging) {
+      _scrollbarDragging = false;
+      scrollbarTrack.classList.remove('dragging');
+      _scrollbarHideTimer = setTimeout(() => scrollbarTrack.classList.remove('visible'), 1500);
+    }
+  });
+}
 
 editor.addEventListener('keydown', (e) => {
   // Handle autocomplete keyboard navigation

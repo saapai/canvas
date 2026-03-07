@@ -157,8 +157,8 @@ function zoomToFitEntries() {
   const zoomWithPadding = newZoom / 1.25;
   const clampedZoom = clamp(zoomWithPadding, 0.12, 2.0);
 
-  // Never zoom in - only zoom out or stay at current zoom
-  const finalZoom = Math.min(clampedZoom, cam.z);
+  // Always fit to content — allow both zoom-in and zoom-out
+  const finalZoom = clampedZoom;
 
   // Calculate target camera position
   const screenCenterX = viewportWidth / 2;

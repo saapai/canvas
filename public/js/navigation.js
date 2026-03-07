@@ -88,6 +88,9 @@ function navigateToEntry(entryId) {
   updateEntryVisibility();
   updateSmsManageButton();
 
+  // Load per-page background
+  if (window._loadPageBg) window._loadPageBg(entryId);
+
   // Hide and blur editor to prevent paste behavior
   if (!editor.classList.contains('idle-cursor') && document.activeElement === editor) {
     hideCursor();
@@ -221,6 +224,9 @@ function navigateBack(level = 1) {
   updateEntryVisibility();
   updateSmsManageButton();
 
+  // Load per-page background (or user-level if at root)
+  if (window._loadPageBg) window._loadPageBg(currentViewEntryId);
+
   // Recalculate dimensions for all visible entries after navigation
   setTimeout(() => {
     entries.forEach((entryData, entryId) => {
@@ -328,6 +334,9 @@ function navigateToRoot() {
   updateBreadcrumb();
   updateEntryVisibility();
   updateSmsManageButton();
+
+  // Load user-level background (root page)
+  if (window._loadPageBg) window._loadPageBg(null);
 
   // Ensure anchor position is set correctly (use stored position, don't recalculate)
   if (anchor) {

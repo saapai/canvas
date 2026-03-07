@@ -28,6 +28,8 @@ import {
   setUsername,
   getPool,
   setUserBackground,
+  getEntryBackground,
+  setEntryBackground,
   getGoogleTokens,
   saveGoogleTokens,
   deleteGoogleTokens,
@@ -456,6 +458,34 @@ export function createRouter(options = {}) {
       res.json({ ok: true });
     } catch (error) {
       console.error('Error saving background:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Per-page (entry) background
+  router.get('/api/entries/:id/background', requireAuth, async (req, res) => {
+    try {
+      const bg = await getEntryBackground(req.params.id);
+      if (!bg) return res.status(404).json({ error: 'Entry not found' });
+      res.json(bg);
+    } catch (error) {
+      console.error('Error fetching entry background:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.put('/api/entries/:id/background', requireAuth, async (req, res) => {
+    try {
+      const { bgUrl, bgUploads } = req.body;
+      if (bgUploads !== undefined) {
+        if (!Array.isArray(bgUploads) || bgUploads.length > 20 || !bgUploads.every(u => typeof u === 'string')) {
+          return res.status(400).json({ error: 'bgUploads must be an array of up to 20 strings' });
+        }
+      }
+      await setEntryBackground(req.params.id, bgUrl || null, bgUploads || []);
+      res.json({ ok: true });
+    } catch (error) {
+      console.error('Error saving entry background:', error);
       res.status(500).json({ error: error.message });
     }
   });

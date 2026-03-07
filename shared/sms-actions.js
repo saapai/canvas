@@ -375,7 +375,8 @@ export async function handlePollResponse({ phone, message, userName, entryId }) 
  * Reusable: build context and query LLM for a content question.
  * Returns { answer, pageName } or throws on error.
  */
-export async function getContentQueryAnswer(entryId, question) {
+export async function getContentQueryAnswer(entryId, question, opts = {}) {
+  const { phone, recentMessages } = opts;
   const { getPool } = await import('./db.js');
   const db = getPool();
 
@@ -446,7 +447,37 @@ export async function getContentQueryAnswer(entryId, question) {
     console.log('[ContentQuery] Slack facts fetch skipped:', e.message);
   }
 
-  console.log('[ContentQuery] Context sizes — entries:', entriesContext.length, 'announcements:', announcementsContext.length, 'polls:', pollsContext.length, 'slackFacts:', slackFactsContext.length);
+  // Fetch recently sent notifications for this user (so the bot can reference them)
+  let recentNotificationsContext = '';
+  if (phone) {
+    try {
+      const notifResult = await db.query(
+        `SELECT sn.message, sn.sent_at FROM scheduled_notifications sn
+         JOIN users u ON sn.user_id = u.id
+         WHERE u.phone_normalized = $1
+         AND sn.status = 'sent' AND sn.sent_at > NOW() - INTERVAL '48 hours'
+         ORDER BY sn.sent_at DESC LIMIT 5`,
+        [phone.replace(/[\s\-\(\)]/g, '').replace(/^\+1/, '').replace(/^1/, '')]
+      );
+      if (notifResult.rows.length > 0) {
+        recentNotificationsContext = notifResult.rows.map(r =>
+          `[Sent ${new Date(r.sent_at).toLocaleString('en-US', { timeZone: 'America/Los_Angeles', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}] ${r.message}`
+        ).join('\n');
+      }
+    } catch (e) {
+      console.log('[ContentQuery] Recent notifications fetch skipped:', e.message);
+    }
+  }
+
+  // Build conversation context from recent messages
+  let conversationContext = '';
+  if (recentMessages && recentMessages.length > 0) {
+    conversationContext = recentMessages.slice(0, 6).reverse().map(m =>
+      `${m.direction === 'outbound' ? 'Bot' : 'User'}: ${m.message_text?.substring(0, 200)}`
+    ).join('\n');
+  }
+
+  console.log('[ContentQuery] Context sizes — entries:', entriesContext.length, 'announcements:', announcementsContext.length, 'polls:', pollsContext.length, 'slackFacts:', slackFactsContext.length, 'notifications:', recentNotificationsContext.length, 'conversation:', conversationContext.length);
   console.log('[ContentQuery] Entries context:\n' + (entriesContext || '(none)').substring(0, 500));
   console.log('[ContentQuery] Query:', question, '| Page:', pageName, '| EntryId:', entryId);
 
@@ -471,6 +502,7 @@ CRITICAL RULES:
 4. Always include the most specific details available: exact times, addresses, dress code, logistics.
 5. When asked "when" — give the actual TIME (e.g. "10pm"), not just the date.
 6. Slack links look like <https://url.com|label text> — the URL is BEFORE the pipe, the label is AFTER. When you see these, include the actual URL (the part before |) in your answer. For example, <https://forms.gle/abc123|HERE> means the link is https://forms.gle/abc123. Include it directly. Only say "check Slack" if no URL is available in the raw text.
+7. The user may ask follow-up questions like "what work?", "what form?", "tell me more" — use the CONVERSATION HISTORY and RECENT NOTIFICATIONS to understand what they're referring to.
 
 Slack channel messages (MOST IMPORTANT — grouped by channel):
 ${slackFactsContext || '(none synced)'}
@@ -482,7 +514,9 @@ Announcements:
 ${announcementsContext || '(none)'}
 
 Polls:
-${pollsContext || '(none)'}`;
+${pollsContext || '(none)'}
+${recentNotificationsContext ? `\nRecent notifications sent to this user:\n${recentNotificationsContext}` : ''}
+${conversationContext ? `\nRecent conversation:\n${conversationContext}` : ''}`;
 
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
   const response = await openai.chat.completions.create({
@@ -500,13 +534,13 @@ ${pollsContext || '(none)'}`;
   return { answer, pageName };
 }
 
-export async function handleContentQuery({ phone, message, userName, entryId }) {
+export async function handleContentQuery({ phone, message, userName, entryId, recentMessages }) {
   if (!process.env.OPENAI_API_KEY) {
     return { action: 'content_query', response: applyPersonality({ baseResponse: "can't search right now. try again later?", userMessage: message, userName }) };
   }
 
   try {
-    const { answer } = await getContentQueryAnswer(entryId, message);
+    const { answer } = await getContentQueryAnswer(entryId, message, { phone, recentMessages });
 
     // Non-blocking: evaluate if the answer actually addresses the question
     try {
