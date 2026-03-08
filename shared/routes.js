@@ -1225,8 +1225,8 @@ export function createRouter(options = {}) {
 
       debugLog(`[SAVE] Received request for entry ${id}`);
 
-      if (!id || !text || !position) {
-        return res.status(400).json({ error: 'id, text, and position are required' });
+      if (!id || (text == null && !mediaCardData) || !position) {
+        return res.status(400).json({ error: 'id, text (or mediaCardData), and position are required' });
       }
 
       // Determine which user ID to use for saving
@@ -1265,7 +1265,7 @@ export function createRouter(options = {}) {
 
       const entry = {
         id,
-        text,
+        text: text || '',
         textHtml: textHtml || null,
         position: { x: position.x, y: position.y },
         parentEntryId: parentEntryId || null,
@@ -1294,8 +1294,11 @@ export function createRouter(options = {}) {
 
       debugLog(`[UPDATE] Received request for entry ${id}`);
 
-      if (!text || !position) {
-        return res.status(400).json({ error: 'text and position are required' });
+      if (text == null && !mediaCardData) {
+        return res.status(400).json({ error: 'text or mediaCardData is required' });
+      }
+      if (!position) {
+        return res.status(400).json({ error: 'position is required' });
       }
 
       // Determine which user ID to use for saving
@@ -1330,7 +1333,7 @@ export function createRouter(options = {}) {
 
       const entry = {
         id,
-        text,
+        text: text || '',
         textHtml: textHtml || null,
         position: { x: position.x, y: position.y },
         parentEntryId: parentEntryId || null,

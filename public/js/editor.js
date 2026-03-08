@@ -230,8 +230,8 @@ async function commitEditor(){
       return;
     }
     if(entryData){
-      // If editor text is empty, delete the entry
-      if(!trimmedRight){
+      // If editor text is empty, delete the entry (unless it has media card data like Spotify/Movie/Image)
+      if(!trimmedRight && !entryData.mediaCardData){
         const deletedEntryId = editingEntryId; // Store before deletion
         const deletedEntryData = entries.get(deletedEntryId);
         let deletedEntryPos = null;
@@ -255,6 +255,18 @@ async function commitEditor(){
           }
           editingEntryId = null;
         }
+        isCommitting = false;
+        return;
+      }
+
+      // If editor text is empty but entry has media card data, just close editor without changes
+      if (!trimmedRight && entryData.mediaCardData) {
+        entryData.element.classList.remove('editing', 'deadline-editing');
+        const committedEntryId = editingEntryId;
+        editingEntryId = null;
+        editor.textContent = '';
+        editor.innerHTML = '';
+        showCursorInDefaultPosition(committedEntryId);
         isCommitting = false;
         return;
       }
@@ -364,8 +376,13 @@ async function commitEditor(){
         }
       }
 
-      // Generate and add cards for NEW URLs found in text (that aren't already in linkCardsData)
+      // Generate and add cards for NEW URLs found in text (that aren't already in linkCardsData or mediaCardData)
       const existingUrls = entryData.linkCardsData ? entryData.linkCardsData.map(c => c.url).filter(Boolean) : [];
+      // Also exclude URLs that belong to the media card (e.g., Spotify URL)
+      if (entryData.mediaCardData) {
+        if (entryData.mediaCardData.url) existingUrls.push(entryData.mediaCardData.url);
+        if (entryData.mediaCardData.spotifyUrl) existingUrls.push(entryData.mediaCardData.spotifyUrl);
+      }
       const newUrls = urls.filter(url => !existingUrls.includes(url));
       if(newUrls.length > 0){
         const placeholders = [];

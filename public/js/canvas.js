@@ -628,6 +628,9 @@ window.addEventListener('mouseup', async (e) => {
               showResizeHandles(draggingEntry);
             } else if(isFileEntry(draggingEntry)) {
               selectOnlyEntry(draggingEntry.id);
+            } else if(entryData.mediaCardData && (entryData.mediaCardData.type === 'song' || entryData.mediaCardData.type === 'movie')) {
+              // Media card entries (Spotify/Movie): select, don't edit
+              selectOnlyEntry(draggingEntry.id);
             } else if(draggingEntry.querySelector('.gcal-card')) {
               // Calendar card: no edit mode, do nothing on click
             } else if(draggingEntry.querySelector('.slack-sync-card')) {

@@ -244,8 +244,15 @@ async function loadUserEntries(username, editable) {
           entry.innerHTML = '';
         }
         if (urls.length > 0) {
+          // Filter out URLs that belong to the media card (e.g., Spotify URL) to avoid duplicate cards
+          const mediaUrls = [];
+          if (entryData.mediaCardData) {
+            if (entryData.mediaCardData.url) mediaUrls.push(entryData.mediaCardData.url);
+            if (entryData.mediaCardData.spotifyUrl) mediaUrls.push(entryData.mediaCardData.spotifyUrl);
+          }
+          const filteredUrls = urls.filter(url => !mediaUrls.includes(url));
           const cachedLinkCardsData = entryData.linkCardsData || [];
-          urls.forEach((url, index) => {
+          filteredUrls.forEach((url, index) => {
             const cachedCardData = cachedLinkCardsData[index];
             if (cachedCardData) {
               // Show cached card immediately — no loading state
@@ -830,37 +837,88 @@ async function loadEntriesFromServer() {
       entry.style.left = `${entryData.position.x}px`;
       entry.style.top = `${entryData.position.y}px`;
 
-      // Process text with links
-      const { processedText, urls } = processTextWithLinks(entryData.text);
-
-      if (entryData.latexData && entryData.latexData.enabled) {
-        renderLatex(entryData.latexData.source, entry);
-      } else if (entryData.textHtml && entryData.textHtml.includes('deadline-table')) {
-        entry.innerHTML = entryData.textHtml;
-        const dt = entry.querySelector('.deadline-table');
-        if (dt) setupDeadlineTableHandlers(dt);
-      } else if (entryData.textHtml && entryData.textHtml.includes('gcal-card')) {
-        entry.innerHTML = entryData.textHtml;
-        const card = entry.querySelector('.gcal-card');
-        if (card) setupCalendarCardHandlers(card);
-      } else if (entryData.textHtml && entryData.textHtml.includes('slack-sync-card')) {
-        entry.innerHTML = entryData.textHtml;
-        const card = entry.querySelector('.slack-sync-card');
-        if (card) setupSlackSyncCardHandlers(card);
-      } else if (processedText) {
-        if (entryData.textHtml && /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(entryData.textHtml)) {
-          // Has formatting — strip URLs from HTML (they're shown as link cards)
-          let cleanHtml = entryData.textHtml;
-          urls.forEach(url => { cleanHtml = cleanHtml.replace(url, ''); });
-          cleanHtml = cleanHtml.trim();
-          entry.innerHTML = cleanHtml ? meltifyHtml(cleanHtml) : '';
-          applyEntryFontSize(entry, entryData.textHtml);
-        } else {
-          // No formatting, use regular meltify
-          entry.innerHTML = meltify(processedText);
-        }
-      } else {
+      // Handle image and file entries specially
+      const isImageOnly = entryData.mediaCardData && entryData.mediaCardData.type === 'image';
+      const isFileEntry = entryData.mediaCardData && entryData.mediaCardData.type === 'file';
+      if (isImageOnly) {
+        entry.classList.add('canvas-image');
         entry.innerHTML = '';
+        const img = document.createElement('img');
+        const fullUrl = entryData.mediaCardData.url;
+        img.src = fullUrl;
+        img.dataset.fullSrc = fullUrl;
+        img.alt = 'Canvas image';
+        img.draggable = false;
+        img.loading = 'lazy';
+        img.decoding = 'async';
+        entry.appendChild(img);
+      } else if (isFileEntry) {
+        entry.classList.add('canvas-file');
+        entry.innerHTML = '';
+        entry.appendChild(createFileCard(entryData.mediaCardData));
+      } else if (entryData.latexData && entryData.latexData.enabled) {
+        renderLatex(entryData.latexData.source, entry);
+      } else {
+        // Process text with links
+        const { processedText, urls } = processTextWithLinks(entryData.text);
+
+        if (entryData.textHtml && entryData.textHtml.includes('deadline-table')) {
+          entry.innerHTML = entryData.textHtml;
+          const dt = entry.querySelector('.deadline-table');
+          if (dt) setupDeadlineTableHandlers(dt);
+        } else if (entryData.textHtml && entryData.textHtml.includes('gcal-card')) {
+          entry.innerHTML = entryData.textHtml;
+          const card = entry.querySelector('.gcal-card');
+          if (card) setupCalendarCardHandlers(card);
+        } else if (entryData.textHtml && entryData.textHtml.includes('slack-sync-card')) {
+          entry.innerHTML = entryData.textHtml;
+          const card = entry.querySelector('.slack-sync-card');
+          if (card) setupSlackSyncCardHandlers(card);
+        } else if (processedText) {
+          if (entryData.textHtml && /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(entryData.textHtml)) {
+            // Has formatting — strip URLs from HTML (they're shown as link cards)
+            let cleanHtml = entryData.textHtml;
+            urls.forEach(url => { cleanHtml = cleanHtml.replace(url, ''); });
+            cleanHtml = cleanHtml.trim();
+            entry.innerHTML = cleanHtml ? meltifyHtml(cleanHtml) : '';
+            applyEntryFontSize(entry, entryData.textHtml);
+          } else {
+            // No formatting, use regular meltify
+            entry.innerHTML = meltify(processedText);
+          }
+        } else {
+          entry.innerHTML = '';
+        }
+
+        // Generate link cards if URLs exist (skip media card URLs)
+        if (urls.length > 0) {
+          const mediaUrls = [];
+          if (entryData.mediaCardData) {
+            if (entryData.mediaCardData.url) mediaUrls.push(entryData.mediaCardData.url);
+            if (entryData.mediaCardData.spotifyUrl) mediaUrls.push(entryData.mediaCardData.spotifyUrl);
+          }
+          const filteredUrls = urls.filter(url => !mediaUrls.includes(url));
+          const cachedLinkCardsData = entryData.linkCardsData || [];
+          filteredUrls.forEach((url, index) => {
+            const cachedCardData = cachedLinkCardsData[index];
+            if (cachedCardData) {
+              const card = createLinkCard(cachedCardData);
+              entry.appendChild(card);
+              updateEntryWidthForLinkCard(entry, card);
+            } else {
+              generateLinkCard(url).then(cardData => {
+                if (!cardData) return;
+                const card = createLinkCard(cardData);
+                entry.appendChild(card);
+                updateEntryWidthForLinkCard(entry, card);
+                if (!storedEntryData.linkCardsData) storedEntryData.linkCardsData = [];
+                storedEntryData.linkCardsData[index] = cardData;
+                updateEntryOnServer(storedEntryData);
+                setTimeout(() => updateEntryDimensions(entry), 100);
+              });
+            }
+          });
+        }
       }
 
       world.appendChild(entry);
@@ -877,21 +935,17 @@ async function loadEntriesFromServer() {
         latexData: entryData.latexData || null,
         position: entryData.position,
         parentEntryId: entryData.parentEntryId,
+        linkCardsData: entryData.linkCardsData || [],
         mediaCardData: entryData.mediaCardData || null,
         slackChannelId: entryData.slackChannelId || null
       };
       entries.set(entryData.id, storedEntryData);
 
-      // Generate link cards if URLs exist
-      if (urls.length > 0) {
-        urls.forEach(async (url) => {
-          const cardData = await generateLinkCard(url);
-          if (cardData) {
-            const card = createLinkCard(cardData);
-            entry.appendChild(card);
-            updateEntryWidthForLinkCard(entry, card);
-          }
-        });
+      // Create media card DOM for non-image media entries (Spotify/Movie)
+      if (!isImageOnly && !isFileEntry && entryData.mediaCardData && entryData.mediaCardData.type !== 'image') {
+        const card = createMediaCard(entryData.mediaCardData);
+        entry.appendChild(card);
+        setTimeout(() => updateEntryDimensions(entry), 100);
       }
     });
 
