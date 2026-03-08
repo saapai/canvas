@@ -16,7 +16,13 @@ const PORT = process.env.PORT || 3000;
 // ——— Middleware ———
 
 app.use(cors());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({
+  limit: '10mb',
+  verify: (req, _res, buf) => {
+    // Capture raw body for Slack signature verification
+    if (req.originalUrl === '/api/slack/events') req.rawBody = buf.toString();
+  }
+}));
 app.use(express.urlencoded({ extended: false })); // Twilio sends form-encoded data
 
 // Rate limiting (production only for auth)

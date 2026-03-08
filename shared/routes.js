@@ -54,7 +54,8 @@ import { handleIncomingSms, toTwiml, validateTwilioSignature } from './sms.js';
 import * as smsDb from './sms-db.js';
 import { detectSmsType } from './sms-meta.js';
 import * as slackDb from './slack-db.js';
-import { listAccessibleChannels, syncChannel, syncAllChannels, checkAndSendNotifications } from './slack.js';
+import { listAccessibleChannels, syncChannel, syncAllChannels, checkAndSendNotifications, joinAllPublicChannels, handleSlackEvent } from './slack.js';
+import crypto from 'crypto';
 import { recheckUnansweredQuestions } from './sms-actions.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -2249,6 +2250,58 @@ export function createRouter(options = {}) {
       res.json({ channels });
     } catch (error) {
       console.error('[Slack] Error listing channels:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Join all public channels the bot isn't in yet
+  router.post('/api/slack/join-all', requireAuth, async (req, res) => {
+    try {
+      const result = await joinAllPublicChannels();
+      console.log('[Slack] Join-all result:', result);
+      res.json(result);
+    } catch (error) {
+      console.error('[Slack] Join-all error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Slack Events API — handles channel_created for auto-join
+  router.post('/api/slack/events', async (req, res) => {
+    // URL verification challenge (Slack sends this when you configure the endpoint)
+    if (req.body?.type === 'url_verification') {
+      return res.json({ challenge: req.body.challenge });
+    }
+
+    // Verify request signature if signing secret is configured
+    const signingSecret = process.env.SLACK_SIGNING_SECRET;
+    if (signingSecret) {
+      const timestamp = req.headers['x-slack-request-timestamp'];
+      const slackSig = req.headers['x-slack-signature'];
+
+      // Reject requests older than 5 minutes
+      if (Math.abs(Math.floor(Date.now() / 1000) - parseInt(timestamp)) > 300) {
+        return res.status(401).json({ error: 'Request too old' });
+      }
+
+      const body = req.rawBody || JSON.stringify(req.body);
+      const basestring = `v0:${timestamp}:${body}`;
+      const mySig = 'v0=' + crypto.createHmac('sha256', signingSecret).update(basestring).digest('hex');
+
+      if (!crypto.timingSafeEqual(Buffer.from(mySig), Buffer.from(slackSig || ''))) {
+        return res.status(401).json({ error: 'Invalid signature' });
+      }
+    }
+
+    try {
+      const event = req.body?.event;
+      if (event) {
+        const result = await handleSlackEvent(event);
+        console.log('[Slack:events] Handled event:', event.type, result);
+      }
+      res.json({ ok: true });
+    } catch (error) {
+      console.error('[Slack:events] Error:', error);
       res.status(500).json({ error: error.message });
     }
   });

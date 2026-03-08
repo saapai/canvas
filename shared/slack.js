@@ -49,8 +49,87 @@ export async function listAccessibleChannels() {
     topic: ch.topic?.value || '',
     purpose: ch.purpose?.value || '',
     memberCount: ch.num_members || 0,
-    isPrivate: ch.is_private || false
+    isPrivate: ch.is_private || false,
+    isMember: ch.is_member || false
   }));
+}
+
+// ============================================
+// AUTO-JOIN PUBLIC CHANNELS
+// ============================================
+
+/**
+ * Join a single public channel by ID.
+ * Requires `channels:join` bot scope.
+ */
+export async function joinChannel(channelId) {
+  const client = getSlackClient();
+  if (!client) throw new Error('Slack not configured');
+
+  try {
+    await client.conversations.join({ channel: channelId });
+    return { ok: true };
+  } catch (err) {
+    // already_in_channel is fine, not an error
+    if (err.data?.error === 'already_in_channel') return { ok: true, alreadyIn: true };
+    console.error(`[Slack:join] Failed to join ${channelId}:`, err.message);
+    return { ok: false, error: err.message };
+  }
+}
+
+/**
+ * Join ALL public channels the bot isn't already a member of.
+ * Safe to call repeatedly — skips channels already joined.
+ * Requires `channels:join` bot scope.
+ */
+export async function joinAllPublicChannels() {
+  const client = getSlackClient();
+  if (!client) throw new Error('Slack not configured');
+
+  const channels = [];
+  let cursor;
+  do {
+    const result = await client.conversations.list({
+      types: 'public_channel',
+      exclude_archived: true,
+      limit: 200,
+      cursor
+    });
+    channels.push(...(result.channels || []));
+    cursor = result.response_metadata?.next_cursor;
+  } while (cursor);
+
+  const notMember = channels.filter(ch => !ch.is_member);
+  console.log(`[Slack:autojoin] ${channels.length} public channels, ${notMember.length} not yet joined`);
+
+  if (notMember.length === 0) return { total: channels.length, joined: 0, failed: 0 };
+
+  let joined = 0, failed = 0;
+  for (const ch of notMember) {
+    try {
+      await client.conversations.join({ channel: ch.id });
+      console.log(`[Slack:autojoin] Joined #${ch.name}`);
+      joined++;
+    } catch (err) {
+      console.error(`[Slack:autojoin] Failed #${ch.name}: ${err.message}`);
+      failed++;
+    }
+  }
+
+  return { total: channels.length, joined, failed };
+}
+
+/**
+ * Handle incoming Slack Events API payloads.
+ * Currently handles: channel_created (auto-join new channels).
+ */
+export async function handleSlackEvent(event) {
+  if (event.type === 'channel_created') {
+    const channel = event.channel;
+    console.log(`[Slack:event] New channel: #${channel.name} (${channel.id})`);
+    return joinChannel(channel.id);
+  }
+  return { ok: true, skipped: true };
 }
 
 export async function fetchChannelMessages(channelId, oldestTs = null) {
@@ -402,6 +481,16 @@ export async function syncChannel(syncRecord) {
 // ============================================
 
 export async function syncAllChannels() {
+  // Auto-join any public channels the bot isn't in yet
+  try {
+    const joinResult = await joinAllPublicChannels();
+    if (joinResult.joined > 0) {
+      console.log(`[Slack:sync] Auto-joined ${joinResult.joined} new public channels`);
+    }
+  } catch (err) {
+    console.error('[Slack:sync] Auto-join failed:', err.message);
+  }
+
   const syncs = await slackDb.getAllEnabledSyncs();
   const results = [];
 

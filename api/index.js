@@ -18,7 +18,11 @@ app.use(cors());
 app.use(function (req, res, next) {
   const ct = (req.headers['content-type'] || '');
   if (ct.includes('multipart/form-data')) return next();
-  express.json()(req, res, next);
+  express.json({
+    verify: (innerReq, _res, buf) => {
+      if (innerReq.originalUrl === '/api/slack/events') innerReq.rawBody = buf.toString();
+    }
+  })(req, res, next);
 });
 app.use(express.urlencoded({ extended: false })); // Twilio sends form-encoded data
 
