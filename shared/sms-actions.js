@@ -256,17 +256,9 @@ export async function handleDraftWrite({ phone, message, userName, isAdmin, clas
 // ============================================
 
 export async function handleDraftSend({ phone, message, userName, isAdmin, sendAnnouncement, sendPoll, entryId, classification, recentMessages }) {
-  // Safety: reject any message that contains negative intent (don't send, no, cancel, etc.)
-  const lower = message.toLowerCase().trim();
-  if (/\b(don'?t|do not|no|cancel|nvm|nevermind|never mind|delete|discard|forget|scratch|stop|nah|nope)\b/i.test(lower)) {
-    console.log('[DraftSend] BLOCKED — negative intent detected in message:', message);
-    const draft = await smsDb.getActiveDraft(phone, entryId);
-    if (draft) await smsDb.deleteDraft(phone, entryId);
-    return { action: 'draft_send', response: applyPersonality({ baseResponse: `draft cancelled, not sending anything`, userMessage: message, userName }), newDraft: undefined };
-  }
-
   // Safety: if the message has substantial content (not just "send"/"go"/"yes"),
   // the user is probably writing a new announcement, not confirming a send.
+  const lower = message.toLowerCase().trim();
   const isSendCommand = /^(send|send it|go|yes|yep|do it|blast it|fire|ship it)$/i.test(lower);
   if (!isSendCommand && message.length > 15) {
     console.log('[DraftSend] Message has content, redirecting to draft_write:', message.substring(0, 60));

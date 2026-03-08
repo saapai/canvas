@@ -11,46 +11,24 @@ import OpenAI from 'openai';
 // ============================================
 
 function patternMatch(message, context) {
-  const lower = message.toLowerCase().trim();
-  const { activeDraft, pendingExcuseRequest } = context;
+  const { pendingExcuseRequest, activeDraft } = context;
+
+  // State-machine decisions only — these are not classification, they're deterministic responses to bot state
 
   // If user has pending excuse request, any message is a poll_response
   if (pendingExcuseRequest) {
     return { action: 'poll_response', confidence: 0.95 };
   }
 
-  // "Announce this: X" / "Announce: X" — always draft_write (creating new content)
-  if (/^announce\s*(this)?[\s:]+\S/i.test(lower)) {
-    return { action: 'draft_write', confidence: 0.95, subtype: 'announcement' };
-  }
-
-  // Cancel/don't send draft — MUST check BEFORE send commands to prevent "don't send" from being sent
-  if (activeDraft) {
-    if (/\b(don'?t|do not|no|cancel|nvm|nevermind|never mind|delete|discard|forget|scratch|stop|nah|nope)\b/i.test(lower)) {
-      return { action: 'chat', confidence: 0.95 };  // chat handler has draft cancellation logic
-    }
-  }
-
-  // ONLY match explicit send commands when draft is ready AND not waiting for mandatory confirmation
-  if (activeDraft && activeDraft.status === 'ready' && !activeDraft.pendingMandatory) {
-    if (/^(send|send it|go|yes|yep)$/i.test(lower)) {
-      return { action: 'draft_send', confidence: 0.95 };
-    }
-  }
-
-  // If draft is waiting for mandatory confirmation, "yes" should be draft_write, not draft_send
+  // If draft is waiting for mandatory confirmation, yes/no is a draft_write (confirming mandatory status)
   if (activeDraft && activeDraft.pendingMandatory) {
+    const lower = message.toLowerCase().trim();
     if (/^(yes|y|yep|yeah|mandatory|required|no|n|nope|nah)$/i.test(lower)) {
       return { action: 'draft_write', confidence: 0.95 };
     }
   }
 
-  // Follow-up questions about bot's previous messages → content_query
-  // These are questions like "what work?", "submit what?", "what form?", "what do you mean?"
-  if (/\b(what work|what form|submit what|what do you mean|tell me more|what are you talking|what was that|which form|what thing|what stuff|what assignment|explain|elaborate|what deadline|what event)\b/i.test(lower)) {
-    return { action: 'content_query', confidence: 0.90 };
-  }
-
+  // Everything else goes to LLM classification
   return null;
 }
 
@@ -96,31 +74,30 @@ Current message: "${currentMessage}"
 
 Classify this message into ONE of these actions:
 
-1. **draft_write** - Actually creating or editing announcement/poll content (e.g. "announce meeting at 5pm", "poll: are you coming?")
-2. **draft_send** - ONLY explicit send confirmations when draft is ready
-3. **poll_response** - Responding to an active poll (yes/no/maybe with optional notes)
-4. **content_query** - Questions about page content (events, info, etc.)
-5. **capability_query** - Questions about what the bot can do or how to use features
-6. **chat** - Everything else (casual conversation, banter, greetings)
+1. **draft_write** - Creating or editing announcement/poll content. The message contains ACTUAL CONTENT to announce or poll about (e.g. "announce meeting at 5pm", "poll: are you coming?", "tell everyone party is at 8").
+2. **draft_send** - Explicitly confirming to SEND a ready draft. User is saying YES, GO, SEND. Must be clearly affirmative with no hesitation.
+3. **poll_response** - Responding to an active poll (yes/no/maybe with optional notes).
+4. **content_query** - Asking about page content, events, deadlines, or following up on something the bot said. Includes vague follow-up questions like "what work?", "submit what?", "what form?", "tell me more", "what do you mean?".
+5. **capability_query** - Asking what the bot can do or how to use features (e.g. "how do I make an announcement?").
+6. **chat** - Everything else: casual conversation, banter, greetings, AND cancelling/rejecting drafts.
 
-CRITICAL DISTINCTIONS:
-- "How do I make an announcement" / "How do I send a poll" = capability_query (asking for help)
-- "Announce: meeting at 5pm" / "Make an announcement saying X" = draft_write (has actual content to send)
-- draft_write requires actual MESSAGE CONTENT to send. If the user is just asking HOW to do it, that's capability_query.
-- Pay attention to conversation history
-- Words like "wait", "no", "actually", "instead" signal draft edits
-- Questions like "tell me about X", "what is X" are ALWAYS content_query
-- Use the weighted history (higher weight = more recent/relevant)
+DRAFT HANDLING — THIS IS THE MOST IMPORTANT SECTION:
+${activeDraft ? `There is currently an ACTIVE DRAFT. Pay very careful attention to whether the user wants to SEND it or CANCEL/REJECT it.` : 'There is no active draft.'}
 
-DRAFT CANCELLATION — CRITICAL:
-- If there is an active draft and the user says ANYTHING negative, hesitant, or cancelling, classify as "chat" (NOT draft_send). The chat handler will cancel the draft.
-- Examples: "don't send", "no don't", "wait no", "nah", "cancel", "stop", "actually no", "don't send that" = chat
-- "don't send" is the OPPOSITE of "send" — it must NEVER be classified as draft_send
-- Only classify as draft_send for CLEARLY AFFIRMATIVE send commands: "send", "send it", "go", "yes", "yep"
+- draft_send = user WANTS to send. Must be clearly, unambiguously affirmative: "send", "send it", "go", "yes", "yep", "do it", "ship it", "fire away"
+- chat = user wants to CANCEL, REJECT, or STOP the draft. Any negativity, hesitation, or rejection means DO NOT SEND:
+  "don't send" = chat (CANCEL). This is the OPPOSITE of "send".
+  "no" / "nah" / "nope" / "cancel" / "stop" / "nvm" / "never mind" / "forget it" / "delete it" / "scratch that" / "actually no" / "wait no" = chat (CANCEL)
+- Think about the SEMANTIC MEANING. "don't send" contains the word "send" but the meaning is NEGATIVE — do NOT send. Always prioritize meaning over individual words.
+- When in doubt between draft_send and chat, choose chat. A false cancel is easily fixed; a false send goes to all members and CANNOT be undone.
+- draft_write = user is EDITING the draft content (e.g. "wait, say X instead", "change it to Y", "actually make it about Z")
 
-FOLLOW-UP QUESTIONS:
-- If the user asks short vague questions like "what work?", "submit what?", "what form?", "what do you mean?", "tell me more" — these are content_query (asking about something the bot recently said)
-- These are NOT casual chat — the user wants specific information
+OTHER RULES:
+- "How do I make an announcement" = capability_query (asking for help, no content)
+- "Announce: meeting at 5pm" = draft_write (has actual content)
+- "tell me about X", "what is X", "when is X" = content_query
+- Short vague follow-up questions ("what work?", "submit what?", "what form?", "huh?", "what do you mean?", "tell me more", "what was that about?") = content_query (user is asking about something the bot just said)
+- Use conversation history to understand context (higher weight = more recent/relevant)
 
 Respond with JSON only:
 {
@@ -141,7 +118,7 @@ async function callLLMClassifier(prompt) {
         { role: 'system', content: 'You are a precise intent classifier. Always respond with valid JSON.' },
         { role: 'user', content: prompt }
       ],
-      temperature: 0.3,
+      temperature: 0.1,
       response_format: { type: 'json_object' }
     });
 
