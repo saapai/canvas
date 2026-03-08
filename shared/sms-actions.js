@@ -508,12 +508,18 @@ CRITICAL RULES:
 4. Always include the most specific details available: exact times, addresses, dress code, logistics.
 5. When asked "when" — give the actual TIME (e.g. "10pm"), not just the date.
 6. Slack links look like <https://url.com|label text> — the URL is BEFORE the pipe, the label is AFTER. When you see these, include the actual URL (the part before |) in your answer. For example, <https://forms.gle/abc123|HERE> means the link is https://forms.gle/abc123. Include it directly. Only say "check Slack" if no URL is available in the raw text.
-7. FOLLOW-UP QUESTIONS — CRITICAL: When the user asks vague questions like "what work?", "what form?", "what do you mean?", "tell me more", they are ALWAYS referring to something the bot recently said. You MUST:
+7. CONNECTING RELATED FACTS — CRITICAL: Messages in Slack are threaded. A reply like "^ pls submit by end of weekend" refers to the message ABOVE it in the same channel. When you see a vague fact (e.g. "submit by weekend"), look at facts from the same channel and same date for the SPECIFIC thing being referred to. Example:
+   - Fact: "Please submit by the end of the weekend" | original: "^ pls submit by the end of the weekend"
+   - Adjacent fact from same channel/date: "If you called an Uber yesterday, get your ride comped" | original: "uber... forms.gle/..."
+   → These are RELATED. The "submit" refers to the uber reimbursement form. Your answer should say "submit the uber reimbursement form" with the URL.
+   - ALWAYS combine the specific details from related facts. NEVER give a vague answer when specific details exist in adjacent facts.
+8. FOLLOW-UP QUESTIONS — CRITICAL: When the user asks vague questions like "what work?", "submit what?", "what form?", "what do you mean?", "tell me more", they are ALWAYS referring to something the bot recently said. You MUST:
    a. Look at RECENT NOTIFICATIONS and CONVERSATION HISTORY to find what was last said
    b. Find the matching Slack fact/original message for that notification
-   c. Answer with the SPECIFIC details from the original Slack message (form names, URLs, exact actions)
-   d. NEVER say "I don't know" when recent notifications/conversation provide context — trace back to the source
-   e. Example: If notification said "submit your work by weekend" and user asks "what work?" → find the original Slack message which might say "submit uber reimbursement form" and answer with THAT specific detail + URL if available
+   c. Connect it to related facts from the same channel (see rule 7)
+   d. Answer with the SPECIFIC details: form names, URLs, exact actions
+   e. NEVER say "I don't know" or "check the original message" — YOU have the original messages right here in the Slack facts. Find and include the details directly.
+   f. NEVER say "check Slack" when the URL is available in the original message text
 
 ${recentNotificationsContext ? `RECENT NOTIFICATIONS SENT TO THIS USER (check these FIRST for follow-up questions):\n${recentNotificationsContext}\n` : ''}
 ${conversationContext ? `RECENT CONVERSATION (use to understand what user is referring to):\n${conversationContext}\n` : ''}
@@ -529,15 +535,22 @@ ${announcementsContext || '(none)'}
 Polls:
 ${pollsContext || '(none)'}`;
 
+  // For follow-up questions, augment the user message with what was recently said
+  let userMessage = question;
+  if (recentNotificationsContext && /\b(what|submit|which|huh|tell me|more|mean|explain)\b/i.test(question)) {
+    userMessage = `User asks: "${question}"\n\nThis is likely a follow-up about a recent notification. Find the SPECIFIC details (form names, URLs, actions) from the Slack facts that relate to the notification, and include them in your answer. Do NOT say "check the original message" — include the details directly.`;
+  }
+
   const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  // Use gpt-4o for content queries — needs better reasoning to connect related facts
   const response = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
+    model: 'gpt-4o',
     messages: [
       { role: 'system', content: systemPrompt },
-      { role: 'user', content: question }
+      { role: 'user', content: userMessage }
     ],
-    temperature: 0.3,
-    max_tokens: 250
+    temperature: 0.2,
+    max_tokens: 300
   });
 
   const answer = response.choices[0].message.content || "couldn't find anything about that";
