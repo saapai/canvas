@@ -217,80 +217,66 @@ export function scheduleDeadlineNotifications(userId, entryId, fact) {
   const now = new Date();
   const notifications = [];
 
-  // Use PST for "today" comparison
-  const pstOptions = { timeZone: 'America/Los_Angeles' };
-  const eventPST = eventDate.toLocaleDateString('en-US', pstOptions);
-  const nowPST = now.toLocaleDateString('en-US', pstOptions);
-  const isToday = eventPST === nowPST;
-  const isFuture = eventDate > now;
-
   // Detect if event has a specific time (not just a date).
-  // If UTC time is midnight (00:00:00), the LLM likely extracted a date-only value like "2026-03-06".
   const hasSpecificTime = eventDate.getUTCHours() !== 0 || eventDate.getUTCMinutes() !== 0 || eventDate.getUTCSeconds() !== 0;
 
-  console.log(`[Notification:schedule] Fact ${fact.id}: "${fact.extracted_fact?.substring(0, 60)}" | eventDate=${eventDate.toISOString()} | now=${now.toISOString()} | isToday=${isToday} | isFuture=${isFuture} | hasTime=${hasSpecificTime}`);
+  console.log(`[Notification:schedule] Fact ${fact.id}: "${fact.extracted_fact?.substring(0, 60)}" | eventDate=${eventDate.toISOString()} | now=${now.toISOString()} | hasTime=${hasSpecificTime}`);
 
-  // Morning of: 10:00 AM PST on event day — ALWAYS send for day-of events/deadlines
-  const morningOf = new Date(eventDate);
-  morningOf.setUTCHours(18, 0, 0, 0); // 10am PST = 18:00 UTC
-  if (morningOf > now) {
-    console.log(`[Notification:schedule] → Scheduling morning_of for ${morningOf.toISOString()}`);
-    notifications.push({
-      userId,
-      entryId,
-      factId: fact.id,
-      notificationType: 'morning_of',
-      scheduledFor: morningOf,
-      eventDate,
-      message: `Reminder: ${fact.extracted_fact}`
-    });
-  } else {
-    console.log(`[Notification:schedule] → morning_of already passed (was ${morningOf.toISOString()})`);
-  }
+  // NOTIFICATION 1: "initial" — send soon after discovery (next cron tick, ~1 min from now)
+  const initialTime = new Date(now.getTime() + 60 * 1000);
+  console.log(`[Notification:schedule] → Scheduling initial for ${initialTime.toISOString()}`);
+  notifications.push({
+    userId,
+    entryId,
+    factId: fact.id,
+    notificationType: 'initial',
+    scheduledFor: initialTime,
+    eventDate,
+    message: `Heads up: ${fact.extracted_fact}`
+  });
 
-  // 2 hours before event — ONLY when event has a specific time
+  // NOTIFICATION 2: "deadline_reminder" — right before the deadline
+  // For timed events: 2 hours before
+  // For date-only deadlines (e.g. "end of weekend"): 6 PM PST on deadline day
   if (hasSpecificTime) {
     const twoHoursBefore = new Date(eventDate.getTime() - 2 * 60 * 60 * 1000);
-    if (twoHoursBefore > now) {
-      console.log(`[Notification:schedule] → Scheduling two_hours_before for ${twoHoursBefore.toISOString()}`);
+    if (twoHoursBefore > now && twoHoursBefore.getTime() - now.getTime() > 3 * 60 * 60 * 1000) {
+      // Only schedule if deadline is more than 3 hours away (otherwise initial is enough)
+      console.log(`[Notification:schedule] → Scheduling deadline_reminder for ${twoHoursBefore.toISOString()}`);
       notifications.push({
         userId,
         entryId,
         factId: fact.id,
-        notificationType: 'two_hours_before',
+        notificationType: 'deadline_reminder',
         scheduledFor: twoHoursBefore,
         eventDate,
-        message: `Starting soon (2 hours): ${fact.extracted_fact}`
+        message: `Starting soon: ${fact.extracted_fact}`
       });
-    } else {
-      console.log(`[Notification:schedule] → two_hours_before already passed (was ${twoHoursBefore.toISOString()})`);
     }
   } else {
-    console.log(`[Notification:schedule] → Skipping two_hours_before (date-only event, no specific time)`);
+    // Date-only deadline: remind at 6 PM PST on deadline day
+    const eveningReminder = new Date(eventDate);
+    eveningReminder.setUTCHours(2, 0, 0, 0); // 6pm PST = 02:00 UTC next day
+    // If deadline is "end of day", the evening reminder should be same day 6pm
+    // eventDate at midnight UTC → 6pm PST is eventDate - 6 hours + 18 hours = +12 hours? No.
+    // Actually: if eventDate = 2026-03-07T00:00:00Z, that's Mar 6 4pm PST.
+    // We want 6pm PST on Mar 7 = Mar 8 02:00 UTC.
+    eveningReminder.setDate(eveningReminder.getDate() + 1); // next day 2am UTC = 6pm PST on deadline day
+    if (eveningReminder > now && eveningReminder.getTime() - now.getTime() > 3 * 60 * 60 * 1000) {
+      console.log(`[Notification:schedule] → Scheduling deadline_reminder (evening) for ${eveningReminder.toISOString()}`);
+      notifications.push({
+        userId,
+        entryId,
+        factId: fact.id,
+        notificationType: 'deadline_reminder',
+        scheduledFor: eveningReminder,
+        eventDate,
+        message: `Reminder — due soon: ${fact.extracted_fact}`
+      });
+    }
   }
 
-  // CATCH-UP: If event is today but morning_of already passed and we have no
-  // scheduled notifications yet, send a catch-up notification immediately.
-  if (isToday && morningOf <= now && notifications.length === 0) {
-    const catchUpTime = new Date(now.getTime() + 60 * 1000);
-    console.log(`[Notification:schedule] → Event is today, all windows passed — scheduling CATCH-UP for ${catchUpTime.toISOString()}`);
-    notifications.push({
-      userId,
-      entryId,
-      factId: fact.id,
-      notificationType: 'catch_up',
-      scheduledFor: catchUpTime,
-      eventDate,
-      message: `Heads up — happening today: ${fact.extracted_fact}`
-    });
-  }
-
-  if (notifications.length === 0) {
-    console.log(`[Notification:schedule] → No notifications scheduled (event ${isToday ? 'is today but event time passed' : 'is in the past'})`);
-  } else {
-    console.log(`[Notification:schedule] → Total scheduled: ${notifications.length} notifications`);
-  }
-
+  console.log(`[Notification:schedule] → Total scheduled: ${notifications.length} notifications`);
   return notifications;
 }
 
@@ -462,50 +448,6 @@ export async function checkAndSendNotifications() {
   const now = new Date();
   console.log(`[Notification:cron] Checking for pending notifications at ${now.toISOString()}`);
 
-  // First: backfill catch-up notifications for today's events that have none.
-  // Group by entry_id so we send ONE consolidated message per page, not per fact.
-  try {
-    const unnotified = await slackDb.getTodayUnnotifiedEventFacts();
-    console.log(`[Notification:cron] Today's unnotified event facts: ${unnotified.length}`);
-
-    // Group facts by entry_id
-    const byEntry = {};
-    for (const fact of unnotified) {
-      const key = fact.entry_id;
-      if (!byEntry[key]) byEntry[key] = { userId: fact.user_id, entryId: key, facts: [] };
-      byEntry[key].facts.push(fact);
-    }
-
-    for (const group of Object.values(byEntry)) {
-      // Use the first fact as the "anchor" for the notification record,
-      // but the enrichment will pull ALL today's facts for this entry
-      const anchorFact = group.facts[0];
-      console.log(`[Notification:cron] Backfilling consolidated catch-up for entry ${group.entryId} (${group.facts.length} facts): ${group.facts.map(f => f.extracted_fact?.substring(0, 40)).join(' | ')}`);
-      const notifs = scheduleDeadlineNotifications(group.userId, group.entryId, anchorFact);
-      for (const n of notifs) {
-        const saved = await slackDb.createNotification(n);
-        console.log(`[Notification:cron] Backfilled notification ${saved.id} type=${n.notificationType}`);
-      }
-      // Mark the other facts as "covered" by creating cancelled placeholders so they don't get picked up again
-      for (const fact of group.facts.slice(1)) {
-        try {
-          await slackDb.createNotification({
-            userId: group.userId, entryId: group.entryId, factId: fact.id,
-            notificationType: 'catch_up', scheduledFor: new Date(), eventDate: new Date(fact.deadline_date),
-            message: '(consolidated into another notification)'
-          });
-          // Immediately mark as sent so it doesn't fire
-          const db = (await import('./db.js')).getPool();
-          await db.query(`UPDATE scheduled_notifications SET status = 'sent', sent_at = CURRENT_TIMESTAMP WHERE fact_id = $1 AND notification_type = 'catch_up'`, [fact.id]);
-        } catch (e) {
-          // OK if duplicate
-        }
-      }
-    }
-  } catch (backfillErr) {
-    console.error(`[Notification:cron] Backfill error:`, backfillErr.message);
-  }
-
   const pending = await slackDb.getPendingNotifications(now);
   console.log(`[Notification:cron] Found ${pending.length} pending notifications`);
 
@@ -582,8 +524,16 @@ async function buildEnrichedNotificationMessage(notification) {
     return new Date(f.message_date).toLocaleDateString('en-US', pstOptions) === todayPST;
   });
 
-  const relevantFacts = [...todayFacts, ...todayInfoFacts];
-  console.log(`[Notification:enrich] Entry ${entry_id}: ${todayFacts.length} today event facts, ${todayInfoFacts.length} today info facts`);
+  let relevantFacts = [...todayFacts, ...todayInfoFacts];
+
+  // For initial notifications or when no today facts found, include the specific fact being notified about
+  if (relevantFacts.length === 0 || notification_type === 'initial') {
+    const thisFact = allFacts.find(f => f.id === fact_id);
+    if (thisFact && !relevantFacts.some(f => f.id === thisFact.id)) {
+      relevantFacts.unshift(thisFact);
+    }
+  }
+  console.log(`[Notification:enrich] Entry ${entry_id}: ${todayFacts.length} today event facts, ${todayInfoFacts.length} today info facts, total relevant: ${relevantFacts.length}`);
 
   // Extract actual URLs from raw_text and track which channels they came from
   const extractedLinks = [];
@@ -635,7 +585,7 @@ FORMAT RULES:
 
 CONTENT RULES:
 - Include ALL actionable details: times, addresses, dress code, transport
-- ONLY include details from today's events
+- Include details from the relevant events/deadlines being notified about
 - NEVER generalize or paraphrase action items. Use SPECIFIC terms from the facts:
   "submit uber reimbursement form" NOT "submit your work"
   "fill out pledge parent application" NOT "complete your forms"
@@ -645,7 +595,7 @@ CONTENT RULES:
 - Do NOT make up any details not in the facts
 - Do NOT say "catch-up" or "reminder" in the header
 - Look at ALL facts together — if one says "submit by weekend" and an adjacent one mentions a specific form/URL, they are related. Combine the specifics.` },
-        { role: 'user', content: `Today's event details:\n${factsList || notification.message}${linkInfo}\n\nCompose the SMS:` }
+        { role: 'user', content: `Notification type: ${notification_type}\nEvent details:\n${factsList || notification.message}${linkInfo}\n\nCompose the SMS. Use the ORIGINAL Slack message text (after the | original:) to get specific details like form names, URLs, and exact actions:` }
       ],
       temperature: 0.3,
       max_tokens: 400

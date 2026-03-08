@@ -24,6 +24,13 @@ function patternMatch(message, context) {
     return { action: 'draft_write', confidence: 0.95, subtype: 'announcement' };
   }
 
+  // Cancel/don't send draft — MUST check BEFORE send commands to prevent "don't send" from being sent
+  if (activeDraft) {
+    if (/\b(don'?t|do not|no|cancel|nvm|nevermind|never mind|delete|discard|forget|scratch|stop|nah|nope)\b/i.test(lower)) {
+      return { action: 'chat', confidence: 0.95 };  // chat handler has draft cancellation logic
+    }
+  }
+
   // ONLY match explicit send commands when draft is ready AND not waiting for mandatory confirmation
   if (activeDraft && activeDraft.status === 'ready' && !activeDraft.pendingMandatory) {
     if (/^(send|send it|go|yes|yep)$/i.test(lower)) {
@@ -36,6 +43,12 @@ function patternMatch(message, context) {
     if (/^(yes|y|yep|yeah|mandatory|required|no|n|nope|nah)$/i.test(lower)) {
       return { action: 'draft_write', confidence: 0.95 };
     }
+  }
+
+  // Follow-up questions about bot's previous messages → content_query
+  // These are questions like "what work?", "submit what?", "what form?", "what do you mean?"
+  if (/\b(what work|what form|submit what|what do you mean|tell me more|what are you talking|what was that|which form|what thing|what stuff|what assignment|explain|elaborate|what deadline|what event)\b/i.test(lower)) {
+    return { action: 'content_query', confidence: 0.90 };
   }
 
   return null;
@@ -98,6 +111,16 @@ CRITICAL DISTINCTIONS:
 - Words like "wait", "no", "actually", "instead" signal draft edits
 - Questions like "tell me about X", "what is X" are ALWAYS content_query
 - Use the weighted history (higher weight = more recent/relevant)
+
+DRAFT CANCELLATION — CRITICAL:
+- If there is an active draft and the user says ANYTHING negative, hesitant, or cancelling, classify as "chat" (NOT draft_send). The chat handler will cancel the draft.
+- Examples: "don't send", "no don't", "wait no", "nah", "cancel", "stop", "actually no", "don't send that" = chat
+- "don't send" is the OPPOSITE of "send" — it must NEVER be classified as draft_send
+- Only classify as draft_send for CLEARLY AFFIRMATIVE send commands: "send", "send it", "go", "yes", "yep"
+
+FOLLOW-UP QUESTIONS:
+- If the user asks short vague questions like "what work?", "submit what?", "what form?", "what do you mean?", "tell me more" — these are content_query (asking about something the bot recently said)
+- These are NOT casual chat — the user wants specific information
 
 Respond with JSON only:
 {
