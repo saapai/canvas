@@ -589,6 +589,11 @@ Respond ONLY with valid JSON:
   };
 }
 
+// Vercel requires every file in api/ to have a default export handler
+export default function handler(req, res) {
+  res.status(404).json({ error: 'Not a standalone endpoint' });
+}
+
 export async function extractDeadlinesFromFile(buffer, mimetype, originalname) {
   // Compute today's date in Pacific time so relative terms resolve correctly
   const pacificNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
