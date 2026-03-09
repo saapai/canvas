@@ -23,7 +23,9 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
     previousEditing.classList.remove('editing', 'deadline-editing');
   }
 
-  if(entryId && entryId !== 'anchor'){
+  if(entryId && entryId === 'anchor'){
+    anchor.classList.add('editing');
+  } else if(entryId){
     const entryData = entries.get(entryId);
     if(entryData && entryData.element){
       const isDeadline = entryData.textHtml && entryData.textHtml.includes('deadline-table');
@@ -38,8 +40,13 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
   editor.style.left = `${wx - 4}px`;
   editor.style.top  = `${wy}px`;
 
+  // Handle anchor editing — load anchor text
+  if(entryId && entryId === 'anchor'){
+    editor.textContent = text || anchor.textContent || '';
+    editor.style.fontSize = window.getComputedStyle(anchor).fontSize || '16px';
+  }
   // Restore HTML formatting if available, otherwise use plain text
-  if(entryId && entryId !== 'anchor'){
+  else if(entryId){
     const entryData = entries.get(entryId);
     // LaTeX entries: load original plain text for editing, enable latex toggle
     if(entryData && entryData.latexData && entryData.latexData.enabled){
@@ -109,10 +116,10 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
   editor.style.display = 'block';
   if (formatBar) formatBar.classList.remove('hidden');
 
-  // Show trash button only when editing an existing entry
+  // Show trash button when editing an existing entry or the anchor
   const trashBtn = document.getElementById('format-trash');
   if (trashBtn) {
-    if (entryId && entryId !== 'anchor') {
+    if (entryId) {
       trashBtn.classList.remove('hidden');
     } else {
       trashBtn.classList.add('hidden');
@@ -225,8 +232,35 @@ async function commitEditor(){
     console.log('[COMMIT] HTML sample:', htmlContent.substring(0, 200));
   }
 
+  // If editing the anchor
+  if(editingEntryId === 'anchor'){
+    const username = window.PAGE_USERNAME || (currentUser && currentUser.username);
+    anchor.classList.remove('editing');
+    if(!trimmedRight){
+      // Empty text — hide/delete anchor
+      anchor.style.display = 'none';
+      if (username) {
+        localStorage.setItem('anchorDeleted_' + username, 'true');
+        localStorage.removeItem('anchorText_' + username);
+      }
+    } else {
+      // Update anchor text
+      anchor.textContent = trimmedRight;
+      if (username) {
+        localStorage.setItem('anchorText_' + username, trimmedRight);
+        localStorage.removeItem('anchorDeleted_' + username);
+      }
+    }
+    editingEntryId = null;
+    editor.textContent = '';
+    editor.innerHTML = '';
+    showCursorInDefaultPosition();
+    isCommitting = false;
+    return;
+  }
+
   // If editing an existing entry
-  if(editingEntryId && editingEntryId !== 'anchor'){
+  if(editingEntryId){
     console.log('[COMMIT] Editing existing entry:', editingEntryId);
     console.log('[COMMIT] Available entry IDs in Map:', Array.from(entries.keys()));
     const entryData = entries.get(editingEntryId);
@@ -1001,7 +1035,17 @@ document.addEventListener('DOMContentLoaded', () => {
     trashBtn.addEventListener('click', async (e) => {
       e.preventDefault();
       e.stopPropagation();
-      if (editingEntryId && editingEntryId !== 'anchor') {
+      if (editingEntryId === 'anchor') {
+        // Delete anchor — hide it and persist state
+        anchor.classList.remove('editing');
+        anchor.style.display = 'none';
+        const username = window.PAGE_USERNAME || (currentUser && currentUser.username);
+        if (username) {
+          localStorage.setItem('anchorDeleted_' + username, 'true');
+        }
+        hideCursor();
+        editingEntryId = null;
+      } else if (editingEntryId) {
         const entryIdToDelete = editingEntryId;
         hideCursor();
         editingEntryId = null;

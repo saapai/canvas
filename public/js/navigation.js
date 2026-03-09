@@ -24,9 +24,11 @@ function updateEntryVisibility() {
   let visibleCount = 0;
   let hiddenCount = 0;
 
-  // Show anchor only on home page (when currentViewEntryId is null)
+  // Show anchor only on home page (when currentViewEntryId is null) and not deleted
   if (anchor) {
-    if (currentViewEntryId === null) {
+    const _anchorUsername = window.PAGE_USERNAME || (currentUser && currentUser.username);
+    const anchorIsDeleted = _anchorUsername && localStorage.getItem('anchorDeleted_' + _anchorUsername) === 'true';
+    if (currentViewEntryId === null && !anchorIsDeleted) {
       anchor.style.display = '';
       // During navigation, hide anchor until camera is repositioned
       if (isNavigating) {
@@ -34,7 +36,7 @@ function updateEntryVisibility() {
       }
     } else {
       anchor.style.display = 'none';
-      anchor.classList.remove('nav-entering');
+      anchor.classList.remove('nav-entering', 'nav-leaving');
     }
   }
 
@@ -66,7 +68,7 @@ function updateEntryVisibility() {
       }
     } else {
       hiddenCount++;
-      entryData.element.classList.remove('nav-entering');
+      entryData.element.classList.remove('nav-entering', 'nav-leaving');
     }
 
     // Don't regenerate cards - they should already be in the entry
@@ -81,25 +83,24 @@ function updateEntryVisibility() {
   }
 }
 
+// Add .nav-leaving to all currently visible entries and anchor to trigger fade-out
+function fadeOutVisibleEntries() {
+  entries.forEach((entryData, entryId) => {
+    if (entryId === 'anchor') return;
+    if (entryData && entryData.element && entryData.element.style.display !== 'none') {
+      entryData.element.classList.add('nav-leaving');
+    }
+  });
+  if (anchor && anchor.style.display !== 'none') {
+    anchor.classList.add('nav-leaving');
+  }
+}
+
 function navigateToEntry(entryId) {
   const entryData = entries.get(entryId);
   if (!entryData) return;
 
   isNavigating = true;
-
-  // Get current username from page context or current user
-  const pageUsername = window.PAGE_USERNAME;
-  const username = pageUsername || (currentUser && currentUser.username);
-
-  // Navigate locally with URL path update
-  navigationStack.push(entryId);
-  currentViewEntryId = entryId;
-  updateBreadcrumb();
-  updateEntryVisibility();
-  updateSmsManageButton();
-
-  // Load per-page background
-  if (window._loadPageBg) window._loadPageBg(entryId);
 
   // Hide and blur editor to prevent paste behavior
   if (!editor.classList.contains('idle-cursor') && document.activeElement === editor) {
@@ -107,102 +108,110 @@ function navigateToEntry(entryId) {
     editor.blur();
   }
   if (editingEntryId && editingEntryId !== 'anchor') {
-    const entryData = entries.get(editingEntryId);
-    if (entryData && entryData.element) {
-      entryData.element.classList.remove('editing', 'deadline-editing');
+    const editData = entries.get(editingEntryId);
+    if (editData && editData.element) {
+      editData.element.classList.remove('editing', 'deadline-editing');
     }
     editingEntryId = null;
   }
 
-  // Recalculate dimensions for all visible entries after navigation
+  // Phase 1: Fade out all currently visible entries
+  fadeOutVisibleEntries();
+
+  // Phase 2: After fade-out completes, snap camera and show new entries
   setTimeout(() => {
-    entries.forEach((entryData, entryId) => {
-      if (entryId === 'anchor') return;
-      const entry = entryData.element;
-      if (entry && entry.style.display !== 'none') {
-        updateEntryDimensions(entry);
-      }
-    });
+    // Get current username from page context or current user
+    const pageUsername = window.PAGE_USERNAME;
+    const username = pageUsername || (currentUser && currentUser.username);
 
-    // Zoom to fit all visible entries
-    requestAnimationFrame(() => {
-      zoomToFitEntries({ instant: true });
-    });
-  }, 100);
+    // Navigate locally with URL path update
+    navigationStack.push(entryId);
+    currentViewEntryId = entryId;
+    updateBreadcrumb();
+    updateEntryVisibility();
+    updateSmsManageButton();
 
-  // Reset navigation flag - will be cleared by zoomToFitEntries animation completion
-  navigationJustCompleted = true;
-  console.log('[NAV] Set navigationJustCompleted = true for navigateToEntry');
+    // Load per-page background
+    if (window._loadPageBg) window._loadPageBg(entryId);
 
-  // Note: isNavigating will be cleared by zoomToFitEntries animation completion
-  // This timeout is just a safety fallback
-  setTimeout(() => {
-    console.log('[NAV] Fallback timeout (1000ms) - isNavigating:', isNavigating, 'navigationJustCompleted:', navigationJustCompleted);
-    isNavigating = false;
-    // Only hide editor if user hasn't explicitly placed it (clicked during navigation)
-    // If editor is visible and has content or is focused, user wants to keep it
-    if (editor.classList.contains('idle-cursor') ||
-        (document.activeElement === editor && editor.textContent.trim().length > 0)) {
-      // User has placed cursor/editor - keep it visible
-      // navigationJustCompleted will be cleared by zoom animation or user click
-    } else if (!editor.classList.contains('idle-cursor') && document.activeElement === editor) {
-      // Editor was active but empty - hide it
-      hideCursor();
-      editor.blur();
-      editingEntryId = null;
-    }
-    // Fallback: clear the flag if zoom animation didn't clear it
+    // Recalculate dimensions for all visible entries after navigation
     setTimeout(() => {
-      // Only clear if user hasn't clicked (which would have cleared it already)
-      console.log('[NAV] Final fallback timeout (900ms) - navigationJustCompleted:', navigationJustCompleted);
-      if (navigationJustCompleted) {
-        navigationJustCompleted = false;
-        // Show cursor in default position after navigation completes (fallback)
-        if (!isReadOnly) {
-          console.log('[NAV] Showing cursor from final fallback');
-          requestAnimationFrame(() => {
+      entries.forEach((data, id) => {
+        if (id === 'anchor') return;
+        const entry = data.element;
+        if (entry && entry.style.display !== 'none') {
+          updateEntryDimensions(entry);
+        }
+      });
+
+      // Zoom to fit all visible entries (instant snap, then revealNavEntries fades in)
+      requestAnimationFrame(() => {
+        zoomToFitEntries({ instant: true });
+      });
+    }, 100);
+
+    // Reset navigation flag - will be cleared by zoomToFitEntries animation completion
+    navigationJustCompleted = true;
+    console.log('[NAV] Set navigationJustCompleted = true for navigateToEntry');
+
+    // Safety fallback for isNavigating
+    setTimeout(() => {
+      console.log('[NAV] Fallback timeout (1000ms) - isNavigating:', isNavigating, 'navigationJustCompleted:', navigationJustCompleted);
+      isNavigating = false;
+      if (editor.classList.contains('idle-cursor') ||
+          (document.activeElement === editor && editor.textContent.trim().length > 0)) {
+        // User has placed cursor/editor - keep it visible
+      } else if (!editor.classList.contains('idle-cursor') && document.activeElement === editor) {
+        hideCursor();
+        editor.blur();
+        editingEntryId = null;
+      }
+      setTimeout(() => {
+        if (navigationJustCompleted) {
+          navigationJustCompleted = false;
+          if (!isReadOnly) {
+            console.log('[NAV] Showing cursor from final fallback');
             requestAnimationFrame(() => {
-              showCursorInDefaultPosition();
+              requestAnimationFrame(() => {
+                showCursorInDefaultPosition();
+              });
             });
-          });
+          }
         }
-      }
-    }, 1200); // Wait longer to be a true fallback (after animation delay of 150ms + animation 800ms)
-  }, 1000);
+      }, 1200);
+    }, 1000);
 
-  // Update URL if we're on a user page
-  if (username && pageUsername) {
-    // Build path from navigation stack with unique slugs (same as navigateBack)
-    const pathParts = [pageUsername];
-    let currentParentId = null;
+    // Update URL if we're on a user page
+    if (username && pageUsername) {
+      const pathParts = [pageUsername];
+      let currentParentId = null;
 
-    navigationStack.forEach(stackEntryId => {
-      const stackEntryData = entries.get(stackEntryId);
-      if (stackEntryData) {
-        let slug = generateEntrySlug(stackEntryData.text, stackEntryData);
+      navigationStack.forEach(stackEntryId => {
+        const stackEntryData = entries.get(stackEntryId);
+        if (stackEntryData) {
+          let slug = generateEntrySlug(stackEntryData.text, stackEntryData);
 
-        // Check for duplicate slugs at this level
-        const siblings = Array.from(entries.values()).filter(e =>
-          e.parentEntryId === currentParentId && e.id !== stackEntryId
-        );
+          const siblings = Array.from(entries.values()).filter(e =>
+            e.parentEntryId === currentParentId && e.id !== stackEntryId
+          );
 
-        const existingSlugs = siblings.map(e => generateEntrySlug(e.text, e));
-        let counter = 1;
-        let uniqueSlug = slug;
+          const existingSlugs = siblings.map(e => generateEntrySlug(e.text, e));
+          let counter = 1;
+          let uniqueSlug = slug;
 
-        while (existingSlugs.includes(uniqueSlug)) {
-          counter++;
-          uniqueSlug = `${slug}-${counter}`;
+          while (existingSlugs.includes(uniqueSlug)) {
+            counter++;
+            uniqueSlug = `${slug}-${counter}`;
+          }
+
+          pathParts.push(uniqueSlug);
+          currentParentId = stackEntryId;
         }
+      });
 
-        pathParts.push(uniqueSlug);
-        currentParentId = stackEntryId;
-      }
-    });
-
-    // Update URL without reloading
-    window.history.pushState({ entryId, navigationStack: [...navigationStack] }, '', `/${pathParts.join('/')}`);
-  }
+      window.history.pushState({ entryId, navigationStack: [...navigationStack] }, '', `/${pathParts.join('/')}`);
+    }
+  }, 150); // Wait for fade-out transition (matches .nav-leaving 0.15s)
 }
 
 function navigateBack(level = 1) {
@@ -221,106 +230,102 @@ function navigateBack(level = 1) {
     editingEntryId = null;
   }
 
-  for (let i = 0; i < level && navigationStack.length > 0; i++) {
-    navigationStack.pop();
-  }
+  // Phase 1: Fade out all currently visible entries
+  fadeOutVisibleEntries();
 
-  if (navigationStack.length > 0) {
-    currentViewEntryId = navigationStack[navigationStack.length - 1];
-  } else {
-    currentViewEntryId = null;
-  }
-  updateBreadcrumb();
-  updateEntryVisibility();
-  updateSmsManageButton();
-
-  // Load per-page background (or user-level if at root)
-  if (window._loadPageBg) window._loadPageBg(currentViewEntryId);
-
-  // Recalculate dimensions for all visible entries after navigation
+  // Phase 2: After fade-out completes, snap camera and show new entries
   setTimeout(() => {
-    entries.forEach((entryData, entryId) => {
-      if (entryId === 'anchor') return;
-      const entry = entryData.element;
-      if (entry && entry.style.display !== 'none') {
-        updateEntryDimensions(entry);
-      }
-    });
+    for (let i = 0; i < level && navigationStack.length > 0; i++) {
+      navigationStack.pop();
+    }
 
-    // Zoom to fit all visible entries
-    requestAnimationFrame(() => {
-      zoomToFitEntries({ instant: true });
-    });
-  }, 100);
-
-  // Reset navigation flag - will be cleared by zoomToFitEntries animation completion
-  navigationJustCompleted = true;
-
-  // Update URL to reflect navigation state
-  const pageUsername = window.PAGE_USERNAME;
-  if (pageUsername) {
-    if (navigationStack.length === 0) {
-      window.history.pushState({ navigationStack: [] }, '', `/${pageUsername}`);
+    if (navigationStack.length > 0) {
+      currentViewEntryId = navigationStack[navigationStack.length - 1];
     } else {
-      // Build path from navigation stack with unique slugs
-      const pathParts = [pageUsername];
-      let currentParentId = null;
+      currentViewEntryId = null;
+    }
+    updateBreadcrumb();
+    updateEntryVisibility();
+    updateSmsManageButton();
 
-      navigationStack.forEach(entryId => {
-        const entryData = entries.get(entryId);
-        if (entryData) {
-          let slug = generateEntrySlug(entryData.text, entryData);
+    // Load per-page background (or user-level if at root)
+    if (window._loadPageBg) window._loadPageBg(currentViewEntryId);
 
-          // Check for duplicate slugs at this level
-          const siblings = Array.from(entries.values()).filter(e =>
-            e.parentEntryId === currentParentId && e.id !== entryId
-          );
-
-          const existingSlugs = siblings.map(e => generateEntrySlug(e.text, e));
-          let counter = 1;
-          let uniqueSlug = slug;
-
-          while (existingSlugs.includes(uniqueSlug)) {
-            counter++;
-            uniqueSlug = `${slug}-${counter}`;
-          }
-
-          pathParts.push(uniqueSlug);
-          currentParentId = entryId;
+    // Recalculate dimensions for all visible entries after navigation
+    setTimeout(() => {
+      entries.forEach((data, id) => {
+        if (id === 'anchor') return;
+        const entry = data.element;
+        if (entry && entry.style.display !== 'none') {
+          updateEntryDimensions(entry);
         }
       });
-      window.history.pushState({ navigationStack: [...navigationStack] }, '', `/${pathParts.join('/')}`);
-    }
-  }
 
-  // Reset navigation flag - will be cleared by zoomToFitEntries animation completion
-  navigationJustCompleted = true;
-  setTimeout(() => {
-    isNavigating = false;
-    // Only hide editor if user hasn't explicitly placed it (clicked during navigation)
-    // If editor is visible and has content or is focused, user wants to keep it
-    if (editor.classList.contains('idle-cursor') ||
-        (document.activeElement === editor && editor.textContent.trim().length > 0)) {
-      // User has placed cursor/editor - keep it visible
-      // navigationJustCompleted will be cleared by zoom animation or user click
-    } else if (!editor.classList.contains('idle-cursor') && document.activeElement === editor) {
-      // Editor was active but empty - hide it
-      hideCursor();
-      editor.blur();
-      editingEntryId = null;
-    }
-    // Fallback: clear the flag if zoom animation didn't clear it
-    setTimeout(() => {
-      // Only clear if user hasn't clicked (which would have cleared it already)
-      if (navigationJustCompleted) {
-        navigationJustCompleted = false;
-        // Show cursor in default position after navigation completes
-        if (!isReadOnly) {
-          showCursorInDefaultPosition();
-        }
+      // Zoom to fit all visible entries (instant snap, then revealNavEntries fades in)
+      requestAnimationFrame(() => {
+        zoomToFitEntries({ instant: true });
+      });
+    }, 100);
+
+    // Reset navigation flag - will be cleared by zoomToFitEntries animation completion
+    navigationJustCompleted = true;
+
+    // Update URL to reflect navigation state
+    const pageUsername = window.PAGE_USERNAME;
+    if (pageUsername) {
+      if (navigationStack.length === 0) {
+        window.history.pushState({ navigationStack: [] }, '', `/${pageUsername}`);
+      } else {
+        const pathParts = [pageUsername];
+        let currentParentId = null;
+
+        navigationStack.forEach(navEntryId => {
+          const navEntryData = entries.get(navEntryId);
+          if (navEntryData) {
+            let slug = generateEntrySlug(navEntryData.text, navEntryData);
+
+            const siblings = Array.from(entries.values()).filter(e =>
+              e.parentEntryId === currentParentId && e.id !== navEntryId
+            );
+
+            const existingSlugs = siblings.map(e => generateEntrySlug(e.text, e));
+            let counter = 1;
+            let uniqueSlug = slug;
+
+            while (existingSlugs.includes(uniqueSlug)) {
+              counter++;
+              uniqueSlug = `${slug}-${counter}`;
+            }
+
+            pathParts.push(uniqueSlug);
+            currentParentId = navEntryId;
+          }
+        });
+        window.history.pushState({ navigationStack: [...navigationStack] }, '', `/${pathParts.join('/')}`);
       }
-    }, 500);
-  }, 1000);
+    }
+
+    // Safety fallback for isNavigating
+    setTimeout(() => {
+      isNavigating = false;
+      if (editor.classList.contains('idle-cursor') ||
+          (document.activeElement === editor && editor.textContent.trim().length > 0)) {
+        // User has placed cursor/editor - keep it visible
+      } else if (!editor.classList.contains('idle-cursor') && document.activeElement === editor) {
+        hideCursor();
+        editor.blur();
+        editingEntryId = null;
+      }
+      setTimeout(() => {
+        if (navigationJustCompleted) {
+          navigationJustCompleted = false;
+          if (!isReadOnly) {
+            showCursorInDefaultPosition();
+          }
+        }
+      }, 500);
+    }, 1000);
+  }, 150); // Wait for fade-out transition (matches .nav-leaving 0.15s)
 }
 
 function navigateToRoot() {
@@ -339,62 +344,63 @@ function navigateToRoot() {
     editingEntryId = null;
   }
 
-  navigationStack = [];
-  currentViewEntryId = null;
-  updateBreadcrumb();
-  updateEntryVisibility();
-  updateSmsManageButton();
+  // Phase 1: Fade out all currently visible entries
+  fadeOutVisibleEntries();
 
-  // Load user-level background (root page)
-  if (window._loadPageBg) window._loadPageBg(null);
-
-  // Ensure anchor position is set correctly (use stored position, don't recalculate)
-  if (anchor) {
-    anchor.style.left = `${anchorPos.x}px`;
-    anchor.style.top = `${anchorPos.y}px`;
-  }
-
-  // Recalculate dimensions for all visible entries after navigation
+  // Phase 2: After fade-out completes, snap camera and show new entries
   setTimeout(() => {
-    entries.forEach((entryData, entryId) => {
-      if (entryId === 'anchor') return;
-      const entry = entryData.element;
-      if (entry && entry.style.display !== 'none') {
-        updateEntryDimensions(entry);
-      }
-    });
+    navigationStack = [];
+    currentViewEntryId = null;
+    updateBreadcrumb();
+    updateEntryVisibility();
+    updateSmsManageButton();
 
-    // Zoom to fit all visible entries (same as initial load)
-    requestAnimationFrame(() => {
-      zoomToFitEntries({ instant: true });
-    });
-  }, 100);
+    // Load user-level background (root page)
+    if (window._loadPageBg) window._loadPageBg(null);
 
-  // Update URL to root user page
-  const pageUsername = window.PAGE_USERNAME;
-  if (pageUsername) {
-    window.history.pushState({ navigationStack: [] }, '', `/${pageUsername}`);
-  }
+    // Don't recenter anchor — let zoomToFitEntries handle camera positioning
+    // The anchor keeps its stored world position (anchorPos.x, anchorPos.y)
 
-  // Reset navigation flag after a delay to prevent paste events
-  // Also prevent editor from being shown for a bit longer
-  navigationJustCompleted = true;
-  isNavigating = false;
-  // Note: navigationJustCompleted will be cleared by zoomToFitEntries animation completion
-  // But we also set a timeout as a fallback in case zoom doesn't happen
-  setTimeout(() => {
-    // Ensure editor is still hidden after navigation completes
-    if (!editor.classList.contains('idle-cursor') && document.activeElement === editor) {
-      hideCursor();
-      editor.blur();
-      editingEntryId = null;
-    }
-    // Fallback: clear the flag if zoom animation didn't clear it
-    // (This handles cases where zoomToFitEntries doesn't run)
+    // Recalculate dimensions for all visible entries after navigation
     setTimeout(() => {
-      navigationJustCompleted = false;
-    }, 500);
-  }, 1000);
+      entries.forEach((data, id) => {
+        if (id === 'anchor') return;
+        const entry = data.element;
+        if (entry && entry.style.display !== 'none') {
+          updateEntryDimensions(entry);
+        }
+      });
+
+      // Zoom to fit all visible entries (instant snap, then revealNavEntries fades in)
+      requestAnimationFrame(() => {
+        zoomToFitEntries({ instant: true });
+      });
+    }, 100);
+
+    // Update URL to root user page
+    const pageUsername = window.PAGE_USERNAME;
+    if (pageUsername) {
+      window.history.pushState({ navigationStack: [] }, '', `/${pageUsername}`);
+    }
+
+    // Reset navigation flag
+    navigationJustCompleted = true;
+
+    // Safety fallback for isNavigating
+    setTimeout(() => {
+      isNavigating = false;
+      if (!editor.classList.contains('idle-cursor') && document.activeElement === editor) {
+        hideCursor();
+        editor.blur();
+        editingEntryId = null;
+      }
+      setTimeout(() => {
+        if (navigationJustCompleted) {
+          navigationJustCompleted = false;
+        }
+      }, 500);
+    }, 1000);
+  }, 150); // Wait for fade-out transition (matches .nav-leaving 0.15s)
 }
 
 function updateBreadcrumb() {

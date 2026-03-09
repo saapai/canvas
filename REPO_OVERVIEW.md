@@ -250,6 +250,7 @@ Route: /:username → renders canvas
 
 | Date | Change | Why | Impact |
 |------|--------|-----|--------|
+| 2026-03-08 | Fix link card disappearing + file upload 413 | Link cards vanished when generateLinkCard failed; file uploads >4MB hit Vercel limit | editor.js, entries.js (3 link card load points), media.js — entry creation/load flows updated |
 | 2026-03-08 | Fix page traversal: instant entry placement with fade-in, no panning | Entries appeared at wrong positions during nav animation | navigation.js, camera.js, styles.css — nav flow updated |
 | 2026-03-08 | Batch multi-entry deletion: instant UI removal, parallel server calls | Entries deleted one-at-a-time visually | selection.js — delete flow updated |
 | 2026-03-08 | Add pale red trash button in format bar when editing | UX: easy single-entry delete | index.html, styles.css, editor.js — editor flow updated |

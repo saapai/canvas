@@ -1,7 +1,45 @@
 // selection.js — Multi-select, undo/redo, and bulk entry deletion
 // Selection helper functions
+
+function positionSelectionToolbar() {
+  const toolbar = document.getElementById('selection-toolbar');
+  if (!toolbar) return;
+  if (selectedEntries.size === 0) {
+    toolbar.classList.add('hidden');
+    return;
+  }
+  // Find the bounding box of all selected entries in screen coordinates
+  let minTop = Infinity, maxRight = -Infinity;
+  selectedEntries.forEach(entryId => {
+    let el = null;
+    if (entryId === 'anchor') {
+      el = anchor;
+    } else {
+      const entryData = entries.get(entryId);
+      if (entryData && entryData.element) el = entryData.element;
+    }
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      if (rect.top < minTop) minTop = rect.top;
+      if (rect.right > maxRight) maxRight = rect.right;
+    }
+  });
+  if (minTop === Infinity) {
+    toolbar.classList.add('hidden');
+    return;
+  }
+  // Position at top-right of bounding box, offset slightly
+  toolbar.style.left = `${maxRight + 4}px`;
+  toolbar.style.top = `${minTop - 4}px`;
+  toolbar.classList.remove('hidden');
+}
+
 function clearSelection() {
   selectedEntries.forEach(entryId => {
+    if (entryId === 'anchor') {
+      anchor.classList.remove('selected');
+      return;
+    }
     const entryData = entries.get(entryId);
     if (entryData && entryData.element) {
       entryData.element.classList.remove('selected');
@@ -15,6 +53,9 @@ function clearSelection() {
     delete entryData._cachedHeight;
   });
 
+  // Hide selection toolbar
+  positionSelectionToolbar();
+
   // Show cursor again when selection is cleared (if not in read-only mode and not editing)
   if (!isReadOnly && !editingEntryId) {
     showCursorInDefaultPosition();
@@ -26,8 +67,6 @@ function selectEntriesInBox(minX, minY, maxX, maxY) {
   const newSelection = new Set();
 
   entries.forEach((entryData, entryId) => {
-    if (entryId === 'anchor') return;
-
     const entry = entryData.element;
     if (!entry || entry.style.display === 'none') return;
     if (!entryData.position) return;
@@ -53,23 +92,40 @@ function selectEntriesInBox(minX, minY, maxX, maxY) {
     }
   });
 
+  // Include anchor in lasso selection (it's not in the entries Map)
+  if (anchor && anchor.style.display !== 'none' && currentViewEntryId === null) {
+    const ax = anchorPos.x;
+    const ay = anchorPos.y;
+    const aw = anchor.offsetWidth || 100;
+    const ah = anchor.offsetHeight || 40;
+    const anchorOverlaps = !(ax + aw < minX || ax > maxX ||
+                             ay + ah < minY || ay > maxY);
+    if (anchorOverlaps) {
+      newSelection.add('anchor');
+    }
+  }
+
   // Diff: remove 'selected' class only from entries that are no longer selected
   selectedEntries.forEach(entryId => {
-    if (!newSelection.has(entryId)) {
-      const entryData = entries.get(entryId);
-      if (entryData && entryData.element) {
-        entryData.element.classList.remove('selected');
-      }
+    if (entryId === 'anchor') {
+      if (!newSelection.has('anchor')) anchor.classList.remove('selected');
+      return;
+    }
+    const entryData = entries.get(entryId);
+    if (entryData && entryData.element) {
+      entryData.element.classList.remove('selected');
     }
   });
 
   // Diff: add 'selected' class only to entries that are newly selected
   newSelection.forEach(entryId => {
-    if (!selectedEntries.has(entryId)) {
-      const entryData = entries.get(entryId);
-      if (entryData && entryData.element) {
-        entryData.element.classList.add('selected');
-      }
+    if (entryId === 'anchor') {
+      if (!selectedEntries.has('anchor')) anchor.classList.add('selected');
+      return;
+    }
+    const entryData = entries.get(entryId);
+    if (entryData && entryData.element) {
+      entryData.element.classList.add('selected');
     }
   });
 
@@ -80,6 +136,8 @@ function selectEntriesInBox(minX, minY, maxX, maxY) {
   if (selectedEntries.size > 0) {
     hideCursor();
   }
+
+  positionSelectionToolbar();
 }
 
 // Undo system functions
@@ -282,6 +340,21 @@ async function performUndo() {
 async function deleteSelectedEntries() {
   if (selectedEntries.size === 0) return;
 
+  // Handle anchor deletion — hide it and persist state
+  if (selectedEntries.has('anchor')) {
+    anchor.style.display = 'none';
+    anchor.classList.remove('selected');
+    selectedEntries.delete('anchor');
+    const username = window.PAGE_USERNAME || (currentUser && currentUser.username);
+    if (username) {
+      localStorage.setItem('anchorDeleted_' + username, 'true');
+    }
+    if (selectedEntries.size === 0) {
+      clearSelection();
+      return;
+    }
+  }
+
   // Check if any selected entries have children
   let hasChildren = false;
   let totalChildCount = 0;
@@ -449,3 +522,14 @@ window.addEventListener('keydown', async (e) => {
     navigateToRoot();
   }
 }, true); // Use capture phase to catch event before other handlers
+
+// Wire selection toolbar delete button
+document.addEventListener('DOMContentLoaded', () => {
+  const selDeleteBtn = document.getElementById('selection-delete-btn');
+  if (selDeleteBtn) {
+    selDeleteBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteSelectedEntries();
+    });
+  }
+});

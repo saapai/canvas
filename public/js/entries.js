@@ -13,6 +13,39 @@ function updateSmsManageButton() {
   }
 }
 
+// Restore anchor text, position, and deleted state from localStorage
+function restoreAnchorState() {
+  const pathParts = window.location.pathname.split('/').filter(Boolean);
+  const username = window.PAGE_USERNAME || (pathParts.length > 0 ? pathParts[0] : null) || (currentUser && currentUser.username);
+  if (!username || !anchor) return;
+
+  // Check if anchor was deleted
+  if (localStorage.getItem('anchorDeleted_' + username) === 'true') {
+    anchor.style.display = 'none';
+    return;
+  }
+
+  // Restore saved text (overrides setAnchorGreeting default)
+  const savedText = localStorage.getItem('anchorText_' + username);
+  if (savedText) {
+    anchor.textContent = savedText;
+  }
+
+  // Restore saved position
+  const savedPos = localStorage.getItem('anchorPos_' + username);
+  if (savedPos) {
+    try {
+      const pos = JSON.parse(savedPos);
+      anchorPos.x = pos.x;
+      anchorPos.y = pos.y;
+      anchor.style.left = `${pos.x}px`;
+      anchor.style.top = `${pos.y}px`;
+    } catch (e) {
+      // Invalid JSON, ignore
+    }
+  }
+}
+
 async function bootstrap() {
   // Check if we're on a user page FIRST, before anything else runs
   const pageUsername = window.PAGE_USERNAME;
@@ -38,6 +71,7 @@ async function bootstrap() {
   }
 
   setAnchorGreeting();
+  restoreAnchorState();
 
   try {
     const res = await fetch('/api/auth/me', { credentials: 'include' });
@@ -47,6 +81,7 @@ async function bootstrap() {
       const user = await res.json();
       currentUser = user;
       setAnchorGreeting();
+      restoreAnchorState();
       isLoggedIn = true;
 
       // If on root and logged in, redirect to their page
