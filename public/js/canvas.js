@@ -393,7 +393,7 @@ viewport.addEventListener('mousemove', (e) => {
       last = { x: e.clientX, y: e.clientY };
       cam.x += dx;
       cam.y += dy;
-      applyTransform();
+      scheduleTransform();
       isClick = false;
     }
     return;
@@ -520,7 +520,7 @@ viewport.addEventListener('mousemove', (e) => {
     last = { x: e.clientX, y: e.clientY };
     cam.x += dx;
     cam.y += dy;
-    applyTransform();
+    scheduleTransform();
     isClick = false;
   }
 });
@@ -876,7 +876,7 @@ viewport.addEventListener('wheel', (e) => {
     cam.y -= e.deltaY;
   }
 
-  applyTransform();
+  scheduleTransform();
 }, { passive: false });
 
 // ——— Two-finger touch: pan + pinch-to-zoom ———
@@ -922,7 +922,7 @@ viewport.addEventListener('touchmove', (e) => {
   touchState.lastY = midY;
   touchState.lastDist = dist;
 
-  applyTransform();
+  scheduleTransform();
 }, { passive: false });
 
 viewport.addEventListener('touchend', (e) => {
@@ -966,7 +966,20 @@ let _scrollbarDragging = false;
 let _scrollbarDragStartY = 0;
 let _scrollbarDragStartCamY = 0;
 
+// Cached entry bounds to avoid forced reflows during pan/zoom.
+// Cache expires after 500ms so it auto-refreshes when entries change.
+let _cachedEntryBounds = null;
+let _entryBoundsExpiry = 0;
+
+function invalidateEntryBounds() {
+  _cachedEntryBounds = null;
+  _entryBoundsExpiry = 0;
+}
+
 function getEntryBounds() {
+  const now = performance.now();
+  if (_cachedEntryBounds !== null && now < _entryBoundsExpiry) return _cachedEntryBounds;
+
   let minY = Infinity, maxY = -Infinity;
   entries.forEach((d, id) => {
     if (id === 'anchor') return;
@@ -984,8 +997,14 @@ function getEntryBounds() {
     if (ay < minY) minY = ay;
     if (ay + ah > maxY) maxY = ay + ah;
   }
-  if (minY === Infinity) return null;
-  return { minY: minY - 80, maxY: maxY + 80 };
+  if (minY === Infinity) {
+    _cachedEntryBounds = null;
+    _entryBoundsExpiry = now + 500;
+    return null;
+  }
+  _cachedEntryBounds = { minY: minY - 80, maxY: maxY + 80 };
+  _entryBoundsExpiry = now + 500;
+  return _cachedEntryBounds;
 }
 
 function updateScrollbar() {
@@ -1042,8 +1061,7 @@ if (scrollbarTrack && scrollbarThumb) {
     const dy = e.clientY - _scrollbarDragStartY;
     const camDelta = (dy / (trackH - thumbH)) * scrollRange;
     cam.y = _scrollbarDragStartCamY - camDelta;
-    applyTransform();
-    updateScrollbar();
+    scheduleTransform();
   });
   window.addEventListener('mouseup', () => {
     if (_scrollbarDragging) {

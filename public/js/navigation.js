@@ -28,8 +28,13 @@ function updateEntryVisibility() {
   if (anchor) {
     if (currentViewEntryId === null) {
       anchor.style.display = '';
+      // During navigation, hide anchor until camera is repositioned
+      if (isNavigating) {
+        anchor.classList.add('nav-entering');
+      }
     } else {
       anchor.style.display = 'none';
+      anchor.classList.remove('nav-entering');
     }
   }
 
@@ -55,8 +60,13 @@ function updateEntryVisibility() {
 
     if (shouldShow) {
       visibleCount++;
+      // During navigation, hide entries until camera is repositioned
+      if (isNavigating) {
+        entryData.element.classList.add('nav-entering');
+      }
     } else {
       hiddenCount++;
+      entryData.element.classList.remove('nav-entering');
     }
 
     // Don't regenerate cards - they should already be in the entry

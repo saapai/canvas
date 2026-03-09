@@ -109,6 +109,16 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
   editor.style.display = 'block';
   if (formatBar) formatBar.classList.remove('hidden');
 
+  // Show trash button only when editing an existing entry
+  const trashBtn = document.getElementById('format-trash');
+  if (trashBtn) {
+    if (entryId && entryId !== 'anchor') {
+      trashBtn.classList.remove('hidden');
+    } else {
+      trashBtn.classList.add('hidden');
+    }
+  }
+
   // Set editor width based on actual content, not fixed entry width
   // This allows the editor to expand/contract based on text content
   editor.style.width = 'auto';
@@ -975,3 +985,20 @@ async function detectSmsType(entryId, parentEntryId, entryText) {
     // Silent fail — detection is best-effort
   }
 }
+
+// Trash button click handler
+document.addEventListener('DOMContentLoaded', () => {
+  const trashBtn = document.getElementById('format-trash');
+  if (trashBtn) {
+    trashBtn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (editingEntryId && editingEntryId !== 'anchor') {
+        const entryIdToDelete = editingEntryId;
+        hideCursor();
+        editingEntryId = null;
+        await deleteEntryWithConfirmation(entryIdToDelete);
+      }
+    });
+  }
+});

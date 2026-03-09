@@ -60,6 +60,7 @@ body::before{
   top: 0;
   transform-origin: 0 0;
   will-change: transform;
+  backface-visibility: hidden;
 }
 
 /* Journal entry styling - subtle, like Notion */
@@ -74,10 +75,16 @@ body::before{
   user-select: none;
   color: var(--ink);
   cursor: pointer;
-  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease, opacity 0.15s ease;
   text-rendering: geometricPrecision;
   -webkit-font-smoothing: antialiased;
   overflow: visible;
+}
+
+/* Hide entries during navigation until camera is repositioned */
+.nav-entering {
+  opacity: 0 !important;
+  transition: none !important;
 }
 
 /* Entry text should not overlay link cards */
@@ -644,6 +651,17 @@ body::before{
   height: 20px;
   background: rgba(0, 0, 0, 0.12);
   margin: 0 4px;
+}
+
+.format-btn-trash {
+  color: rgba(220, 38, 38, 0.5);
+}
+.format-btn-trash:hover {
+  color: rgba(220, 38, 38, 0.8);
+  background: rgba(220, 38, 38, 0.08);
+}
+.format-btn-trash.hidden {
+  display: none;
 }
 
 .format-font-size-wrap {
@@ -3346,27 +3364,28 @@ body.has-bg-image::before {
   position: fixed;
   top: 72px;
   right: 28px;
-  height: 30px;
-  padding: 0 18px;
-  font-size: 18px;
-  border-radius: 999px;
-  background: var(--paper);
-  color: var(--ink);
-  border: 1px solid rgba(0,0,0,0.10);
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  background: transparent;
+  color: rgba(0, 0, 0, 0.7);
+  border: none;
+  border-radius: 6px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all 0.2s ease;
+  transition: background 0.15s ease, color 0.15s ease;
   z-index: 999;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
   opacity: 0.6;
 }
 .sms-manage-button:hover {
   opacity: 1;
-  transform: scale(1.05);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  border-color: rgba(0, 0, 0, 0.18);
+  background: rgba(0, 0, 0, 0.06);
+}
+.sms-manage-button:focus {
+  outline: none;
+  background: rgba(0, 0, 0, 0.08);
 }
 .sms-manage-button.hidden {
   display: none;
