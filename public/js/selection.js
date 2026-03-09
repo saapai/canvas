@@ -298,12 +298,18 @@ async function deleteSelectedEntries() {
   // Save undo state with all entries (including children)
   saveUndoState('delete', { entries: allEntriesToDelete });
 
-  // Snapshot to array first — Set iteration is affected by mutations during async loop
-  const entriesToDelete = [...selectedEntries];
-  // Delete entries (skip confirmation since we already confirmed, skip undo since we saved it above)
-  for (const entryId of entriesToDelete) {
-    await deleteEntryWithConfirmation(entryId, true, true); // Skip confirmation and undo
+  // Batch UI removal: remove ALL entries (selected + descendants) from DOM and Map at once
+  for (const entryState of allEntriesToDelete) {
+    const entryData = entries.get(entryState.id);
+    if (entryData && entryData.element) {
+      entryData.element.classList.remove('editing', 'deadline-editing');
+      entryData.element.remove();
+    }
+    entries.delete(entryState.id);
   }
+
+  // Fire all server delete calls in parallel
+  await Promise.all(allEntriesToDelete.map(e => deleteEntryFromServer(e.id)));
 
   clearSelection();
 }

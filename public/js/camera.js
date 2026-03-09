@@ -27,11 +27,34 @@ let hasClickedRecently = false; // Track if user clicked somewhere (so we don't 
 let cursorPosBeforeEdit = null; // Store cursor position before entering edit mode
 let isProcessingClick = false; // Flag to prevent cursor updates during click handling
 
+// RAF batching for smooth transforms
+let _transformScheduled = false;
+let _scrollbarScheduled = false;
+
 function applyTransform(){
   world.style.transform = `translate3d(${cam.x}px, ${cam.y}px, 0) scale(${cam.z})`;
   world.style.transformOrigin = '0 0';
-  // Update scrollbar on every camera change (function defined in canvas.js, may not exist yet at load)
-  if (typeof updateScrollbar === 'function') updateScrollbar();
+  // Throttle scrollbar updates — runs at most once per frame, separate from transform
+  if (typeof updateScrollbar === 'function' && !_scrollbarScheduled) {
+    _scrollbarScheduled = true;
+    requestAnimationFrame(() => {
+      _scrollbarScheduled = false;
+      updateScrollbar();
+    });
+  }
+}
+
+// Schedule applyTransform to run at most once per animation frame.
+// Call this from high-frequency event handlers (wheel, mousemove, touchmove)
+// instead of calling applyTransform() directly.
+function scheduleTransform() {
+  if (!_transformScheduled) {
+    _transformScheduled = true;
+    requestAnimationFrame(() => {
+      _transformScheduled = false;
+      applyTransform();
+    });
+  }
 }
 applyTransform();
 
@@ -69,6 +92,15 @@ function centerAnchor(){
   anchor.style.top = `${anchorPos.y}px`;
 }
 
+// Remove nav-entering class from all entries so they fade in after camera repositions
+function revealNavEntries() {
+  document.querySelectorAll('.nav-entering').forEach(el => {
+    // Force a reflow so the browser registers opacity:0 before transitioning to 1
+    el.offsetHeight;
+    el.classList.remove('nav-entering');
+  });
+}
+
 function zoomToFitEntries(opts = {}) {
   const skipAnimation = opts.instant === true;
   const visibleEntries = Array.from(entries.values()).filter(entryData => {
@@ -87,6 +119,8 @@ function zoomToFitEntries(opts = {}) {
   if (visibleEntries.length === 0) {
     // No entries to fit - center anchor and show cursor
     centerAnchor();
+    // Reveal any nav-entering elements (e.g. anchor)
+    revealNavEntries();
 
     // Always show cursor after navigation or initial load when there are no entries
     if (!isReadOnly) {
@@ -255,6 +289,8 @@ function zoomToFitEntries(opts = {}) {
     cam.y = targetY;
     cam.z = targetZ;
     applyTransform();
+    // Reveal entries now that camera is in the right place
+    revealNavEntries();
     if (navigationJustCompleted) navigationJustCompleted = false;
     isNavigating = false;
     if (!isReadOnly) {
@@ -263,6 +299,8 @@ function zoomToFitEntries(opts = {}) {
   } else {
     // No animation needed, but still show cursor after traversal
     console.log('[ZOOM] No animation needed, showing cursor immediately');
+    // Reveal entries (camera was already correct)
+    revealNavEntries();
     if (navigationJustCompleted) {
       navigationJustCompleted = false;
     }
