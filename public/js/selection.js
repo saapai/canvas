@@ -9,6 +9,12 @@ function clearSelection() {
   });
   selectedEntries.clear();
 
+  // Invalidate cached dimensions so next selection picks up fresh sizes
+  entries.forEach(entryData => {
+    delete entryData._cachedWidth;
+    delete entryData._cachedHeight;
+  });
+
   // Show cursor again when selection is cleared (if not in read-only mode and not editing)
   if (!isReadOnly && !editingEntryId) {
     showCursorInDefaultPosition();
@@ -16,32 +22,61 @@ function clearSelection() {
 }
 
 function selectEntriesInBox(minX, minY, maxX, maxY) {
-  // Clear previous selection
-  clearSelection();
+  // Compute new selection set using cached positions/dimensions (no layout reads)
+  const newSelection = new Set();
 
-  // Check each entry to see if it touches the box (not just fully contained)
   entries.forEach((entryData, entryId) => {
     if (entryId === 'anchor') return;
 
     const entry = entryData.element;
     if (!entry || entry.style.display === 'none') return;
+    if (!entryData.position) return;
 
-    const rect = entry.getBoundingClientRect();
-    // Convert entry corners to world coordinates
-    const entryTopLeft = screenToWorld(rect.left, rect.top);
-    const entryBottomRight = screenToWorld(rect.right, rect.bottom);
+    // Cache dimensions on first access to avoid reading layout every frame
+    if (!entryData._cachedWidth) {
+      entryData._cachedWidth = entry.offsetWidth;
+      entryData._cachedHeight = entry.offsetHeight;
+    }
 
-    // Check if entry overlaps with selection box (AABB collision)
-    const overlaps = !(entryBottomRight.x < minX || entryTopLeft.x > maxX ||
-                       entryBottomRight.y < minY || entryTopLeft.y > maxY);
+    // Use stored world-coordinate position + cached dimensions for hit testing
+    const ex = entryData.position.x;
+    const ey = entryData.position.y;
+    const ew = entryData._cachedWidth;
+    const eh = entryData._cachedHeight;
+
+    // AABB overlap check in world coordinates
+    const overlaps = !(ex + ew < minX || ex > maxX ||
+                       ey + eh < minY || ey > maxY);
 
     if (overlaps) {
-      selectedEntries.add(entryId);
-      entry.classList.add('selected');
+      newSelection.add(entryId);
     }
   });
 
-  // Hide cursor when entries are selected
+  // Diff: remove 'selected' class only from entries that are no longer selected
+  selectedEntries.forEach(entryId => {
+    if (!newSelection.has(entryId)) {
+      const entryData = entries.get(entryId);
+      if (entryData && entryData.element) {
+        entryData.element.classList.remove('selected');
+      }
+    }
+  });
+
+  // Diff: add 'selected' class only to entries that are newly selected
+  newSelection.forEach(entryId => {
+    if (!selectedEntries.has(entryId)) {
+      const entryData = entries.get(entryId);
+      if (entryData && entryData.element) {
+        entryData.element.classList.add('selected');
+      }
+    }
+  });
+
+  // Replace the selection set
+  selectedEntries = newSelection;
+
+  // Hide cursor when entries are selected (no showCursorInDefaultPosition call)
   if (selectedEntries.size > 0) {
     hideCursor();
   }
