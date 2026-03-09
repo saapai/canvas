@@ -38,6 +38,7 @@ function selectOnlyEntry(entryId) {
     entryData.element.classList.add('selected');
     hideCursor();
   }
+  positionSelectionToolbar();
 }
 
 // ——— Image Resize Handle System ———
@@ -509,6 +510,11 @@ viewport.addEventListener('mousemove', (e) => {
             if(entryId === 'anchor') {
               anchorPos.x = newX;
               anchorPos.y = newY;
+              // Persist anchor position to localStorage
+              const username = window.PAGE_USERNAME || (currentUser && currentUser.username);
+              if (username) {
+                localStorage.setItem('anchorPos_' + username, JSON.stringify(anchorPos));
+              }
             } else {
               const entryData = entries.get(entryId);
               if(entryData) {
@@ -629,7 +635,24 @@ window.addEventListener('mouseup', async (e) => {
 
         // Edit entry if it was a click (not a drag). Images: only select, no edit.
         // Skip right-click (button 2) — the contextmenu handler handles that.
-        if(isClick && e.button !== 2 && draggingEntry.id !== 'anchor' && draggingEntry.id && !isReadOnly) {
+        if(isClick && e.button !== 2 && draggingEntry.id && !isReadOnly) {
+          // Handle anchor click — open editor with anchor text
+          if (draggingEntry.id === 'anchor') {
+            if (editor && (editor.textContent.trim() || editingEntryId)) {
+              await commitEditor();
+            }
+            const rect = draggingEntry.getBoundingClientRect();
+            const worldPos = screenToWorld(rect.left, rect.top);
+            const anchorText = anchor.textContent || '';
+            if (pendingEditTimeout) {
+              clearTimeout(pendingEditTimeout);
+            }
+            pendingEditTimeout = setTimeout(() => {
+              pendingEditTimeout = null;
+              placeEditorAtWorld(worldPos.x, worldPos.y, anchorText, 'anchor');
+            }, 300);
+          }
+
           const entryData = entries.get(draggingEntry.id);
           if(entryData) {
             // Cmd/Ctrl+click: toggle entry in multi-selection
@@ -650,6 +673,7 @@ window.addEventListener('mouseup', async (e) => {
                   entryData.element.classList.add('selected');
                   hideCursor();
                 }
+                positionSelectionToolbar();
               }
             } else if(isImageEntry(draggingEntry)) {
               selectOnlyEntry(draggingEntry.id);
@@ -660,7 +684,7 @@ window.addEventListener('mouseup', async (e) => {
               // Media card entries (Spotify/Movie): select, don't edit
               selectOnlyEntry(draggingEntry.id);
             } else if(draggingEntry.querySelector('.gcal-card')) {
-              // Calendar card: no edit mode, do nothing on click
+              selectOnlyEntry(draggingEntry.id);
             } else if(draggingEntry.querySelector('.slack-sync-card')) {
               // Slack card: no edit mode, do nothing on click
             } else if(draggingEntry.querySelector('.deadline-table')) {
@@ -707,9 +731,7 @@ window.addEventListener('mouseup', async (e) => {
               }
               pendingEditTimeout = setTimeout(() => {
                 pendingEditTimeout = null;
-                if (entryIdToEdit !== 'anchor') {
-                  placeEditorAtWorld(worldPos.x, worldPos.y, textToEdit, entryIdToEdit);
-                }
+                placeEditorAtWorld(worldPos.x, worldPos.y, textToEdit, entryIdToEdit);
               }, 300);
             }
           }
@@ -1420,7 +1442,9 @@ editor.addEventListener('keydown', (e) => {
     // Research entries are real — no special cleanup on ESC
 
     // Remove editing class from entry
-    if(editingEntryId && editingEntryId !== 'anchor'){
+    if(editingEntryId === 'anchor'){
+      anchor.classList.remove('editing');
+    } else if(editingEntryId){
       const entryData = entries.get(editingEntryId);
       if(entryData && entryData.element){
         entryData.element.classList.remove('editing', 'deadline-editing');
@@ -1713,7 +1737,16 @@ viewport.addEventListener('contextmenu', (e) => {
   const entryEl = findEntryElement(e.target);
   if(e.target.closest('.link-card')) return;
 
-  if(entryEl && entryEl.id !== 'anchor' && entryEl.id){
+  if(entryEl && entryEl.id){
+    if(entryEl.id === 'anchor'){
+      e.preventDefault();
+      e.stopPropagation();
+      isRightClickContext = true;
+      const rect = entryEl.getBoundingClientRect();
+      const worldPos = screenToWorld(rect.left, rect.top);
+      placeEditorAtWorld(worldPos.x, worldPos.y, anchor.textContent || '', 'anchor');
+      return;
+    }
     if(isImageEntry(entryEl) || isFileEntry(entryEl)){
       e.preventDefault();
       e.stopPropagation();

@@ -73,6 +73,12 @@ function worldToScreen(wx, wy){
 }
 
 function centerAnchor(){
+  // Skip re-centering if user has saved a custom position
+  const username = window.PAGE_USERNAME || (currentUser && currentUser.username);
+  if (username && localStorage.getItem('anchorPos_' + username)) {
+    return;
+  }
+
   const viewportRect = viewport.getBoundingClientRect();
   const centerX = viewportRect.width / 2;
   const centerY = viewportRect.height / 2;
@@ -92,8 +98,11 @@ function centerAnchor(){
   anchor.style.top = `${anchorPos.y}px`;
 }
 
-// Remove nav-entering class from all entries so they fade in after camera repositions
+// Remove nav-entering/nav-leaving classes from all entries so they fade in after camera repositions
 function revealNavEntries() {
+  document.querySelectorAll('.nav-leaving').forEach(el => {
+    el.classList.remove('nav-leaving');
+  });
   document.querySelectorAll('.nav-entering').forEach(el => {
     // Force a reflow so the browser registers opacity:0 before transitioning to 1
     el.offsetHeight;
