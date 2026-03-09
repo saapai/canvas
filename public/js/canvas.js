@@ -223,7 +223,7 @@ viewport.addEventListener('mousedown', (e) => {
             urls.forEach(url => { cleanHtml = cleanHtml.replace(url, ''); });
             entryData.element.innerHTML = cleanHtml.trim() ? meltifyHtml(cleanHtml.trim()) : '';
           } else {
-            entryData.element.innerHTML = meltify(processedText || '');
+            entryData.element.innerHTML = `<span>${meltify(processedText || '')}</span>`;
           }
         }
         applyEntryFontSize(entryData.element, hasFmt ? htmlContent : null);
@@ -567,6 +567,10 @@ window.addEventListener('mouseup', async (e) => {
       selectionBox.style.display = 'none';
     }
     selectionStart = null;
+    // Show trash button for selected entries
+    if (selectedEntries.size > 0) {
+      showTrashOnlyFormatBar();
+    }
     // Keep the selected entries highlighted
     return;
   }

@@ -273,7 +273,7 @@ async function loadUserEntries(username, editable) {
             entry.innerHTML = cleanHtml ? meltifyHtml(cleanHtml) : '';
             applyEntryFontSize(entry, entryData.textHtml);
           } else {
-            entry.innerHTML = meltify(processedText);
+            entry.innerHTML = `<span>${meltify(processedText)}</span>`;
           }
         } else {
           entry.innerHTML = '';
@@ -919,7 +919,7 @@ async function loadEntriesFromServer() {
             applyEntryFontSize(entry, entryData.textHtml);
           } else {
             // No formatting, use regular meltify
-            entry.innerHTML = meltify(processedText);
+            entry.innerHTML = `<span>${meltify(processedText)}</span>`;
           }
         } else {
           entry.innerHTML = '';

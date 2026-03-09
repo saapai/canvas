@@ -401,7 +401,7 @@ function createLinkCard(cardData) {
     entry.style.minHeight = '60px';
 
     // Create entry text from link card data
-    entry.innerHTML = meltify(entryText);
+    entry.innerHTML = `<span>${meltify(entryText)}</span>`;
     world.appendChild(entry);
 
     // Store entry data

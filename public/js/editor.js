@@ -372,7 +372,7 @@ async function commitEditor(){
         } else {
           // Fallback: render as normal text
           entryData.latexData = null;
-          entryData.element.innerHTML = meltify(processedText || '');
+          entryData.element.innerHTML = `<span>${meltify(processedText || '')}</span>`;
         }
       } else {
         // Clear latex data when latex mode is off
@@ -573,7 +573,7 @@ async function commitEditor(){
       };
       renderLatex(latexResult.latex, entry);
     } else {
-      entry.innerHTML = meltify(processedText || '');
+      entry.innerHTML = `<span>${meltify(processedText || '')}</span>`;
     }
   } else {
   // Only render text if there is any
@@ -593,7 +593,7 @@ async function commitEditor(){
       entry.innerHTML = cleanHtml ? meltifyHtml(cleanHtml) : '';
     } else {
       // No formatting, use regular meltify
-      entry.innerHTML = meltify(processedText);
+      entry.innerHTML = `<span>${meltify(processedText)}</span>`;
     }
   } else {
     entry.innerHTML = '';

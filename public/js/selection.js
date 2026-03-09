@@ -223,7 +223,7 @@ async function performUndo() {
             const card = entry.querySelector('.gcal-card');
             if (card) setupCalendarCardHandlers(card);
           } else if (processedText) {
-            entry.innerHTML = meltify(processedText);
+            entry.innerHTML = `<span>${meltify(processedText)}</span>`;
           } else {
             entry.innerHTML = '';
           }
@@ -317,7 +317,7 @@ async function performUndo() {
           const card = editEntryData.element.querySelector('.gcal-card');
           if (card) setupCalendarCardHandlers(card);
         } else if (processedText) {
-          editEntryData.element.innerHTML = meltify(processedText);
+          editEntryData.element.innerHTML = `<span>${meltify(processedText)}</span>`;
         } else {
           editEntryData.element.innerHTML = '';
         }

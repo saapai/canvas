@@ -223,8 +223,12 @@ if (sharePhoneInput) {
 async function loadSharedEntries() {
   try {
     const res = await fetch('/api/shared-entries/full', { credentials: 'include' });
-    if (!res.ok) return;
+    if (!res.ok) {
+      console.error('[SHARED] Failed to fetch shared entries:', res.status);
+      return;
+    }
     const data = await res.json();
+    console.log('[SHARED] Loaded shared entries:', data.groups?.length || 0, 'groups');
     if (!data.groups || data.groups.length === 0) return;
 
     for (const group of data.groups) {
