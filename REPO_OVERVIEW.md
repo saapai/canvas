@@ -250,6 +250,7 @@ Route: /:username → renders canvas
 
 | Date | Change | Why | Impact |
 |------|--------|-----|--------|
+| 2026-03-09 | Landing page redesign: animations, tighter copy, ink interactions | Page felt bland and wordy | home.html rewritten — no app flows affected |
 | 2026-03-08 | Fix link card race condition + increase file limit to 10MB | Link cards hidden by stale .editing class when placeEditorAtWorld fires during async commitEditor; file upload limit too low | editor.js (placeEditorAtWorld guard, .editing cleanup), media.js (10MB limit) — editor/commit flow updated |
 | 2026-03-08 | Fix link card disappearing + file upload 413 | Link cards vanished when generateLinkCard failed; file uploads >4MB hit Vercel limit | editor.js, entries.js (3 link card load points), media.js — entry creation/load flows updated |
 | 2026-03-08 | Fix page traversal: instant entry placement with fade-in, no panning | Entries appeared at wrong positions during nav animation | navigation.js, camera.js, styles.css — nav flow updated |
