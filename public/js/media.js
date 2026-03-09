@@ -1,7 +1,7 @@
 // media.js — Image compression, file uploads, and media utility functions
 
 // Compress image files client-side to stay under Vercel's 4.5MB body limit
-const MAX_UPLOAD_SIZE = 4 * 1024 * 1024; // 4MB target (leave headroom)
+const MAX_UPLOAD_SIZE = 10 * 1024 * 1024; // 10MB target
 async function compressImageFile(file) {
   if (file.size <= MAX_UPLOAD_SIZE) return file;
   return new Promise((resolve, reject) => {

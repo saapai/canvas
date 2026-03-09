@@ -1,6 +1,12 @@
 // editor.js — Contenteditable editor placement, content commit, and entry dimensions
 
 function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
+  // Don't place editor while a commit is in progress — prevents race condition
+  // where editing class is added to an entry that commitEditor is still processing
+  if (isCommitting) {
+    return;
+  }
+
   // Allow placing editor during navigation if user explicitly clicked (force = true)
   if (!force && (isNavigating || navigationJustCompleted)) {
     return;
@@ -498,6 +504,11 @@ async function commitEditor(){
 
       // After committing, show cursor at bottom-right of edited entry
       showCursorInDefaultPosition(committedEntryId);
+      // Clean up any stale .editing class (race condition: placeEditorAtWorld may have
+      // added it to another entry during async commit)
+      document.querySelectorAll('.entry.editing, .entry.deadline-editing').forEach(el => {
+        el.classList.remove('editing', 'deadline-editing');
+      });
       isCommitting = false;
       return;
     }
@@ -682,6 +693,11 @@ async function commitEditor(){
   // Use the newly created entryId (entry was just created above)
   showCursorInDefaultPosition(entryId);
   editingEntryId = null;
+  // Clean up any stale .editing class (race condition: placeEditorAtWorld may have
+  // added it to another entry during async commit)
+  document.querySelectorAll('.entry.editing, .entry.deadline-editing').forEach(el => {
+    el.classList.remove('editing', 'deadline-editing');
+  });
   isCommitting = false;
 }
 
