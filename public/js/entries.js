@@ -276,12 +276,12 @@ async function loadUserEntries(username, editable) {
             } else {
               // No cached data — fetch silently, no placeholder shown
               generateLinkCard(url).then(cardData => {
-                if (!cardData) return;
-                const card = createLinkCard(cardData);
+                const data = cardData || { url, title: url, description: '', site: (() => { try { return new URL(url).hostname; } catch { return url; } })() };
+                const card = createLinkCard(data);
                 entry.appendChild(card);
                 updateEntryWidthForLinkCard(entry, card);
                 if (!storedEntryData.linkCardsData) storedEntryData.linkCardsData = [];
-                storedEntryData.linkCardsData[index] = cardData;
+                storedEntryData.linkCardsData[index] = data;
                 updateEntryOnServer(storedEntryData);
                 setTimeout(() => updateEntryDimensions(entry), 100);
               });
@@ -907,12 +907,12 @@ async function loadEntriesFromServer() {
               updateEntryWidthForLinkCard(entry, card);
             } else {
               generateLinkCard(url).then(cardData => {
-                if (!cardData) return;
-                const card = createLinkCard(cardData);
+                const data = cardData || { url, title: url, description: '', site: (() => { try { return new URL(url).hostname; } catch { return url; } })() };
+                const card = createLinkCard(data);
                 entry.appendChild(card);
                 updateEntryWidthForLinkCard(entry, card);
                 if (!storedEntryData.linkCardsData) storedEntryData.linkCardsData = [];
-                storedEntryData.linkCardsData[index] = cardData;
+                storedEntryData.linkCardsData[index] = data;
                 updateEntryOnServer(storedEntryData);
                 setTimeout(() => updateEntryDimensions(entry), 100);
               });

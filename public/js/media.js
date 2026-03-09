@@ -112,6 +112,13 @@ function getFileIcon(mimetype) {
 }
 
 async function createFileEntryAtWorld(worldX, worldY, file) {
+  // Validate file size before upload (Vercel has 4.5MB limit)
+  if (file.size > MAX_UPLOAD_SIZE) {
+    console.warn('File too large:', file.name, formatFileSize(file.size));
+    alert(`File "${file.name}" is too large (${formatFileSize(file.size)}). Max size is ${formatFileSize(MAX_UPLOAD_SIZE)}.`);
+    return;
+  }
+
   const entryId = generateEntryId();
   const entry = document.createElement('div');
   entry.className = 'entry canvas-file';
@@ -127,6 +134,9 @@ async function createFileEntryAtWorld(worldX, worldY, file) {
     form.append('file', file);
     const res = await fetch('/api/upload-file', { method: 'POST', credentials: 'include', body: form });
     if (!res.ok) {
+      if (res.status === 413) {
+        throw new Error(`File too large (${formatFileSize(file.size)}). Max size is ${formatFileSize(MAX_UPLOAD_SIZE)}.`);
+      }
       const err = await res.json().catch(() => ({}));
       throw new Error(err.error || 'Upload failed');
     }

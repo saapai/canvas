@@ -413,7 +413,12 @@ async function commitEditor(){
             updateEntryWidthForLinkCard(entryData.element, card);
             newLinkCardsData.push(cardData);
           } else {
-            placeholder.remove();
+            // Card generation failed — create a minimal fallback card from the URL
+            const fallbackData = { url, title: url, description: '', site: new URL(url).hostname };
+            const card = createLinkCard(fallbackData);
+            placeholder.replaceWith(card);
+            updateEntryWidthForLinkCard(entryData.element, card);
+            newLinkCardsData.push(fallbackData);
           }
         }
         // Update linkCardsData with new cards
@@ -565,6 +570,7 @@ async function commitEditor(){
     text: trimmedRight,
     textHtml: trimmedHtml || null, // Store HTML to preserve formatting (null if no formatting)
     latexData: newEntryLatexData,
+    linkCardsData: [],
     position: { x: editorWorldPos.x, y: editorWorldPos.y },
     parentEntryId: currentViewEntryId
   };
@@ -608,24 +614,26 @@ async function commitEditor(){
         updateEntryWidthForLinkCard(entry, card);
         allCardData.push(cardData);
       } else {
-        placeholder.remove();
+        // Card generation failed — create a minimal fallback card from the URL
+        const fallbackData = { url, title: url, description: '', site: new URL(url).hostname };
+        const card = createLinkCard(fallbackData);
+        placeholder.replaceWith(card);
+        updateEntryWidthForLinkCard(entry, card);
+        allCardData.push(fallbackData);
       }
     }
 
     // Save card data to entry for future loads
-    if (allCardData.length > 0 && !editingEntryId) {
-      const entryData = entries.get(entry.id);
-      if (entryData) {
-        entryData.linkCardsData = allCardData;
-        await updateEntryOnServer(entryData);
-      }
-    } else if (allCardData.length > 0 && editingEntryId && editingEntryId !== 'anchor') {
-      const entryData = entries.get(editingEntryId);
-      if (entryData) {
-        entryData.linkCardsData = allCardData;
-        await updateEntryOnServer(entryData);
-      }
+    const targetEntryData = (!editingEntryId)
+      ? entries.get(entry.id)
+      : (editingEntryId !== 'anchor' ? entries.get(editingEntryId) : null);
+    if (allCardData.length > 0 && targetEntryData) {
+      targetEntryData.linkCardsData = allCardData;
+      await updateEntryOnServer(targetEntryData);
     }
+
+    // Recalculate dimensions after all cards are rendered
+    setTimeout(() => updateEntryDimensions(entry), 200);
   }
 
   // Remove editing class if any
