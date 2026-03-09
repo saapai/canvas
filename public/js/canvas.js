@@ -1,5 +1,11 @@
 // canvas.js — Canvas interaction: pan, zoom, click, drag, resize, and event listeners
 
+// RAF batching for drag and selection box updates
+let _dragScheduled = false;
+let _pendingDragEvent = null;
+let _selectionScheduled = false;
+let _pendingSelectionEvent = null;
+
 // Helper to find entry element from event target
 function findEntryElement(target) {
   let el = target;
@@ -401,25 +407,36 @@ viewport.addEventListener('mousemove', (e) => {
 
   // Handle selection box dragging
   if(isSelecting && selectionStart){
-    const currentWorld = screenToWorld(e.clientX, e.clientY);
+    _pendingSelectionEvent = { clientX: e.clientX, clientY: e.clientY };
+    if (!_selectionScheduled) {
+      _selectionScheduled = true;
+      requestAnimationFrame(() => {
+        _selectionScheduled = false;
+        if (!_pendingSelectionEvent) return;
+        const { clientX, clientY } = _pendingSelectionEvent;
+        _pendingSelectionEvent = null;
 
-    // Calculate box dimensions in world coordinates
-    const minX = Math.min(selectionStart.x, currentWorld.x);
-    const minY = Math.min(selectionStart.y, currentWorld.y);
-    const maxX = Math.max(selectionStart.x, currentWorld.x);
-    const maxY = Math.max(selectionStart.y, currentWorld.y);
+        const currentWorld = screenToWorld(clientX, clientY);
 
-    // Convert to screen coordinates for the selection box element
-    const topLeft = worldToScreen(minX, minY);
-    const bottomRight = worldToScreen(maxX, maxY);
+        // Calculate box dimensions in world coordinates
+        const minX = Math.min(selectionStart.x, currentWorld.x);
+        const minY = Math.min(selectionStart.y, currentWorld.y);
+        const maxX = Math.max(selectionStart.x, currentWorld.x);
+        const maxY = Math.max(selectionStart.y, currentWorld.y);
 
-    selectionBox.style.left = `${topLeft.x}px`;
-    selectionBox.style.top = `${topLeft.y}px`;
-    selectionBox.style.width = `${bottomRight.x - topLeft.x}px`;
-    selectionBox.style.height = `${bottomRight.y - topLeft.y}px`;
+        // Convert to screen coordinates for the selection box element
+        const topLeft = worldToScreen(minX, minY);
+        const bottomRight = worldToScreen(maxX, maxY);
 
-    // Highlight entries within the selection box
-    selectEntriesInBox(minX, minY, maxX, maxY);
+        selectionBox.style.left = `${topLeft.x}px`;
+        selectionBox.style.top = `${topLeft.y}px`;
+        selectionBox.style.width = `${bottomRight.x - topLeft.x}px`;
+        selectionBox.style.height = `${bottomRight.y - topLeft.y}px`;
+
+        // Highlight entries within the selection box
+        selectEntriesInBox(minX, minY, maxX, maxY);
+      });
+    }
     return;
   }
 
@@ -428,7 +445,7 @@ viewport.addEventListener('mousemove', (e) => {
     // Always allow dragging (no shift needed)
     const isEntrySelected = selectedEntries.has(draggingEntry.id);
 
-    // Check if we've moved enough to start dragging
+    // Check if we've moved enough to start dragging (keep outside RAF for instant response)
     if(clickStart){
       const dist = Math.hypot(e.clientX - clickStart.x, e.clientY - clickStart.y);
       if(dist > dragThreshold){
@@ -439,76 +456,87 @@ viewport.addEventListener('mousemove', (e) => {
     // Only drag if we've moved past the threshold
     if(hasMoved){
       e.preventDefault();
-      const mouseWorldPos = screenToWorld(e.clientX, e.clientY);
-      const newX = mouseWorldPos.x - dragOffset.x;
-      const newY = mouseWorldPos.y - dragOffset.y;
+      _pendingDragEvent = { clientX: e.clientX, clientY: e.clientY };
+      if (!_dragScheduled) {
+        _dragScheduled = true;
+        requestAnimationFrame(() => {
+          _dragScheduled = false;
+          if (!_pendingDragEvent) return;
+          const { clientX, clientY } = _pendingDragEvent;
+          _pendingDragEvent = null;
 
-      // If dragging a selected entry, move all selected entries
-      const entryId = draggingEntry.id;
-      const isDraggingSelected = selectedEntries.has(entryId);
+          const mouseWorldPos = screenToWorld(clientX, clientY);
+          const newX = mouseWorldPos.x - dragOffset.x;
+          const newY = mouseWorldPos.y - dragOffset.y;
 
-      if(isDraggingSelected && selectedEntries.size > 1) {
-        // Calculate drag delta
-        const entryData = entries.get(entryId);
-        if(entryData) {
-          const deltaX = newX - entryData.position.x;
-          const deltaY = newY - entryData.position.y;
+          // If dragging a selected entry, move all selected entries
+          const entryId = draggingEntry.id;
+          const isDraggingSelected = selectedEntries.has(entryId);
 
-          // Move all selected entries by the same delta
-          selectedEntries.forEach(selectedId => {
-            const selectedData = entries.get(selectedId);
-            if(selectedData && selectedData.element) {
-              const selectedNewX = selectedData.position.x + deltaX;
-              const selectedNewY = selectedData.position.y + deltaY;
-              selectedData.element.style.left = `${selectedNewX}px`;
-              selectedData.element.style.top = `${selectedNewY}px`;
-              selectedData.position = { x: selectedNewX, y: selectedNewY };
+          if(isDraggingSelected && selectedEntries.size > 1) {
+            // Calculate drag delta
+            const entryData = entries.get(entryId);
+            if(entryData) {
+              const deltaX = newX - entryData.position.x;
+              const deltaY = newY - entryData.position.y;
 
-              // If this selected entry is in edit mode, also move the editor to match
-              if(editingEntryId === selectedId && editor.style.display !== 'none') {
-                editorWorldPos = { x: selectedNewX, y: selectedNewY };
-                // Account for editor's left padding (4px)
-                editor.style.left = `${selectedNewX - 4}px`;
-                editor.style.top = `${selectedNewY}px`;
+              // Move all selected entries by the same delta
+              selectedEntries.forEach(selectedId => {
+                const selectedData = entries.get(selectedId);
+                if(selectedData && selectedData.element) {
+                  const selectedNewX = selectedData.position.x + deltaX;
+                  const selectedNewY = selectedData.position.y + deltaY;
+                  selectedData.element.style.left = `${selectedNewX}px`;
+                  selectedData.element.style.top = `${selectedNewY}px`;
+                  selectedData.position = { x: selectedNewX, y: selectedNewY };
+
+                  // If this selected entry is in edit mode, also move the editor to match
+                  if(editingEntryId === selectedId && editor.style.display !== 'none') {
+                    editorWorldPos = { x: selectedNewX, y: selectedNewY };
+                    // Account for editor's left padding (4px)
+                    editor.style.left = `${selectedNewX - 4}px`;
+                    editor.style.top = `${selectedNewY}px`;
+                  }
+                }
+              });
+            }
+          } else {
+            // Just move the single entry
+            draggingEntry.style.left = `${newX}px`;
+            draggingEntry.style.top = `${newY}px`;
+
+            // Update stored position
+            if(entryId === 'anchor') {
+              anchorPos.x = newX;
+              anchorPos.y = newY;
+            } else {
+              const entryData = entries.get(entryId);
+              if(entryData) {
+                console.log('[DRAG] Updating position for entry:', entryId, 'from', entryData.position, 'to', { x: newX, y: newY });
+                entryData.position = { x: newX, y: newY };
+
+                // If this entry is in edit mode, also move the editor to match
+                if(editingEntryId === entryId && editor.style.display !== 'none') {
+                  editorWorldPos = { x: newX, y: newY };
+                  // Account for editor's left padding (4px)
+                  editor.style.left = `${newX - 4}px`;
+                  editor.style.top = `${newY}px`;
+                }
+
+                // Debounce position saves to avoid too many server requests
+                if (entryData.positionSaveTimeout) {
+                  clearTimeout(entryData.positionSaveTimeout);
+                }
+                entryData.positionSaveTimeout = setTimeout(() => {
+                  updateEntryOnServer(entryData).catch(err => {
+                    console.error('Error saving position:', err);
+                  });
+                  entryData.positionSaveTimeout = null;
+                }, 300); // Wait 300ms after dragging stops before saving
               }
             }
-          });
-        }
-      } else {
-        // Just move the single entry
-      draggingEntry.style.left = `${newX}px`;
-      draggingEntry.style.top = `${newY}px`;
-
-      // Update stored position
-      if(entryId === 'anchor') {
-        anchorPos.x = newX;
-        anchorPos.y = newY;
-      } else {
-        const entryData = entries.get(entryId);
-        if(entryData) {
-          console.log('[DRAG] Updating position for entry:', entryId, 'from', entryData.position, 'to', { x: newX, y: newY });
-          entryData.position = { x: newX, y: newY };
-
-          // If this entry is in edit mode, also move the editor to match
-          if(editingEntryId === entryId && editor.style.display !== 'none') {
-            editorWorldPos = { x: newX, y: newY };
-            // Account for editor's left padding (4px)
-            editor.style.left = `${newX - 4}px`;
-            editor.style.top = `${newY}px`;
           }
-
-          // Debounce position saves to avoid too many server requests
-          if (entryData.positionSaveTimeout) {
-            clearTimeout(entryData.positionSaveTimeout);
-          }
-          entryData.positionSaveTimeout = setTimeout(() => {
-            updateEntryOnServer(entryData).catch(err => {
-              console.error('Error saving position:', err);
-            });
-            entryData.positionSaveTimeout = null;
-          }, 300); // Wait 300ms after dragging stops before saving
-          }
-        }
+        });
       }
     }
 
