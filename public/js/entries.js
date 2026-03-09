@@ -398,7 +398,7 @@ async function loadUserEntries(username, editable) {
 
     // Load shared pages on own home page
     if (editable && window.PAGE_IS_OWNER === true) {
-      loadSharedPageCards();
+      loadSharedEntries();
     }
 
     // Search button removed - using autocomplete instead
@@ -546,7 +546,7 @@ async function saveEntriesBatch(entriesToSave) {
             mediaCardData: entryData.mediaCardData || null,
             latexData: entryData.latexData || null
           })),
-        pageOwnerId: window.PAGE_OWNER_ID
+        pageOwnerId: getPageOwnerIdForEntry(entriesToSave[0]?.id)
       })
     });
 
@@ -579,7 +579,7 @@ async function saveEntryImmediate(entryData) {
     linkCardsData: entryData.linkCardsData || null,
     mediaCardData: entryData.mediaCardData || null,
     latexData: entryData.latexData || null,
-    pageOwnerId: window.PAGE_OWNER_ID
+    pageOwnerId: getPageOwnerIdForEntry(entryData.id)
   };
 
   try {
@@ -639,7 +639,7 @@ async function updateEntryOnServer(entryData) {
     linkCardsData: entryData.linkCardsData || null,
     mediaCardData: entryData.mediaCardData || null,
     latexData: entryData.latexData || null,
-    pageOwnerId: window.PAGE_OWNER_ID // Include page owner's user ID
+    pageOwnerId: getPageOwnerIdForEntry(entryData.id)
   };
 
   console.log('[UPDATE] updateEntryOnServer called for:', entryData.id, 'textHtml:', payload.textHtml ? payload.textHtml.substring(0, 100) : 'null');
@@ -729,7 +729,7 @@ async function deleteEntryFromServer(entryId) {
   }
 
   try {
-    const pageOwnerId = window.PAGE_OWNER_ID;
+    const pageOwnerId = getPageOwnerIdForEntry(entryId);
     const url = pageOwnerId ? `/api/entries/${entryId}?pageOwnerId=${encodeURIComponent(pageOwnerId)}` : `/api/entries/${entryId}`;
     const response = await fetch(url, {
       method: 'DELETE',

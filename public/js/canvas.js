@@ -872,6 +872,7 @@ window.addEventListener('mouseup', async (e) => {
         const entryEl = clickStart.entryEl;
         if (isImageEntry(entryEl) || isFileEntry(entryEl)) {
           selectOnlyEntry(entryEl.id);
+          showTrashOnlyFormatBar();
           clickStart = null;
           return;
         }

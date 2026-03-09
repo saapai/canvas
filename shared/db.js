@@ -1351,6 +1351,42 @@ export async function getSharedPagesForUser(editorUserId) {
   return result.rows;
 }
 
+export async function getEntryWithDescendants(entryId, userId) {
+  const db = getPool();
+  const result = await db.query(
+    `WITH RECURSIVE descendants AS (
+       SELECT id, text, text_html, position_x, position_y, parent_entry_id,
+              link_cards_data, media_card_data, latex_data, sms_type, sms_ref_id,
+              sms_join_code, slack_channel_id
+       FROM entries
+       WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL
+       UNION ALL
+       SELECT e.id, e.text, e.text_html, e.position_x, e.position_y, e.parent_entry_id,
+              e.link_cards_data, e.media_card_data, e.latex_data, e.sms_type, e.sms_ref_id,
+              e.sms_join_code, e.slack_channel_id
+       FROM entries e
+       INNER JOIN descendants d ON e.parent_entry_id = d.id
+       WHERE e.user_id = $2 AND e.deleted_at IS NULL
+     )
+     SELECT * FROM descendants`,
+    [entryId, userId]
+  );
+  return result.rows.map(row => ({
+    id: row.id,
+    text: row.text,
+    textHtml: row.text_html || null,
+    position: { x: row.position_x, y: row.position_y },
+    parentEntryId: row.parent_entry_id || null,
+    linkCardsData: row.link_cards_data || null,
+    mediaCardData: row.media_card_data || null,
+    latexData: row.latex_data || null,
+    smsType: row.sms_type || null,
+    smsRefId: row.sms_ref_id || null,
+    smsJoinCode: row.sms_join_code || null,
+    slackChannelId: row.slack_channel_id || null
+  }));
+}
+
 export async function isEditor(ownerUserId, editorUserId) {
   const db = getPool();
   const result = await db.query(

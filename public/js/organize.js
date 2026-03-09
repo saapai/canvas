@@ -290,7 +290,7 @@ async function organizeCanvasLayout() {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entries: entriesToSave, pageOwnerId: window.PAGE_OWNER_ID })
+        body: JSON.stringify({ entries: entriesToSave, pageOwnerId: getPageOwnerIdForEntry(entriesToSave[0]?.id) })
       });
     } catch (err) {
       console.error('[ORGANIZE] Error saving organized positions:', err);
@@ -664,7 +664,7 @@ async function organizeEntriesIntoHubs() {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ entries: entriesToSave, pageOwnerId: window.PAGE_OWNER_ID })
+        body: JSON.stringify({ entries: entriesToSave, pageOwnerId: getPageOwnerIdForEntry(entriesToSave[0]?.id) })
       });
     } catch (error) {
       console.error('Error saving aligned positions:', error);

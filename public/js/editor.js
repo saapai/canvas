@@ -400,7 +400,7 @@ async function commitEditor(){
             entryData.element.innerHTML = cleanHtml ? meltifyHtml(cleanHtml) : '';
           } else {
             // No formatting, use regular meltify
-            entryData.element.innerHTML = meltify(processedText);
+            entryData.element.innerHTML = `<span>${meltify(processedText)}</span>`;
           }
         } else {
           entryData.element.innerHTML = '';
@@ -619,6 +619,13 @@ async function commitEditor(){
     position: { x: editorWorldPos.x, y: editorWorldPos.y },
     parentEntryId: currentViewEntryId
   };
+  // Inherit shared owner from parent
+  if (currentViewEntryId && sharedEntryOwners.has(currentViewEntryId)) {
+    const sharedOwner = sharedEntryOwners.get(currentViewEntryId);
+    sharedEntryOwners.set(entryId, sharedOwner);
+    entryData._sharedOwnerId = sharedOwner;
+  }
+
   entries.set(entryId, entryData);
 
   // Ensure entry is in the DOM (defensive check)

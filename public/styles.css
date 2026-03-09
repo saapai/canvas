@@ -640,6 +640,11 @@ body::before{
   font-weight: 600;
 }
 
+#format-trash:hover {
+  background: rgba(220, 38, 38, 0.12);
+  color: #dc2626;
+}
+
 /* Icon pair inside format buttons */
 .format-icon-duo {
   display: inline-flex;

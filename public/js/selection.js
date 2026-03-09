@@ -46,6 +46,7 @@ function clearSelection() {
     }
   });
   selectedEntries.clear();
+  resetFormatBar();
 
   // Invalidate cached dimensions so next selection picks up fresh sizes
   entries.forEach(entryData => {
@@ -59,6 +60,33 @@ function clearSelection() {
   // Show cursor again when selection is cleared (if not in read-only mode and not editing)
   if (!isReadOnly && !editingEntryId) {
     showCursorInDefaultPosition();
+  }
+}
+
+function showTrashOnlyFormatBar() {
+  if (!formatBar) return;
+  formatBar.classList.remove('hidden');
+  // Hide all children except the trash button
+  formatBar.querySelectorAll('.format-btn, .format-font-size-wrap, .format-divider, .template-menu').forEach(el => {
+    if (el.id !== 'format-trash') {
+      el.style.display = 'none';
+    }
+  });
+  const trashBtn = document.getElementById('format-trash');
+  if (trashBtn) {
+    trashBtn.style.display = '';
+  }
+}
+
+function resetFormatBar() {
+  if (!formatBar) return;
+  // Restore visibility of all format bar children
+  formatBar.querySelectorAll('.format-btn, .format-font-size-wrap, .format-divider, .template-menu').forEach(el => {
+    el.style.display = '';
+  });
+  // Only hide the format bar if not currently editing (editor manages its own visibility)
+  if (!editingEntryId) {
+    formatBar.classList.add('hidden');
   }
 }
 
