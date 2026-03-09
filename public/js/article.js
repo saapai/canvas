@@ -215,71 +215,144 @@ if (sharePhoneInput) {
 
 // ——— Shared page cards on home page ———
 
-async function loadSharedPageCards() {
+async function loadSharedEntries() {
   try {
-    const res = await fetch('/api/shared-pages', { credentials: 'include' });
+    const res = await fetch('/api/shared-entries/full', { credentials: 'include' });
     if (!res.ok) return;
     const data = await res.json();
-    if (!data.sharedPages || data.sharedPages.length === 0) return;
+    if (!data.groups || data.groups.length === 0) return;
 
-    // Place shared page cards below anchor, offset to the right
-    let offsetX = 250;
-    const startY = 60;
+    for (const group of data.groups) {
+      const { ownerUserId, ownerUsername, sharedEntryId, entries: sharedEntries } = group;
+      if (!sharedEntries || sharedEntries.length === 0) continue;
 
-    data.sharedPages.forEach((page, index) => {
-      const card = document.createElement('div');
-      card.className = 'shared-page-card';
-      card.style.left = `${offsetX + index * 200}px`;
-      card.style.top = `${startY}px`;
-      card.innerHTML = `
-        <div class="shared-page-card-title">${escapeHtml(page.ownerUsername)}</div>
-        <div class="shared-page-card-subtitle">Shared with you</div>
-        <button class="shared-page-card-remove" title="Remove">&times;</button>
-      `;
+      sharedEntries.forEach(entryData => {
+        // Mark all shared entries with their owner
+        sharedEntryOwners.set(entryData.id, ownerUserId);
 
-      card.addEventListener('click', (e) => {
-        if (e.target.classList.contains('shared-page-card-remove')) return;
-        window.location.href = '/' + page.ownerUsername;
-      });
-
-      card.querySelector('.shared-page-card-remove').addEventListener('click', async (e) => {
-        e.stopPropagation();
-        try {
-          await fetch(`/api/shared-pages/${page.id}`, {
-            method: 'DELETE',
-            credentials: 'include'
-          });
-          card.remove();
-        } catch (err) {
-          console.error('Error removing shared page:', err);
+        // Override root shared entry's parentEntryId to null so it appears at editor's root
+        if (entryData.id === sharedEntryId || !entryData.parentEntryId) {
+          entryData.parentEntryId = null;
         }
+
+        // Skip if already loaded
+        if (entries.has(entryData.id)) return;
+
+        // Create DOM element
+        const entry = document.createElement('div');
+        entry.className = 'entry shared-entry';
+        entry.id = entryData.id;
+        entry.style.left = `${entryData.position.x}px`;
+        entry.style.top = `${entryData.position.y}px`;
+        entry.style.display = 'none'; // Will be shown by updateEntryVisibility
+
+        // Render entry content (same logic as loadUserEntries)
+        const isImageOnly = entryData.mediaCardData && entryData.mediaCardData.type === 'image';
+        const isFileEntry = entryData.mediaCardData && entryData.mediaCardData.type === 'file';
+
+        if (isImageOnly) {
+          entry.classList.add('canvas-image');
+          const img = document.createElement('img');
+          img.src = entryData.mediaCardData.url;
+          img.dataset.fullSrc = entryData.mediaCardData.url;
+          img.alt = 'Canvas image';
+          img.draggable = false;
+          img.loading = 'lazy';
+          img.decoding = 'async';
+          entry.appendChild(img);
+        } else if (isFileEntry) {
+          entry.classList.add('canvas-file');
+          entry.appendChild(createFileCard(entryData.mediaCardData));
+        } else if (entryData.latexData && entryData.latexData.enabled) {
+          renderLatex(entryData.latexData.source, entry);
+        } else {
+          const { processedText, urls } = processTextWithLinks(entryData.text);
+          if (entryData.textHtml && entryData.textHtml.includes('deadline-table')) {
+            entry.innerHTML = entryData.textHtml;
+            const dt = entry.querySelector('.deadline-table');
+            if (dt) setupDeadlineTableHandlers(dt);
+          } else if (entryData.textHtml && entryData.textHtml.includes('gcal-card')) {
+            entry.innerHTML = entryData.textHtml;
+            const card = entry.querySelector('.gcal-card');
+            if (card) setupCalendarCardHandlers(card);
+          } else if (processedText) {
+            if (entryData.textHtml && /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(entryData.textHtml)) {
+              let cleanHtml = entryData.textHtml;
+              urls.forEach(url => { cleanHtml = cleanHtml.replace(url, ''); });
+              entry.innerHTML = cleanHtml.trim() ? meltifyHtml(cleanHtml.trim()) : '';
+              applyEntryFontSize(entry, entryData.textHtml);
+            } else {
+              entry.innerHTML = `<span>${meltify(processedText)}</span>`;
+            }
+          }
+
+          // Add link cards
+          if (entryData.linkCardsData && Array.isArray(entryData.linkCardsData)) {
+            entryData.linkCardsData.forEach(cardData => {
+              if (cardData && cardData.url) {
+                const card = createLinkCard(cardData);
+                entry.appendChild(card);
+              }
+            });
+          }
+
+          // Add media card
+          if (!isImageOnly && !isFileEntry && entryData.mediaCardData && entryData.mediaCardData.type !== 'image') {
+            const card = createMediaCard(entryData.mediaCardData);
+            entry.appendChild(card);
+          }
+        }
+
+        world.appendChild(entry);
+
+        // Store in entries map
+        const storedData = {
+          id: entryData.id,
+          element: entry,
+          text: entryData.text,
+          textHtml: entryData.textHtml,
+          latexData: entryData.latexData || null,
+          position: entryData.position,
+          parentEntryId: entryData.parentEntryId,
+          linkCardsData: entryData.linkCardsData || [],
+          mediaCardData: entryData.mediaCardData || null,
+          _sharedOwnerId: ownerUserId
+        };
+        entries.set(entryData.id, storedData);
+        updateEntryDimensions(entry);
       });
 
-      world.appendChild(card);
-    });
+      // Start sync for this shared owner
+      startSync(ownerUserId);
+    }
+
+    // Refresh visibility to show shared entries at root level
+    updateEntryVisibility();
   } catch (err) {
-    console.error('Error loading shared pages:', err);
+    console.error('Error loading shared entries:', err);
   }
 }
 
 // ——— Live sync via polling ———
 
+const syncIntervals = new Map(); // ownerUserId -> { interval, lastSyncTime }
+// Legacy aliases
 let syncInterval = null;
 let lastSyncTime = null;
 
 function startSync(ownerUserId) {
-  if (syncInterval) return; // Already syncing
-  lastSyncTime = new Date().toISOString();
+  if (syncIntervals.has(ownerUserId)) return; // Already syncing this owner
+  const syncState = { lastSyncTime: new Date().toISOString() };
 
-  syncInterval = setInterval(async () => {
+  const interval = setInterval(async () => {
     try {
       const parentParam = typeof currentViewEntryId !== 'undefined' && currentViewEntryId ? `&parentEntryId=${currentViewEntryId}` : '';
-      const res = await fetch(`/api/sync/entries?since=${encodeURIComponent(lastSyncTime)}&userId=${encodeURIComponent(ownerUserId)}${parentParam}`, {
+      const res = await fetch(`/api/sync/entries?since=${encodeURIComponent(syncState.lastSyncTime)}&userId=${encodeURIComponent(ownerUserId)}${parentParam}`, {
         credentials: 'include'
       });
       if (!res.ok) return;
       const data = await res.json();
-      if (data.serverTime) lastSyncTime = data.serverTime;
+      if (data.serverTime) syncState.lastSyncTime = data.serverTime;
 
       if (data.entries && data.entries.length > 0) {
         data.entries.forEach(entryData => {
@@ -290,13 +363,22 @@ function startSync(ownerUserId) {
       // Silently fail - sync will retry
     }
   }, 3000);
+
+  syncIntervals.set(ownerUserId, { interval, syncState });
+  // Keep legacy refs pointing to first sync
+  if (!syncInterval) {
+    syncInterval = interval;
+    lastSyncTime = syncState.lastSyncTime;
+  }
 }
 
 function stopSync() {
-  if (syncInterval) {
-    clearInterval(syncInterval);
-    syncInterval = null;
+  for (const [, { interval }] of syncIntervals) {
+    clearInterval(interval);
   }
+  syncIntervals.clear();
+  syncInterval = null;
+  lastSyncTime = null;
 }
 
 function applyRemoteEntryUpdate(entryData) {

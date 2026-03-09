@@ -233,6 +233,15 @@ if (formatBtnItalic) formatBtnItalic.addEventListener('mousedown', handleFormatB
 if (formatBtnUnderline) formatBtnUnderline.addEventListener('mousedown', handleFormatButton('underline'));
 if (formatBtnStrike) formatBtnStrike.addEventListener('mousedown', handleFormatButton('strikeThrough'));
 
+const formatTrashBtn = document.getElementById('format-trash');
+if (formatTrashBtn) {
+  formatTrashBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    await deleteSelectedEntries();
+  });
+}
+
 if (formatBar) {
   formatBar.addEventListener('mousedown', (e) => {
     if (formatFontPx && (e.target === formatFontPx || formatFontPx.contains(e.target))) return;

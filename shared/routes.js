@@ -42,7 +42,8 @@ import {
   getPageEditors,
   getSharedPagesForUser,
   isEditor,
-  getEntriesUpdatedSince
+  getEntriesUpdatedSince,
+  getEntryWithDescendants
 } from './db.js';
 
 import { processTextWithLLM, fetchLinkMetadata, generateLinkCard, extractDeadlinesFromFile, convertTextToLatex, generateResearchEntries, planResearch } from './llm.js';
@@ -1892,6 +1893,38 @@ export function createRouter(options = {}) {
       res.json({ success: true });
     } catch (error) {
       console.error('Error removing shared page:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Get full shared entries for current user's canvas (live copy)
+  router.get('/api/shared-entries/full', requireAuth, async (req, res) => {
+    try {
+      const sharedPages = await getSharedPagesForUser(req.user.id);
+      const groups = [];
+
+      for (const page of sharedPages) {
+        let entries = [];
+        if (page.shared_entry_id) {
+          entries = await getEntryWithDescendants(page.shared_entry_id, page.owner_user_id);
+        } else {
+          // Full page share - get all root entries
+          entries = await getAllEntries(page.owner_user_id);
+        }
+
+        if (entries.length > 0) {
+          groups.push({
+            ownerUserId: page.owner_user_id,
+            ownerUsername: page.owner_username,
+            sharedEntryId: page.shared_entry_id,
+            entries
+          });
+        }
+      }
+
+      res.json({ groups });
+    } catch (error) {
+      console.error('Error fetching shared entries:', error);
       res.status(500).json({ error: error.message });
     }
   });

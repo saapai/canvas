@@ -72,3 +72,20 @@ let selectionBox = null;
 // Undo stack
 const undoStack = [];
 const MAX_UNDO_STACK = 50;
+
+// Shared entry ownership tracking
+const sharedEntryOwners = new Map(); // entryId -> ownerUserId
+
+function getPageOwnerIdForEntry(entryId) {
+  // Check if entry is in shared entries map
+  if (sharedEntryOwners.has(entryId)) {
+    return sharedEntryOwners.get(entryId);
+  }
+  // Walk parent chain to find shared owner
+  const entryData = entries.get(entryId);
+  if (entryData && entryData.parentEntryId) {
+    return getPageOwnerIdForEntry(entryData.parentEntryId);
+  }
+  // Fall back to page owner
+  return window.PAGE_OWNER_ID;
+}
