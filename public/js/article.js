@@ -17,6 +17,11 @@ async function checkGoogleStatus() {
     gcalConnected = data.connected;
     gcalCalendarSettings = data.calendarSettings || {};
     updateGoogleConnectButton();
+    // Pre-fetch calendar data so new cards populate instantly
+    if (gcalConnected) {
+      fetchGcalCalendars();
+      fetchGcalEventsForMonth(new Date());
+    }
   } catch(e) { /* not connected */ }
 }
 

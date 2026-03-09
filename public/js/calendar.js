@@ -1,4 +1,13 @@
 // calendar.js — Google Calendar cards and deadline table keyboard navigation
+
+// Global in-memory cache so multiple calendar cards share fetched data
+const _gcalCache = {
+  calendars: null,       // cached calendar list
+  events: {},            // { monthKey: eventsArray }
+  _fetchingCalendars: null,  // deduplication promise
+  _fetchingEvents: {},       // { monthKey: promise }
+};
+
 function formatMonthKey(date) {
   return date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0');
 }
@@ -8,7 +17,7 @@ function parseGcalMonth(monthStr) {
   return new Date(monthStr + '-01T12:00:00');
 }
 
-async function fetchGcalCalendars() {
+async function _fetchGcalCalendarsRaw() {
   try {
     const res = await fetch('/api/google/calendars', { credentials: 'include' });
     if (!res.ok) {
@@ -23,7 +32,18 @@ async function fetchGcalCalendars() {
   }
 }
 
-async function fetchGcalEventsForMonth(viewDate) {
+async function fetchGcalCalendars() {
+  // Deduplicate concurrent requests and cache the result
+  if (_gcalCache._fetchingCalendars) return _gcalCache._fetchingCalendars;
+  _gcalCache._fetchingCalendars = _fetchGcalCalendarsRaw().then(cals => {
+    _gcalCache.calendars = cals;
+    _gcalCache._fetchingCalendars = null;
+    return cals;
+  });
+  return _gcalCache._fetchingCalendars;
+}
+
+async function _fetchGcalEventsForMonthRaw(viewDate) {
   const year = viewDate.getFullYear();
   const month = viewDate.getMonth();
   const timeMin = new Date(year, month, 1).toISOString();
@@ -40,6 +60,18 @@ async function fetchGcalEventsForMonth(viewDate) {
     console.error('Fetch events error:', e);
     return [];
   }
+}
+
+async function fetchGcalEventsForMonth(viewDate) {
+  const key = formatMonthKey(viewDate);
+  // Deduplicate concurrent requests and cache per month
+  if (_gcalCache._fetchingEvents[key]) return _gcalCache._fetchingEvents[key];
+  _gcalCache._fetchingEvents[key] = _fetchGcalEventsForMonthRaw(viewDate).then(events => {
+    _gcalCache.events[key] = events;
+    delete _gcalCache._fetchingEvents[key];
+    return events;
+  });
+  return _gcalCache._fetchingEvents[key];
 }
 
 function getEventsForDateFromList(dateStr, eventsList) {
@@ -166,19 +198,25 @@ function setupCalendarCardHandlers(card) {
     }
   } catch (e) { /* ignore parse errors */ }
 
-  const cachedEvents = restoredEventCache[monthStr] || [];
+  // Use restored data, falling back to global cache for instant population
+  const cachedEvents = restoredEventCache[monthStr]
+    || _gcalCache.events[monthStr]
+    || [];
+  const calendars = restoredCalendars.length > 0
+    ? restoredCalendars
+    : (_gcalCache.calendars || []);
+
   card._gcalState = {
     viewDate: viewDate.getTime(),
-    calendars: restoredCalendars,
+    calendars: calendars,
     events: cachedEvents,
-    eventCache: restoredEventCache
+    eventCache: { ...restoredEventCache, ..._gcalCache.events }
   };
 
   const loading = card.querySelector('.gcal-card-loading');
   if (loading) loading.classList.add('hidden');
 
-  // If we have cached events (from saved HTML), the grid already shows them.
-  // If no cached events, render to show the empty grid structure.
+  // If we have cached events (from saved HTML or global cache), render immediately.
   const grid = card.querySelector('.gcal-card-grid');
   const hasRenderedContent = grid && grid.children.length > 0 && cachedEvents.length > 0;
   if (!hasRenderedContent) {
