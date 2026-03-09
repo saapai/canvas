@@ -235,10 +235,16 @@ if (formatBtnStrike) formatBtnStrike.addEventListener('mousedown', handleFormatB
 
 const formatTrashBtn = document.getElementById('format-trash');
 if (formatTrashBtn) {
-  formatTrashBtn.addEventListener('click', async (e) => {
+  // Use mousedown (not click) to match other format buttons — the format bar's
+  // mousedown handler calls e.preventDefault() which can suppress click events
+  formatTrashBtn.addEventListener('mousedown', async (e) => {
     e.stopPropagation();
     e.preventDefault();
-    await deleteSelectedEntries();
+    if (selectedEntries.size > 0) {
+      await deleteSelectedEntries();
+    } else if (editingEntryId) {
+      await deleteEntryWithConfirmation(editingEntryId);
+    }
   });
 }
 

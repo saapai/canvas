@@ -396,9 +396,12 @@ async function loadUserEntries(username, editable) {
       startSync(window.PAGE_OWNER_ID);
     }
 
-    // Load shared pages on own home page
+    // Load shared entries on own home page (live copy)
     if (editable && window.PAGE_IS_OWNER === true) {
+      console.log('[SHARED] Loading shared entries on home page...');
       loadSharedEntries();
+    } else {
+      console.log('[SHARED] Skipping shared entries — editable:', editable, 'PAGE_IS_OWNER:', window.PAGE_IS_OWNER);
     }
 
     // Search button removed - using autocomplete instead

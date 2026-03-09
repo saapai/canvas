@@ -569,7 +569,7 @@ window.addEventListener('mouseup', async (e) => {
     selectionStart = null;
     // Show trash button for selected entries
     if (selectedEntries.size > 0) {
-      showTrashOnlyFormatBar();
+      showTrashButton();
     }
     // Keep the selected entries highlighted
     return;
@@ -876,7 +876,7 @@ window.addEventListener('mouseup', async (e) => {
         const entryEl = clickStart.entryEl;
         if (isImageEntry(entryEl) || isFileEntry(entryEl)) {
           selectOnlyEntry(entryEl.id);
-          showTrashOnlyFormatBar();
+          showTrashButton();
           clickStart = null;
           return;
         }

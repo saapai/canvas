@@ -233,6 +233,7 @@ async function loadSharedEntries() {
 
     for (const group of data.groups) {
       const { ownerUserId, ownerUsername, sharedEntryId, entries: sharedEntries } = group;
+      console.log('[SHARED] Group from', ownerUsername, '- entries:', sharedEntries?.length || 0, 'sharedEntryId:', sharedEntryId);
       if (!sharedEntries || sharedEntries.length === 0) continue;
 
       sharedEntries.forEach(entryData => {

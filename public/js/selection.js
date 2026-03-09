@@ -46,7 +46,10 @@ function clearSelection() {
     }
   });
   selectedEntries.clear();
-  resetFormatBar();
+  hideTrashButton();
+  if (!editingEntryId && formatBar) {
+    formatBar.classList.add('hidden');
+  }
 
   // Invalidate cached dimensions so next selection picks up fresh sizes
   entries.forEach(entryData => {
@@ -63,31 +66,20 @@ function clearSelection() {
   }
 }
 
-function showTrashOnlyFormatBar() {
-  if (!formatBar) return;
-  formatBar.classList.remove('hidden');
-  // Hide all children except the trash button
-  formatBar.querySelectorAll('.format-btn, .format-font-size-wrap, .format-divider, .template-menu').forEach(el => {
-    if (el.id !== 'format-trash') {
-      el.style.display = 'none';
-    }
-  });
+function showTrashButton() {
   const trashBtn = document.getElementById('format-trash');
-  if (trashBtn) {
-    trashBtn.style.display = '';
-  }
+  const trashDivider = document.querySelector('.format-divider-trash');
+  if (trashBtn) trashBtn.classList.add('visible');
+  if (trashDivider) trashDivider.classList.add('visible');
+  // Show format bar if hidden (for selection-only mode)
+  if (formatBar) formatBar.classList.remove('hidden');
 }
 
-function resetFormatBar() {
-  if (!formatBar) return;
-  // Restore visibility of all format bar children
-  formatBar.querySelectorAll('.format-btn, .format-font-size-wrap, .format-divider, .template-menu').forEach(el => {
-    el.style.display = '';
-  });
-  // Only hide the format bar if not currently editing (editor manages its own visibility)
-  if (!editingEntryId) {
-    formatBar.classList.add('hidden');
-  }
+function hideTrashButton() {
+  const trashBtn = document.getElementById('format-trash');
+  const trashDivider = document.querySelector('.format-divider-trash');
+  if (trashBtn) trashBtn.classList.remove('visible');
+  if (trashDivider) trashDivider.classList.remove('visible');
 }
 
 function selectEntriesInBox(minX, minY, maxX, maxY) {

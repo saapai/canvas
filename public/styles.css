@@ -640,9 +640,19 @@ body::before{
   font-weight: 600;
 }
 
-#format-trash:hover {
-  background: rgba(220, 38, 38, 0.12);
+#format-trash,
+.format-divider-trash {
+  display: none;
+}
+#format-trash.visible {
+  display: inline-flex;
   color: #dc2626;
+}
+.format-divider-trash.visible {
+  display: inline-block;
+}
+#format-trash:hover {
+  background: rgba(220, 38, 38, 0.15);
 }
 
 /* Icon pair inside format buttons */
