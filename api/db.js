@@ -1061,6 +1061,12 @@ export async function isEditor(ownerUserId, editorUserId) {
   return result.rows.length > 0;
 }
 
+// Vercel requires every file in api/ to export a default serverless handler.
+// This module is a utility used by other API files, not a standalone endpoint.
+export default function handler(req, res) {
+  res.status(404).json({ error: 'Not an API endpoint' });
+}
+
 export async function getEntriesUpdatedSince(userId, sinceTimestamp, parentEntryId = null) {
   const db = getPool();
   let query, params;
