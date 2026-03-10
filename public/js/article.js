@@ -217,10 +217,13 @@ if (sharePhoneInput) {
 
 async function loadSharedEntries() {
   try {
+    console.log('[SHARED] loadSharedEntries called, PAGE_IS_OWNER:', window.PAGE_IS_OWNER, 'PAGE_USERNAME:', window.PAGE_USERNAME);
     const res = await fetch('/api/shared-entries/full', { credentials: 'include' });
-    if (!res.ok) return;
+    console.log('[SHARED] API response status:', res.status);
+    if (!res.ok) { console.log('[SHARED] API returned error, aborting'); return; }
     const data = await res.json();
-    if (!data.groups || data.groups.length === 0) return;
+    console.log('[SHARED] API response groups:', data.groups?.length || 0, JSON.stringify(data.groups?.map(g => ({ owner: g.ownerUsername, entryId: g.sharedEntryId, count: g.entries?.length }))));
+    if (!data.groups || data.groups.length === 0) { console.log('[SHARED] No groups, nothing to load'); return; }
 
     for (const group of data.groups) {
       const { ownerUserId, ownerUsername, sharedEntryId, entries: sharedEntries } = group;

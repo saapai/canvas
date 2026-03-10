@@ -533,7 +533,10 @@ window.addEventListener('mouseup', async (e) => {
       selectionBox.style.display = 'none';
     }
     selectionStart = null;
-    // Keep the selected entries highlighted
+    // Show trash-only format bar for selected entries
+    if (selectedEntries.size > 0) {
+      showTrashOnlyFormatBar();
+    }
     return;
   }
 

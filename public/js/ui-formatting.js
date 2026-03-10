@@ -235,10 +235,19 @@ if (formatBtnStrike) formatBtnStrike.addEventListener('mousedown', handleFormatB
 
 const formatTrashBtn = document.getElementById('format-trash');
 if (formatTrashBtn) {
-  formatTrashBtn.addEventListener('click', async (e) => {
+  formatTrashBtn.addEventListener('mousedown', async (e) => {
     e.stopPropagation();
     e.preventDefault();
-    await deleteSelectedEntries();
+    console.log('[TRASH] mousedown fired, selectedEntries:', selectedEntries.size, 'editingEntryId:', editingEntryId);
+    if (selectedEntries.size > 0) {
+      console.log('[TRASH] Deleting', selectedEntries.size, 'selected entries');
+      await deleteSelectedEntries();
+      console.log('[TRASH] Delete completed');
+    } else if (editingEntryId) {
+      console.log('[TRASH] Deleting editing entry:', editingEntryId);
+      await deleteEntryWithConfirmation(editingEntryId);
+      hideCursor();
+    }
   });
 }
 

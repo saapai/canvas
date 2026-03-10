@@ -1900,16 +1900,22 @@ export function createRouter(options = {}) {
   // Get full shared entries for current user's canvas (live copy)
   router.get('/api/shared-entries/full', requireAuth, async (req, res) => {
     try {
+      console.log('[SHARED-ENTRIES] Fetching shared entries for user:', req.user.id, req.user.username);
       const sharedPages = await getSharedPagesForUser(req.user.id);
+      console.log('[SHARED-ENTRIES] Found shared pages:', JSON.stringify(sharedPages));
       const groups = [];
 
       for (const page of sharedPages) {
         let entries = [];
         if (page.shared_entry_id) {
+          console.log('[SHARED-ENTRIES] Fetching entry+descendants:', page.shared_entry_id, 'owner:', page.owner_user_id);
           entries = await getEntryWithDescendants(page.shared_entry_id, page.owner_user_id);
+          console.log('[SHARED-ENTRIES] Got', entries.length, 'entries for shared_entry_id:', page.shared_entry_id);
         } else {
           // Full page share - get all root entries
+          console.log('[SHARED-ENTRIES] Full page share, fetching all entries for owner:', page.owner_user_id);
           entries = await getAllEntries(page.owner_user_id);
+          console.log('[SHARED-ENTRIES] Got', entries.length, 'entries for full page share');
         }
 
         if (entries.length > 0) {
@@ -1922,9 +1928,10 @@ export function createRouter(options = {}) {
         }
       }
 
+      console.log('[SHARED-ENTRIES] Returning', groups.length, 'groups');
       res.json({ groups });
     } catch (error) {
-      console.error('Error fetching shared entries:', error);
+      console.error('[SHARED-ENTRIES] Error fetching shared entries:', error);
       res.status(500).json({ error: error.message });
     }
   });

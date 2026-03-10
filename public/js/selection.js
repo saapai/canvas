@@ -19,24 +19,40 @@ function clearSelection() {
 function showTrashOnlyFormatBar() {
   if (!formatBar) return;
   formatBar.classList.remove('hidden');
-  // Hide all children except the trash button
-  formatBar.querySelectorAll('.format-btn, .format-font-size-wrap, .format-divider, .template-menu').forEach(el => {
+  // Hide all children except the trash button and its divider
+  formatBar.querySelectorAll('.format-btn, .format-font-size-wrap, .format-divider:not(.format-divider-trash), .template-menu').forEach(el => {
     if (el.id !== 'format-trash') {
       el.style.display = 'none';
     }
   });
   const trashBtn = document.getElementById('format-trash');
-  if (trashBtn) {
-    trashBtn.style.display = '';
-  }
+  const trashDivider = document.querySelector('.format-divider-trash');
+  if (trashBtn) trashBtn.classList.add('visible');
+  if (trashDivider) trashDivider.classList.add('visible');
+}
+
+function showTrashButton() {
+  const trashBtn = document.getElementById('format-trash');
+  const trashDivider = document.querySelector('.format-divider-trash');
+  if (trashBtn) trashBtn.classList.add('visible');
+  if (trashDivider) trashDivider.classList.add('visible');
+}
+
+function hideTrashButton() {
+  const trashBtn = document.getElementById('format-trash');
+  const trashDivider = document.querySelector('.format-divider-trash');
+  if (trashBtn) trashBtn.classList.remove('visible');
+  if (trashDivider) trashDivider.classList.remove('visible');
 }
 
 function resetFormatBar() {
   if (!formatBar) return;
   // Restore visibility of all format bar children
-  formatBar.querySelectorAll('.format-btn, .format-font-size-wrap, .format-divider, .template-menu').forEach(el => {
+  formatBar.querySelectorAll('.format-btn, .format-font-size-wrap, .format-divider:not(.format-divider-trash), .template-menu').forEach(el => {
     el.style.display = '';
   });
+  // Hide trash button (it uses .visible class, not inline style)
+  hideTrashButton();
   // Only hide the format bar if not currently editing (editor manages its own visibility)
   if (!editingEntryId) {
     formatBar.classList.add('hidden');
@@ -273,7 +289,8 @@ async function performUndo() {
 
 // Multi-entry operations
 async function deleteSelectedEntries() {
-  if (selectedEntries.size === 0) return;
+  console.log('[DELETE-SELECTED] called, selectedEntries.size:', selectedEntries.size);
+  if (selectedEntries.size === 0) { console.log('[DELETE-SELECTED] No entries selected, returning'); return; }
 
   // Check if any selected entries have children
   let hasChildren = false;
