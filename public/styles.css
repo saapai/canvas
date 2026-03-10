@@ -640,6 +640,7 @@ body::before{
   font-weight: 600;
 }
 
+/* Trash button + divider: hidden by default, shown via .visible class */
 #format-trash,
 .format-divider-trash {
   display: none;
@@ -652,7 +653,7 @@ body::before{
   display: inline-block;
 }
 #format-trash:hover {
-  background: rgba(220, 38, 38, 0.15);
+  background: rgba(220, 38, 38, 0.12);
 }
 
 /* Icon pair inside format buttons */

@@ -121,6 +121,10 @@ function placeEditorAtWorld(wx, wy, text = '', entryId = null, force = false){
   // Ensure editor is visible (in case it was hidden during navigation)
   editor.style.display = 'block';
   if (formatBar) formatBar.classList.remove('hidden');
+  // Show trash button in edit mode (for deleting the current entry)
+  if (entryId) {
+    showTrashButton();
+  }
 
   // Show trash button when editing an existing entry or the anchor
   const trashBtn = document.getElementById('format-trash');
@@ -198,6 +202,7 @@ function hideCursor() {
   editor.textContent = '';
   editor.style.display = 'none'; // Hide editor when hiding cursor
   editor.blur();
+  hideTrashButton();
   if (formatBar) formatBar.classList.add('hidden');
 }
 
