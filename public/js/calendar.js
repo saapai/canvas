@@ -216,12 +216,8 @@ function setupCalendarCardHandlers(card) {
   const loading = card.querySelector('.gcal-card-loading');
   if (loading) loading.classList.add('hidden');
 
-  // If we have cached events (from saved HTML or global cache), render immediately.
-  const grid = card.querySelector('.gcal-card-grid');
-  const hasRenderedContent = grid && grid.children.length > 0 && cachedEvents.length > 0;
-  if (!hasRenderedContent) {
-    renderCalendarCard(card);
-  }
+  // Always render to refresh the "today" highlight (saved HTML may have a stale date)
+  renderCalendarCard(card);
 
   // Silently fetch fresh events in background
   (async () => {
@@ -236,7 +232,7 @@ function setupCalendarCardHandlers(card) {
     const newJson = JSON.stringify(events);
     card._gcalState.events = events;
     card._gcalState.eventCache[monthStr] = events;
-    if (oldJson !== newJson || !hasRenderedContent) {
+    if (oldJson !== newJson) {
       renderCalendarCard(card);
       saveCalendarCardState(card);
     }
