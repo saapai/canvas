@@ -1,38 +1,6 @@
 // selection.js — Multi-select, undo/redo, and bulk entry deletion
 // Selection helper functions
 
-function positionSelectionToolbar() {
-  const toolbar = document.getElementById('selection-toolbar');
-  if (!toolbar) return;
-  if (selectedEntries.size === 0) {
-    toolbar.classList.add('hidden');
-    return;
-  }
-  // Find the bounding box of all selected entries in screen coordinates
-  let minTop = Infinity, maxRight = -Infinity;
-  selectedEntries.forEach(entryId => {
-    let el = null;
-    if (entryId === 'anchor') {
-      el = anchor;
-    } else {
-      const entryData = entries.get(entryId);
-      if (entryData && entryData.element) el = entryData.element;
-    }
-    if (el) {
-      const rect = el.getBoundingClientRect();
-      if (rect.top < minTop) minTop = rect.top;
-      if (rect.right > maxRight) maxRight = rect.right;
-    }
-  });
-  if (minTop === Infinity) {
-    toolbar.classList.add('hidden');
-    return;
-  }
-  // Position at top-right of bounding box, offset slightly
-  toolbar.style.left = `${maxRight + 4}px`;
-  toolbar.style.top = `${minTop - 4}px`;
-  toolbar.classList.remove('hidden');
-}
 
 function clearSelection() {
   selectedEntries.forEach(entryId => {
@@ -56,9 +24,6 @@ function clearSelection() {
     delete entryData._cachedWidth;
     delete entryData._cachedHeight;
   });
-
-  // Hide selection toolbar
-  positionSelectionToolbar();
 
   // Show cursor again when selection is cleared (if not in read-only mode and not editing)
   if (!isReadOnly && !editingEntryId) {
@@ -185,7 +150,6 @@ function selectEntriesInBox(minX, minY, maxX, maxY) {
     hideCursor();
   }
 
-  positionSelectionToolbar();
 }
 
 // Undo system functions
@@ -572,13 +536,3 @@ window.addEventListener('keydown', async (e) => {
   }
 }, true); // Use capture phase to catch event before other handlers
 
-// Wire selection toolbar delete button
-document.addEventListener('DOMContentLoaded', () => {
-  const selDeleteBtn = document.getElementById('selection-delete-btn');
-  if (selDeleteBtn) {
-    selDeleteBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      deleteSelectedEntries();
-    });
-  }
-});

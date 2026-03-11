@@ -38,7 +38,6 @@ function selectOnlyEntry(entryId) {
     entryData.element.classList.add('selected');
     hideCursor();
   }
-  positionSelectionToolbar();
 }
 
 // ——— Image Resize Handle System ———
@@ -676,7 +675,6 @@ window.addEventListener('mouseup', async (e) => {
                   entryData.element.classList.add('selected');
                   hideCursor();
                 }
-                positionSelectionToolbar();
               }
             } else if(isImageEntry(draggingEntry)) {
               selectOnlyEntry(draggingEntry.id);

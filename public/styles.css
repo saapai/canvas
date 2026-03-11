@@ -2133,31 +2133,6 @@ body.has-bg-image::before {
   z-index: 10000;
 }
 
-/* Selection toolbar (floating delete button for selected entries) */
-.selection-toolbar {
-  position: absolute;
-  z-index: 10001;
-  pointer-events: auto;
-}
-.selection-toolbar.hidden { display: none; }
-.selection-delete-btn {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.9);
-  color: rgba(220, 38, 38, 0.6);
-  cursor: pointer;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.1);
-  transition: all 0.15s ease;
-}
-.selection-delete-btn:hover {
-  color: rgba(220, 38, 38, 0.9);
-  background: rgba(255, 255, 255, 1);
-}
 
 /* Selected entries */
 .entry.selected::after {
