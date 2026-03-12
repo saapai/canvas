@@ -369,6 +369,7 @@ export async function initDatabase() {
         );
       `);
       await db.query(`CREATE INDEX IF NOT EXISTS idx_announcements_entry ON announcements(entry_id)`);
+      await db.query(`ALTER TABLE announcements ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'manual'`);
     } catch (error) {
       console.log('Note: announcements table check:', error.message);
     }

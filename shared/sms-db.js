@@ -400,14 +400,14 @@ export async function deleteDraft(phone, entryId = null) {
 // ANNOUNCEMENTS
 // ============================================
 
-export async function createAnnouncement(entryId, content, createdBy = null) {
+export async function createAnnouncement(entryId, content, createdBy = null, source = 'manual') {
   const db = getPool();
   const id = crypto.randomUUID();
   const result = await db.query(
-    `INSERT INTO announcements (id, entry_id, content, status, created_by)
-     VALUES ($1, $2, $3, 'draft', $4)
+    `INSERT INTO announcements (id, entry_id, content, status, created_by, source)
+     VALUES ($1, $2, $3, 'draft', $4, $5)
      RETURNING *`,
-    [id, entryId, content, createdBy]
+    [id, entryId, content, createdBy, source]
   );
   return result.rows[0];
 }

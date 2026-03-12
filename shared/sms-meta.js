@@ -66,7 +66,7 @@ Respond with JSON: { "smsType": "announcement"|"poll"|"meta_instruction"|null, "
 
     // If it's an announcement, create it and auto-send to all opted-in members
     if (parsed.smsType === 'announcement') {
-      const announcement = await smsDb.createAnnouncement(parentEntryId, entryText);
+      const announcement = await smsDb.createAnnouncement(parentEntryId, entryText, null, 'auto');
       smsRefId = announcement.id;
 
       // Auto-send to all opted-in members in the space
