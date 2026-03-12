@@ -380,14 +380,47 @@ export async function getContentQueryAnswer(entryId, question, opts = {}) {
   const { getPool } = await import('./db.js');
   const db = getPool();
 
-  // Fetch ALL child entries for comprehensive search
+  // Fetch ALL child entries for comprehensive search (include link_cards_data for scrape lookups)
   const entriesResult = await db.query(
-    `SELECT text, text_html, created_at FROM entries
+    `SELECT text, text_html, link_cards_data, created_at FROM entries
      WHERE parent_entry_id = $1 AND deleted_at IS NULL
      ORDER BY created_at DESC LIMIT 200`,
     [entryId]
   );
-  const entriesContext = entriesResult.rows.map(r => r.text).filter(Boolean).join('\n---\n');
+
+  // Collect all URLs from link cards to look up scraped content
+  const allUrls = new Set();
+  for (const r of entriesResult.rows) {
+    if (Array.isArray(r.link_cards_data)) {
+      for (const card of r.link_cards_data) {
+        if (card.url) allUrls.add(card.url);
+      }
+    }
+  }
+
+  // Batch-fetch scraped content for all URLs
+  const { getLinkScrape } = await import('./db.js');
+  const scrapeMap = new Map();
+  for (const url of allUrls) {
+    try {
+      const scrape = await getLinkScrape(url);
+      if (scrape?.content_summary) scrapeMap.set(url, scrape.content_summary);
+    } catch {}
+  }
+
+  // Build entries context, appending scraped content for link entries
+  const entriesContext = entriesResult.rows.map(r => {
+    let text = r.text || '';
+    if (Array.isArray(r.link_cards_data)) {
+      for (const card of r.link_cards_data) {
+        const scraped = scrapeMap.get(card.url);
+        if (scraped) {
+          text += `\n[Scraped content from ${card.url}]: ${scraped}`;
+        }
+      }
+    }
+    return text;
+  }).filter(Boolean).join('\n---\n');
 
   // Fetch announcements (sent ones are most relevant)
   const announcements = await smsDb.getAnnouncements(entryId);
