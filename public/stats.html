@@ -236,6 +236,28 @@
     </div>
   </section>
 
+  <section class="leaderboard">
+    <div class="card">
+      <h3 style="margin:0 0 4px;">Announcements</h3>
+      <p class="stat-label" style="margin:0 0 12px;">All automatic and manual announcements across pages.</p>
+      <div style="overflow-x:auto;">
+        <table id="announcements-table">
+          <thead>
+            <tr>
+              <th>Content</th>
+              <th>Status</th>
+              <th>Sent To</th>
+              <th>Created</th>
+              <th>Sent At</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="announcements-empty" style="display:none;padding:12px;color:var(--muted);font-size:14px;">No announcements yet.</div>
+    </div>
+  </section>
+
   <section class="conversations-section">
     <div class="card" style="padding:0;overflow:hidden;">
       <div style="padding:16px 20px 12px;border-bottom:1px solid var(--border);">
@@ -480,8 +502,45 @@
       }
     }
 
+    // --- Announcements ---
+
+    async function loadAnnouncements() {
+      try {
+        const res = await fetch('/api/stats/announcements');
+        if (!res.ok) throw new Error('Failed to load');
+        const items = await res.json();
+        const tbody = document.querySelector('#announcements-table tbody');
+        const emptyEl = document.getElementById('announcements-empty');
+        if (!items || items.length === 0) {
+          tbody.innerHTML = '';
+          emptyEl.style.display = '';
+          return;
+        }
+        emptyEl.style.display = 'none';
+        tbody.innerHTML = items.map(a => {
+          const content = escapeHtml((a.content || '').slice(0, 120));
+          const status = a.status === 'sent'
+            ? '<span class="pill" style="background:rgba(107,142,107,0.15);color:#4a7c4a;border-color:rgba(107,142,107,0.3);">sent</span>'
+            : '<span class="pill">draft</span>';
+          const sentCount = a.sent_count != null ? a.sent_count : '\u2014';
+          const created = relativeTime(a.created_at);
+          const sentAt = a.sent_at ? relativeTime(a.sent_at) : '\u2014';
+          return '<tr>' +
+            '<td>' + content + '</td>' +
+            '<td>' + status + '</td>' +
+            '<td>' + sentCount + '</td>' +
+            '<td>' + created + '</td>' +
+            '<td>' + sentAt + '</td>' +
+          '</tr>';
+        }).join('');
+      } catch (err) {
+        console.error(err);
+      }
+    }
+
     loadStats();
     loadConversations();
+    loadAnnouncements();
   </script>
 </body>
 </html>

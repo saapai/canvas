@@ -2108,6 +2108,24 @@ export function createRouter(options = {}) {
     }
   });
 
+  // All announcements across all pages
+  router.get('/api/stats/announcements', async (_req, res) => {
+    try {
+      const db = getPool();
+      const result = await db.query(
+        `SELECT a.*, e.text AS page_name
+         FROM announcements a
+         LEFT JOIN entries e ON e.id = a.entry_id
+         ORDER BY a.created_at DESC
+         LIMIT 100`
+      );
+      res.json(result.rows);
+    } catch (error) {
+      console.error('Error fetching announcements:', error);
+      res.status(500).json({ error: 'Failed to load announcements' });
+    }
+  });
+
   // SMS Conversations list — all unique phone numbers with latest message
   router.get('/api/stats/conversations', async (_req, res) => {
     try {

@@ -64,10 +64,30 @@ Respond with JSON: { "smsType": "announcement"|"poll"|"meta_instruction"|null, "
 
     let smsRefId = null;
 
-    // If it's an announcement, create a draft record
+    // If it's an announcement, create it and auto-send to all opted-in members
     if (parsed.smsType === 'announcement') {
       const announcement = await smsDb.createAnnouncement(parentEntryId, entryText);
       smsRefId = announcement.id;
+
+      // Auto-send to all opted-in members in the space
+      try {
+        const { sendSms } = await import('./sms.js');
+        const members = await smsDb.getOptedInMembers(parentEntryId);
+        let sent = 0;
+        for (const member of members) {
+          const phone = member.phone_normalized;
+          if (!phone || phone.length < 10) continue;
+          const result = await sendSms(smsDb.toE164(phone), entryText);
+          if (result.ok) {
+            await smsDb.logMessage(parentEntryId, phone, 'outbound', entryText, { action: 'announcement' });
+            sent++;
+          }
+        }
+        await smsDb.updateAnnouncement(announcement.id, { status: 'sent', sent_count: sent, sent_at: new Date() });
+        console.log(`[MetaDetect] Auto-sent announcement to ${sent} members`);
+      } catch (sendErr) {
+        console.error('[MetaDetect] Auto-send failed:', sendErr);
+      }
     }
 
     // If it's a poll, create a draft poll (not active yet)
