@@ -2126,9 +2126,10 @@ export function createRouter(options = {}) {
         const slackResult = await db.query(
           `SELECT sn.id, sn.message AS content, sn.status,
                   sn.notification_type, sn.scheduled_for, sn.sent_at, sn.created_at,
-                  sf.extracted_fact, sf.channel_name
+                  sf.extracted_fact, ss.channel_name
            FROM scheduled_notifications sn
            LEFT JOIN slack_facts sf ON sf.id = sn.fact_id
+           LEFT JOIN slack_syncs ss ON sf.sync_id = ss.id
            ORDER BY sn.created_at DESC
            LIMIT 100`
         );
@@ -2143,7 +2144,9 @@ export function createRouter(options = {}) {
           page_name: r.channel_name ? `#${r.channel_name}` : null,
           notification_type: r.notification_type
         }));
-      } catch (e) { /* scheduled_notifications table may not exist */ }
+      } catch (e) {
+        console.error('[Stats:announcements] Slack notifications query failed:', e.message);
+      }
 
       // Merge and sort by created_at descending
       const all = [...manualResult.rows.map(r => ({ ...r, source: r.source || 'manual' })), ...slackRows]

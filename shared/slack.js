@@ -203,7 +203,7 @@ CRITICAL — PRESERVE SPECIFIC DETAILS:
 For each fact, determine:
 - factType: "info" (general), "deadline" (has a due date), "event" (has a date/time), "announcement" (broadcast)
 - deadlineDate: ISO 8601 datetime string if applicable, null otherwise. Resolve relative dates ("next Tuesday") based on the message date.
-  IMPORTANT: If a SPECIFIC TIME is mentioned (e.g. "7pm", "at 3:00", "doors open at 6"), include it in the ISO string (e.g. "2026-03-06T19:00:00-08:00"). If only a DATE is mentioned with no time, use date-only format (e.g. "2026-03-06T00:00:00Z"). This distinction matters for notification scheduling.
+  IMPORTANT: If a SPECIFIC TIME is mentioned (e.g. "7pm", "at 3:00", "doors open at 6"), include it in the ISO string using America/Los_Angeles timezone (currently ${new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles', timeZoneName: 'short' }).split(' ').pop()}, UTC offset ${new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles', timeZoneName: 'longOffset' }).split('GMT')[1] || '-07:00'}). Example: "7pm" → "2026-03-06T19:00:00-07:00". If only a DATE is mentioned with no time, use date-only format (e.g. "2026-03-06T00:00:00Z"). This distinction matters for notification scheduling.
 
 Return JSON array:
 [{"messageTs": "...", "extractedFact": "...", "factType": "...", "deadlineDate": "..." or null}]
@@ -314,22 +314,22 @@ export function scheduleDeadlineNotifications(userId, entryId, fact) {
     message: `Heads up: ${fact.extracted_fact}`
   });
 
-  // NOTIFICATION 2: "deadline_reminder" — right before the deadline
-  // For timed events: 2 hours before
+  // NOTIFICATION 2: "deadline_reminder" — before the deadline
+  // For timed events: 4 hours before
   // For date-only deadlines (e.g. "end of weekend"): 6 PM PST on deadline day
   if (hasSpecificTime) {
-    const twoHoursBefore = new Date(eventDate.getTime() - 2 * 60 * 60 * 1000);
-    if (twoHoursBefore > now && twoHoursBefore.getTime() - now.getTime() > 3 * 60 * 60 * 1000) {
-      // Only schedule if deadline is more than 3 hours away (otherwise initial is enough)
-      console.log(`[Notification:schedule] → Scheduling deadline_reminder for ${twoHoursBefore.toISOString()}`);
+    const fourHoursBefore = new Date(eventDate.getTime() - 4 * 60 * 60 * 1000);
+    if (fourHoursBefore > now && fourHoursBefore.getTime() - now.getTime() > 2 * 60 * 60 * 1000) {
+      // Only schedule if reminder is more than 2 hours from now (avoid bunching with initial)
+      console.log(`[Notification:schedule] → Scheduling deadline_reminder for ${fourHoursBefore.toISOString()}`);
       notifications.push({
         userId,
         entryId,
         factId: fact.id,
         notificationType: 'deadline_reminder',
-        scheduledFor: twoHoursBefore,
+        scheduledFor: fourHoursBefore,
         eventDate,
-        message: `Starting soon: ${fact.extracted_fact}`
+        message: `Coming up: ${fact.extracted_fact}`
       });
     }
   } else {
