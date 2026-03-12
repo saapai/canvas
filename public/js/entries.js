@@ -96,9 +96,9 @@ async function bootstrap() {
       const targetUsername = pageUsername || pathParts[0];
       const isEditorUser = window.PAGE_IS_EDITOR === true;
       const editorRole = window.PAGE_EDITOR_ROLE || null;
-      // Editable if logged in AND (is owner OR is admin editor)
-      // Members get read-only view but can still see live updates
-      const editable = isLoggedIn && (isOwner || (isEditorUser && editorRole === 'admin'));
+      // Trust server-side detection: PAGE_IS_EDITOR/PAGE_EDITOR_ROLE are set via JWT
+      // before the page is served, so they're reliable even if /api/auth/me fails
+      const editable = isOwner || (isEditorUser && editorRole === 'admin');
       await loadUserEntries(targetUsername, editable);
       // Ensure auth overlay stays hidden
       hideAuthOverlay();
@@ -360,21 +360,8 @@ async function loadUserEntries(username, editable) {
       };
       entries.set(entryData.id, storedEntryData);
 
-      // SMS admin link entries — render as shared-page-card style and navigate on click
+      // SMS admin link entries — keep original text, add green left border, navigate on click
       if (entryData.smsAdminLink) {
-        entry.classList.add('shared-page-card');
-        entry.innerHTML = `
-          <div class="shared-page-card-icon">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
-            </svg>
-          </div>
-          <div class="shared-page-card-info">
-            <span class="shared-page-card-label">${escapeHtml(entryData.text || 'SMS Page')}</span>
-            <span class="shared-page-card-owner">SMS admin</span>
-          </div>
-          <span class="shared-page-role shared-page-role-admin">admin</span>
-        `;
         entry.style.cursor = 'pointer';
         entry.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -412,12 +399,12 @@ async function loadUserEntries(username, editable) {
       startSync(window.PAGE_OWNER_ID);
     }
 
-    // Load shared entries on own home page (live copy)
-    if (editable && window.PAGE_IS_OWNER === true) {
+    // Load shared page navigation cards on own home page
+    if (window.PAGE_IS_OWNER === true) {
       console.log('[SHARED] Loading shared entries on home page...');
       loadSharedEntries();
     } else {
-      console.log('[SHARED] Skipping shared entries — editable:', editable, 'PAGE_IS_OWNER:', window.PAGE_IS_OWNER);
+      console.log('[SHARED] Skipping shared entries — not owner page');
     }
 
     // Search button removed - using autocomplete instead

@@ -153,7 +153,21 @@ Enter code  → POST /api/auth/verify-code
   └── Invalid? → Error message
 
 Multiple usernames per phone (spaces)
-Page access: isOwner OR isEditor → edit mode; else → read-only
+Page access: isOwner OR isEditor(admin) → edit mode; isEditor(member) → read-only with live sync; else → read-only
+Editor detection: server-side via JWT cookie in route handler (getEditorRole), injected as PAGE_IS_EDITOR/PAGE_EDITOR_ROLE in HTML
+Client trusts server-side values — does NOT require /api/auth/me to succeed for editability
+```
+
+### Sharing & Collaboration
+
+```
+Roles: admin (full edit) | member (read-only live view)
+Share UI: phone input + role selector → POST /api/editors/add
+Shared page cards: on owner's home page, lightweight nav cards (link + role badge)
+  → Click navigates to owner's canvas with appropriate permissions
+SMS admin link entries: regular entry text with green left border (data-sms-join-code CSS)
+  → DO NOT replace entry innerHTML with card layout — keep original text visible
+  → Click navigates to owner's page
 ```
 
 ### Entry Types
@@ -250,6 +264,7 @@ Route: /:username → renders canvas
 
 | Date | Change | Why | Impact |
 |------|--------|-----|--------|
+| 2026-03-11 | Fix sharing: trust server-side editor detection, restore SMS admin text+border style | Editor access failed because client required /api/auth/me success; SMS admin cards lost text. Shared cards condition too restrictive. | entries.js (editable trusts PAGE_IS_EDITOR, smsAdminLink keeps text+green border, shared cards load when PAGE_IS_OWNER without editable check) — sharing/editor flows fixed |
 | 2026-03-11 | Admin sharing: navigate to owner's page + role support (admin/member) | Shared pages should open on owner's canvas like Google Docs, not inline. Members get read-only view. | db.js (role column, getEditorRole), routes.js (role-aware sharing, lightweight cards API), article.js (navigation cards instead of inline entries), entries.js (role-based editing, member sync), index.html (role selector), styles.css (card/role styles) — sharing flow rewritten, editor/sync flows updated |
 | 2026-03-11 | Fix link card disappearing on sync + add daily link scraping for chat | Link card placeholders cleared by 3s sync poll; users want to query link content in chat | article.js (placeholder preservation), editor.js (targetEntryData fix), db.js (link_scrapes table), llm.js (scrapeUrlContent), routes.js (cron + immediate scrape), chat.js (scraped content in context), vercel.json (cron) — entry sync, link card, chat flows updated |
 | 2026-03-09 | Landing page redesign: animations, tighter copy, ink interactions | Page felt bland and wordy | home.html rewritten — no app flows affected |
