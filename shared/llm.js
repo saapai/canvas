@@ -195,47 +195,80 @@ export async function fetchLinkMetadata(url) {
 
 export async function scrapeUrlContent(url) {
   try {
-    const response = await fetch(url, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'Cache-Control': 'no-cache',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-User': '?1',
-        'Upgrade-Insecure-Requests': '1'
-      },
-      redirect: 'follow'
-    });
+    let rawTextPreview = '';
+    let usedWebSearch = false;
 
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+    // Step 1: Try direct fetch with cheerio
+    try {
+      const response = await fetch(url, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+          'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+          'Accept-Language': 'en-US,en;q=0.9',
+          'Accept-Encoding': 'gzip, deflate, br',
+          'Cache-Control': 'no-cache',
+          'Sec-Fetch-Dest': 'document',
+          'Sec-Fetch-Mode': 'navigate',
+          'Sec-Fetch-Site': 'none',
+          'Sec-Fetch-User': '?1',
+          'Upgrade-Insecure-Requests': '1'
+        },
+        redirect: 'follow'
+      });
+
+      if (response.ok) {
+        const html = await response.text();
+        const $ = cheerio.load(html);
+        $('script, style, nav, footer, header').remove();
+        const rawText = $('body').text().replace(/\s+/g, ' ').trim();
+        rawTextPreview = rawText.slice(0, 5000);
+      }
+    } catch (fetchErr) {
+      console.log('[scrapeUrlContent] Direct fetch failed, trying web search:', fetchErr.message);
     }
 
-    const html = await response.text();
-    const $ = cheerio.load(html);
+    // Step 2: If content is too thin (CSR app, blocked, etc.), fall back to web search
+    if (rawTextPreview.length < 200) {
+      console.log(`[scrapeUrlContent] Thin content (${rawTextPreview.length} chars), falling back to web search for: ${url}`);
+      try {
+        const webResponse = await openai.responses.create({
+          model: 'gpt-4o-mini',
+          tools: [{ type: 'web_search_preview' }],
+          input: `Visit this exact URL and extract ALL the content you can find: ${url}\n\nList every piece of data visible on the page: names, numbers, rankings, scores, dates, descriptions. Be exhaustive.`
+        });
+        // Extract text from response
+        for (const item of webResponse.output) {
+          if (item.type === 'message') {
+            for (const block of (item.content || [])) {
+              if (block.type === 'output_text' && block.text) {
+                rawTextPreview = block.text.slice(0, 5000);
+                usedWebSearch = true;
+              }
+            }
+          }
+        }
+      } catch (webErr) {
+        console.error('[scrapeUrlContent] Web search fallback failed:', webErr.message);
+      }
+    }
 
-    // Remove non-content elements
-    $('script, style, nav, footer, header').remove();
+    if (!rawTextPreview || rawTextPreview.length < 50) {
+      throw new Error('Could not extract meaningful content from URL');
+    }
 
-    const rawText = $('body').text().replace(/\s+/g, ' ').trim();
-    const rawTextPreview = rawText.slice(0, 5000);
+    // Step 3: LLM summarize into structured queryable content
+    const summarizePrompt = usedWebSearch
+      ? `Organize the following web page data into structured, queryable text (max 2000 chars). Preserve ALL specific data: names, numbers, rankings, scores, dates. Be exhaustive and factual.\n\nURL: ${url}\n\nContent:\n${rawTextPreview}`
+      : `URL: ${url}\n\nContent:\n${rawTextPreview}`;
 
-    // LLM summarize into structured queryable content
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
         {
           role: 'system',
-          content: 'You are a content extraction assistant. Extract and summarize the key data points from this webpage content into structured, queryable text (max 2000 chars). Focus on: key facts, numbers, names, dates, main topics, and important details. Be concise and factual.'
+          content: 'You are a content extraction assistant. Extract and summarize the key data points from this webpage content into structured, queryable text (max 2000 chars). Focus on: key facts, numbers, names, dates, main topics, and important details. Preserve ALL specific numbers, scores, and rankings exactly. Be concise and factual.'
         },
-        {
-          role: 'user',
-          content: `URL: ${url}\n\nContent:\n${rawTextPreview}`
-        }
+        { role: 'user', content: summarizePrompt }
       ],
       max_tokens: 600,
       temperature: 0.2

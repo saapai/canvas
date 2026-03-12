@@ -398,13 +398,21 @@ export async function getContentQueryAnswer(entryId, question, opts = {}) {
     }
   }
 
-  // Batch-fetch scraped content for all URLs
+  // Batch-fetch scraped content for all URLs — scrape on demand if missing
   const { getLinkScrape } = await import('./db.js');
+  const { scrapeUrlContent } = await import('./llm.js');
   const scrapeMap = new Map();
   for (const url of allUrls) {
     try {
-      const scrape = await getLinkScrape(url);
-      if (scrape?.content_summary) scrapeMap.set(url, scrape.content_summary);
+      let scrape = await getLinkScrape(url);
+      // If no scrape or content is empty/stale, scrape it live
+      if (!scrape?.content_summary) {
+        console.log('[ContentQuery] No scraped content for', url, '— scraping live');
+        const result = await scrapeUrlContent(url);
+        if (result.contentSummary) scrapeMap.set(url, result.contentSummary);
+      } else {
+        scrapeMap.set(url, scrape.content_summary);
+      }
     } catch {}
   }
 
