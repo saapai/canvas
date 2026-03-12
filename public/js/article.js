@@ -128,8 +128,10 @@ async function loadEditorsList() {
         const displayName = editor.pending
           ? `${escapeHtml(editor.phone || 'Unknown')} (pending)`
           : escapeHtml(editor.username || editor.phone || 'Unknown');
+        const roleBadge = `<span class="share-editor-role share-editor-role-${editor.role || 'admin'}">${editor.role || 'admin'}</span>`;
         item.innerHTML = `
           <span class="share-editor-name">${displayName}</span>
+          ${roleBadge}
           <button class="share-editor-remove" title="Remove editor">&times;</button>
         `;
         item.querySelector('.share-editor-remove').addEventListener('click', () => {
@@ -156,12 +158,14 @@ async function addEditorByPhone() {
     return;
   }
   shareError.classList.add('hidden');
+  const roleSelect = document.getElementById('share-role-select');
+  const role = roleSelect ? roleSelect.value : 'admin';
   try {
     const res = await fetch('/api/editors/add', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: '+1' + phone.replace(/\D/g, '') })
+      body: JSON.stringify({ phone: '+1' + phone.replace(/\D/g, ''), role })
     });
     const data = await res.json();
     if (!res.ok) {
@@ -222,121 +226,41 @@ if (sharePhoneInput) {
 
 async function loadSharedEntries() {
   try {
-    console.log('[SHARED] loadSharedEntries called, PAGE_IS_OWNER:', window.PAGE_IS_OWNER, 'PAGE_USERNAME:', window.PAGE_USERNAME);
+    console.log('[SHARED] loadSharedEntries called');
     const res = await fetch('/api/shared-entries/full', { credentials: 'include' });
-    console.log('[SHARED] API response status:', res.status);
-    if (!res.ok) { console.log('[SHARED] API returned error, aborting'); return; }
+    if (!res.ok) return;
     const data = await res.json();
-    console.log('[SHARED] API response groups:', data.groups?.length || 0, JSON.stringify(data.groups?.map(g => ({ owner: g.ownerUsername, entryId: g.sharedEntryId, count: g.entries?.length }))));
-    if (!data.groups || data.groups.length === 0) { console.log('[SHARED] No groups, nothing to load'); return; }
+    const cards = data.cards || [];
+    if (cards.length === 0) return;
 
-    for (const group of data.groups) {
-      const { ownerUserId, ownerUsername, sharedEntryId, entries: sharedEntries } = group;
-      console.log('[SHARED] Group from', ownerUsername, '- entries:', sharedEntries?.length || 0, 'sharedEntryId:', sharedEntryId);
-      if (!sharedEntries || sharedEntries.length === 0) continue;
-
-      sharedEntries.forEach(entryData => {
-        // Mark all shared entries with their owner
-        sharedEntryOwners.set(entryData.id, ownerUserId);
-
-        // Override root shared entry's parentEntryId to null so it appears at editor's root
-        if (entryData.id === sharedEntryId || !entryData.parentEntryId) {
-          entryData.parentEntryId = null;
-        }
-
-        // Skip if already loaded
-        if (entries.has(entryData.id)) return;
-
-        // Create DOM element
-        const entry = document.createElement('div');
-        entry.className = 'entry shared-entry';
-        entry.id = entryData.id;
-        entry.style.left = `${entryData.position.x}px`;
-        entry.style.top = `${entryData.position.y}px`;
-        entry.style.display = 'none'; // Will be shown by updateEntryVisibility
-
-        // Render entry content (same logic as loadUserEntries)
-        const isImageOnly = entryData.mediaCardData && entryData.mediaCardData.type === 'image';
-        const isFileEntry = entryData.mediaCardData && entryData.mediaCardData.type === 'file';
-
-        if (isImageOnly) {
-          entry.classList.add('canvas-image');
-          const img = document.createElement('img');
-          img.src = entryData.mediaCardData.url;
-          img.dataset.fullSrc = entryData.mediaCardData.url;
-          img.alt = 'Canvas image';
-          img.draggable = false;
-          img.loading = 'lazy';
-          img.decoding = 'async';
-          entry.appendChild(img);
-        } else if (isFileEntry) {
-          entry.classList.add('canvas-file');
-          entry.appendChild(createFileCard(entryData.mediaCardData));
-        } else if (entryData.latexData && entryData.latexData.enabled) {
-          renderLatex(entryData.latexData.source, entry);
-        } else {
-          const { processedText, urls } = processTextWithLinks(entryData.text);
-          if (entryData.textHtml && entryData.textHtml.includes('deadline-table')) {
-            entry.innerHTML = entryData.textHtml;
-            const dt = entry.querySelector('.deadline-table');
-            if (dt) setupDeadlineTableHandlers(dt);
-          } else if (entryData.textHtml && entryData.textHtml.includes('gcal-card')) {
-            entry.innerHTML = entryData.textHtml;
-            const card = entry.querySelector('.gcal-card');
-            if (card) setupCalendarCardHandlers(card);
-          } else if (processedText) {
-            if (entryData.textHtml && /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(entryData.textHtml)) {
-              let cleanHtml = entryData.textHtml;
-              urls.forEach(url => { cleanHtml = cleanHtml.replace(url, ''); });
-              entry.innerHTML = cleanHtml.trim() ? meltifyHtml(cleanHtml.trim()) : '';
-              applyEntryFontSize(entry, entryData.textHtml);
-            } else {
-              entry.innerHTML = `<span>${meltify(processedText)}</span>`;
-            }
-          }
-
-          // Add link cards
-          if (entryData.linkCardsData && Array.isArray(entryData.linkCardsData)) {
-            entryData.linkCardsData.forEach(cardData => {
-              if (cardData && cardData.url) {
-                const card = createLinkCard(cardData);
-                entry.appendChild(card);
-              }
-            });
-          }
-
-          // Add media card
-          if (!isImageOnly && !isFileEntry && entryData.mediaCardData && entryData.mediaCardData.type !== 'image') {
-            const card = createMediaCard(entryData.mediaCardData);
-            entry.appendChild(card);
-          }
-        }
-
-        world.appendChild(entry);
-
-        // Store in entries map
-        const storedData = {
-          id: entryData.id,
-          element: entry,
-          text: entryData.text,
-          textHtml: entryData.textHtml,
-          latexData: entryData.latexData || null,
-          position: entryData.position,
-          parentEntryId: entryData.parentEntryId,
-          linkCardsData: entryData.linkCardsData || [],
-          mediaCardData: entryData.mediaCardData || null,
-          _sharedOwnerId: ownerUserId
-        };
-        entries.set(entryData.id, storedData);
-        updateEntryDimensions(entry);
+    // Render navigation cards for each shared page
+    cards.forEach(card => {
+      const el = document.createElement('div');
+      el.className = 'shared-page-card';
+      el.innerHTML = `
+        <div class="shared-page-card-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+          </svg>
+        </div>
+        <div class="shared-page-card-info">
+          <span class="shared-page-card-label">${escapeHtml(card.label)}</span>
+          <span class="shared-page-card-owner">${escapeHtml(card.ownerUsername)}</span>
+        </div>
+        <span class="shared-page-role shared-page-role-${card.role}">${card.role}</span>
+      `;
+      el.addEventListener('click', () => {
+        window.location.href = card.link;
       });
-
-      // Start sync for this shared owner
-      startSync(ownerUserId);
-    }
-
-    // Refresh visibility to show shared entries at root level
-    updateEntryVisibility();
+      // Position cards in a column below the anchor
+      const idx = cards.indexOf(card);
+      const cardX = (anchorPos ? anchorPos.x : 0) + 0;
+      const cardY = (anchorPos ? anchorPos.y : 0) + 60 + idx * 80;
+      el.style.left = `${cardX}px`;
+      el.style.top = `${cardY}px`;
+      world.appendChild(el);
+    });
   } catch (err) {
     console.error('Error loading shared entries:', err);
   }

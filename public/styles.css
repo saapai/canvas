@@ -3306,20 +3306,64 @@ body.has-bg-image::before {
 /* Shared page cards on editor's home */
 .shared-page-card {
   position: absolute;
-  background: rgba(255, 255, 255, 0.85);
+  display: flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.92);
   border: 1px solid rgba(0, 0, 0, 0.1);
-  border-radius: 8px;
-  padding: 14px 18px;
+  border-radius: 10px;
+  padding: 12px 16px;
   cursor: pointer;
   transition: all 0.15s ease;
   font-family: 'Inter', sans-serif;
-  min-width: 160px;
+  min-width: 200px;
+  max-width: 320px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
 }
 .shared-page-card:hover {
   transform: translateY(-1px);
   box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);
   border-color: rgba(0, 0, 0, 0.2);
+}
+.shared-page-card-icon {
+  flex-shrink: 0;
+  color: rgba(0, 0, 0, 0.4);
+  margin-right: 12px;
+}
+.shared-page-card-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.shared-page-card-label {
+  font-size: 14px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.shared-page-card-owner {
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.45);
+}
+.shared-page-role {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+.shared-page-role-admin {
+  background: rgba(46, 134, 222, 0.12);
+  color: #2e86de;
+}
+.shared-page-role-member {
+  background: rgba(108, 117, 125, 0.12);
+  color: #6c757d;
 }
 .shared-page-card-title {
   font-size: 15px;
@@ -3346,6 +3390,42 @@ body.has-bg-image::before {
 .shared-page-card-remove:hover {
   color: #d63031;
   background: rgba(214, 48, 49, 0.08);
+}
+
+/* Share popover role selector */
+.share-role-select {
+  padding: 6px 8px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: 'Inter', sans-serif;
+  background: #fff;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.share-role-select:focus {
+  outline: none;
+  border-color: #333;
+}
+
+/* Role badge in editors list */
+.share-editor-role {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  margin-left: 6px;
+  flex-shrink: 0;
+}
+.share-editor-role-admin {
+  background: rgba(46, 134, 222, 0.12);
+  color: #2e86de;
+}
+.share-editor-role-member {
+  background: rgba(108, 117, 125, 0.12);
+  color: #6c757d;
 }
 
 /* ——— SMS type indicators on entries ——— */

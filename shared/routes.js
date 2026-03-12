@@ -42,6 +42,7 @@ import {
   getPageEditors,
   getSharedPagesForUser,
   isEditor,
+  getEditorRole,
   getEntriesUpdatedSince,
   getEntryWithDescendants,
   getStaleLinks
@@ -139,7 +140,7 @@ export function createRouter(options = {}) {
   }
 
   // Helper function to generate user page HTML (canvas view, editable if owner)
-  function generateUserPageHTML(user, isOwner = false, pathParts = [], isEditorFlag = false) {
+  function generateUserPageHTML(user, isOwner = false, pathParts = [], isEditorFlag = false, editorRole = null) {
     // Read the index.html template
     try {
       const indexPath = join(__dirname, '../public/index.html');
@@ -157,6 +158,7 @@ export function createRouter(options = {}) {
     window.PAGE_USERNAME = '${user.username}';
     window.PAGE_IS_OWNER = ${isOwner};
     window.PAGE_IS_EDITOR = ${isEditorFlag};
+    window.PAGE_EDITOR_ROLE = ${editorRole ? `'${editorRole}'` : 'null'};
     window.PAGE_OWNER_ID = '${user.id}';
     window.PAGE_PATH = ${JSON.stringify(pathParts)};
   </script>`;
@@ -1734,7 +1736,8 @@ export function createRouter(options = {}) {
   // Add an editor by phone number
   router.post('/api/editors/add', requireAuth, async (req, res) => {
     try {
-      const { phone, sharedEntryId } = req.body;
+      const { phone, sharedEntryId, role } = req.body;
+      const editorRole = (role === 'member') ? 'member' : 'admin';
       if (!phone || typeof phone !== 'string') {
         return res.status(400).json({ error: 'Phone number is required' });
       }
@@ -1772,7 +1775,7 @@ export function createRouter(options = {}) {
       if (editorUsers.length === 0) {
         // No account yet — save as pending invite
         const pendingPhone = rawDigits.length === 10 ? '+1' + rawDigits : '+' + rawDigits;
-        await addPendingEditor(ownerUser.id, pendingPhone, sharedEntryId || null);
+        await addPendingEditor(ownerUser.id, pendingPhone, sharedEntryId || null, editorRole);
         res.json({ success: true, pending: true, phone: pendingPhone });
         return;
       }
@@ -1790,7 +1793,7 @@ export function createRouter(options = {}) {
         return res.status(400).json({ error: 'You cannot add yourself as an editor' });
       }
 
-      await addPageEditor(ownerUser.id, editorUser.id, sharedEntryId || null);
+      await addPageEditor(ownerUser.id, editorUser.id, sharedEntryId || null, editorRole);
       res.json({ success: true, editor: { id: editorUser.id, username: editorUser.username } });
     } catch (error) {
       console.error('Error adding editor:', error);
@@ -1848,6 +1851,7 @@ export function createRouter(options = {}) {
           username: e.username,
           phone: e.phone || e.pending_phone,
           pending: !e.editor_user_id,
+          role: e.role || 'admin',
           createdAt: e.created_at
         }))
       });
@@ -1901,39 +1905,31 @@ export function createRouter(options = {}) {
     }
   });
 
-  // Get full shared entries for current user's canvas (live copy)
+  // Get shared pages for current user — lightweight card data for navigation
   router.get('/api/shared-entries/full', requireAuth, async (req, res) => {
     try {
-      console.log('[SHARED-ENTRIES] Fetching shared entries for user:', req.user.id, req.user.username);
+      console.log('[SHARED-ENTRIES] Fetching shared page cards for user:', req.user.id, req.user.username);
       const sharedPages = await getSharedPagesForUser(req.user.id);
-      console.log('[SHARED-ENTRIES] Found shared pages:', JSON.stringify(sharedPages));
-      const groups = [];
+      console.log('[SHARED-ENTRIES] Found shared pages:', sharedPages.length);
 
-      for (const page of sharedPages) {
-        let entries = [];
-        if (page.shared_entry_id) {
-          console.log('[SHARED-ENTRIES] Fetching entry+descendants:', page.shared_entry_id, 'owner:', page.owner_user_id);
-          entries = await getEntryWithDescendants(page.shared_entry_id, page.owner_user_id);
-          console.log('[SHARED-ENTRIES] Got', entries.length, 'entries for shared_entry_id:', page.shared_entry_id);
-        } else {
-          // Full page share - get all root entries
-          console.log('[SHARED-ENTRIES] Full page share, fetching all entries for owner:', page.owner_user_id);
-          entries = await getAllEntries(page.owner_user_id);
-          console.log('[SHARED-ENTRIES] Got', entries.length, 'entries for full page share');
-        }
+      const cards = sharedPages.map(page => {
+        const ownerUsername = page.owner_username;
+        const role = page.role || 'admin';
+        // Build link to owner's page (or sub-page if shared_entry_id)
+        const link = `/${ownerUsername}`;
+        const label = `${ownerUsername}'s page`;
+        return {
+          ownerUserId: page.owner_user_id,
+          ownerUsername,
+          sharedEntryId: page.shared_entry_id || null,
+          role,
+          link,
+          label
+        };
+      });
 
-        if (entries.length > 0) {
-          groups.push({
-            ownerUserId: page.owner_user_id,
-            ownerUsername: page.owner_username,
-            sharedEntryId: page.shared_entry_id,
-            entries
-          });
-        }
-      }
-
-      console.log('[SHARED-ENTRIES] Returning', groups.length, 'groups');
-      res.json({ groups });
+      console.log('[SHARED-ENTRIES] Returning', cards.length, 'cards');
+      res.json({ cards });
     } catch (error) {
       console.error('[SHARED-ENTRIES] Error fetching shared entries:', error);
       res.status(500).json({ error: error.message });
@@ -2647,17 +2643,23 @@ export function createRouter(options = {}) {
         }
       }
 
-      // Check if logged-in user is an editor
+      // Check if logged-in user is an editor and get their role
+      let editorRole = null;
       if (!isOwner && loggedInUser) {
-        isEditorFlag = await isEditor(user.id, loggedInUser.id);
+        editorRole = await getEditorRole(user.id, loggedInUser.id);
+        isEditorFlag = !!editorRole;
         // SMS admin fallback: if not an editor, check if SMS admin for this user's entries
         if (!isEditorFlag && loggedInUser.phone) {
-          isEditorFlag = await smsDb.isAdminForUserEntries(loggedInUser.phone, user.id);
+          const isSmsAdmin = await smsDb.isAdminForUserEntries(loggedInUser.phone, user.id);
+          if (isSmsAdmin) {
+            isEditorFlag = true;
+            editorRole = 'admin';
+          }
         }
       }
 
       // Always serve canvas view (editable if owner/editor, read-only if public)
-      res.send(generateUserPageHTML(user, isOwner, [], isEditorFlag));
+      res.send(generateUserPageHTML(user, isOwner, [], isEditorFlag, editorRole));
     } catch (error) {
       console.error('Error serving user page:', error);
       res.status(500).send('Error loading page');
@@ -2714,17 +2716,23 @@ export function createRouter(options = {}) {
         }
       }
 
-      // Check if logged-in user is an editor
+      // Check if logged-in user is an editor and get their role
+      let editorRole = null;
       if (!isOwner && loggedInUser) {
-        isEditorFlag = await isEditor(user.id, loggedInUser.id);
+        editorRole = await getEditorRole(user.id, loggedInUser.id);
+        isEditorFlag = !!editorRole;
         // SMS admin fallback
         if (!isEditorFlag && loggedInUser.phone) {
-          isEditorFlag = await smsDb.isAdminForUserEntries(loggedInUser.phone, user.id);
+          const isSmsAdmin = await smsDb.isAdminForUserEntries(loggedInUser.phone, user.id);
+          if (isSmsAdmin) {
+            isEditorFlag = true;
+            editorRole = 'admin';
+          }
         }
       }
 
       // Always serve canvas view (editable if owner/editor, read-only if public)
-      res.send(generateUserPageHTML(user, isOwner, pathParts, isEditorFlag));
+      res.send(generateUserPageHTML(user, isOwner, pathParts, isEditorFlag, editorRole));
     } catch (error) {
       console.error('Error serving user page:', error);
       res.status(500).send('Error loading page');

@@ -210,6 +210,13 @@ export async function initDatabase() {
       console.log('Note: page_editors pending_phone migration:', error.message);
     }
 
+    // Add role column to page_editors for admin/member distinction
+    try {
+      await db.query(`ALTER TABLE page_editors ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'admin'`);
+    } catch (error) {
+      console.log('Note: page_editors role migration:', error.message);
+    }
+
     // Index on entries.updated_at for efficient sync polling
     try {
       await db.query(`
@@ -944,19 +951,19 @@ export async function saveGoogleCalendarSettings(userId, settings) {
 
 // ——— Collaborative editing (page editors) ———
 
-export async function addPageEditor(ownerUserId, editorUserId, sharedEntryId = null) {
+export async function addPageEditor(ownerUserId, editorUserId, sharedEntryId = null, role = 'admin') {
   const db = getPool();
   const id = crypto.randomUUID();
   await db.query(
-    `INSERT INTO page_editors (id, owner_user_id, editor_user_id, shared_entry_id)
-     VALUES ($1, $2, $3, $4)
-     ON CONFLICT (owner_user_id, editor_user_id, shared_entry_id) DO NOTHING`,
-    [id, ownerUserId, editorUserId, sharedEntryId]
+    `INSERT INTO page_editors (id, owner_user_id, editor_user_id, shared_entry_id, role)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (owner_user_id, editor_user_id, shared_entry_id) DO UPDATE SET role = EXCLUDED.role`,
+    [id, ownerUserId, editorUserId, sharedEntryId, role]
   );
-  return { id, ownerUserId, editorUserId, sharedEntryId };
+  return { id, ownerUserId, editorUserId, sharedEntryId, role };
 }
 
-export async function addPendingEditor(ownerUserId, pendingPhone, sharedEntryId = null) {
+export async function addPendingEditor(ownerUserId, pendingPhone, sharedEntryId = null, role = 'admin') {
   const db = getPool();
   const existing = await db.query(
     `SELECT 1 FROM page_editors WHERE owner_user_id = $1 AND pending_phone = $2 AND editor_user_id IS NULL
@@ -966,11 +973,11 @@ export async function addPendingEditor(ownerUserId, pendingPhone, sharedEntryId 
   if (existing.rows.length > 0) return { alreadyPending: true };
   const id = crypto.randomUUID();
   await db.query(
-    `INSERT INTO page_editors (id, owner_user_id, editor_user_id, pending_phone, shared_entry_id)
-     VALUES ($1, $2, NULL, $3, $4)`,
-    [id, ownerUserId, pendingPhone, sharedEntryId]
+    `INSERT INTO page_editors (id, owner_user_id, editor_user_id, pending_phone, shared_entry_id, role)
+     VALUES ($1, $2, NULL, $3, $4, $5)`,
+    [id, ownerUserId, pendingPhone, sharedEntryId, role]
   );
-  return { id, ownerUserId, pendingPhone, sharedEntryId };
+  return { id, ownerUserId, pendingPhone, sharedEntryId, role };
 }
 
 export async function convertPendingEditors(phone, newUserId) {
@@ -1014,7 +1021,7 @@ export async function getPageEditors(ownerUserId, sharedEntryId = null) {
   let result;
   if (sharedEntryId) {
     result = await db.query(
-      `SELECT pe.id, pe.editor_user_id, pe.shared_entry_id, pe.created_at, pe.pending_phone,
+      `SELECT pe.id, pe.editor_user_id, pe.shared_entry_id, pe.created_at, pe.pending_phone, pe.role,
               u.username, u.phone
        FROM page_editors pe
        LEFT JOIN users u ON pe.editor_user_id = u.id
@@ -1024,7 +1031,7 @@ export async function getPageEditors(ownerUserId, sharedEntryId = null) {
     );
   } else {
     result = await db.query(
-      `SELECT pe.id, pe.editor_user_id, pe.shared_entry_id, pe.created_at, pe.pending_phone,
+      `SELECT pe.id, pe.editor_user_id, pe.shared_entry_id, pe.created_at, pe.pending_phone, pe.role,
               u.username, u.phone
        FROM page_editors pe
        LEFT JOIN users u ON pe.editor_user_id = u.id
@@ -1039,7 +1046,7 @@ export async function getPageEditors(ownerUserId, sharedEntryId = null) {
 export async function getSharedPagesForUser(editorUserId) {
   const db = getPool();
   const result = await db.query(
-    `SELECT pe.id, pe.owner_user_id, pe.shared_entry_id, pe.created_at,
+    `SELECT pe.id, pe.owner_user_id, pe.shared_entry_id, pe.created_at, pe.role,
             u.username AS owner_username
      FROM page_editors pe
      JOIN users u ON pe.owner_user_id = u.id
@@ -1048,6 +1055,17 @@ export async function getSharedPagesForUser(editorUserId) {
     [editorUserId]
   );
   return result.rows;
+}
+
+export async function getEditorRole(ownerUserId, editorUserId) {
+  const db = getPool();
+  const result = await db.query(
+    `SELECT role FROM page_editors
+     WHERE owner_user_id = $1 AND editor_user_id = $2
+     LIMIT 1`,
+    [ownerUserId, editorUserId]
+  );
+  return result.rows.length > 0 ? result.rows[0].role : null;
 }
 
 export async function isEditor(ownerUserId, editorUserId) {

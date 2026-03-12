@@ -95,8 +95,10 @@ async function bootstrap() {
     if (isUserPage) {
       const targetUsername = pageUsername || pathParts[0];
       const isEditorUser = window.PAGE_IS_EDITOR === true;
-      // Editable if logged in AND (is owner OR is editor)
-      const editable = isLoggedIn && (isOwner || isEditorUser);
+      const editorRole = window.PAGE_EDITOR_ROLE || null;
+      // Editable if logged in AND (is owner OR is admin editor)
+      // Members get read-only view but can still see live updates
+      const editable = isLoggedIn && (isOwner || (isEditorUser && editorRole === 'admin'));
       await loadUserEntries(targetUsername, editable);
       // Ensure auth overlay stays hidden
       hideAuthOverlay();
@@ -358,8 +360,21 @@ async function loadUserEntries(username, editable) {
       };
       entries.set(entryData.id, storedEntryData);
 
-      // SMS admin link entries navigate on click
+      // SMS admin link entries — render as shared-page-card style and navigate on click
       if (entryData.smsAdminLink) {
+        entry.classList.add('shared-page-card');
+        entry.innerHTML = `
+          <div class="shared-page-card-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+            </svg>
+          </div>
+          <div class="shared-page-card-info">
+            <span class="shared-page-card-label">${escapeHtml(entryData.text || 'SMS Page')}</span>
+            <span class="shared-page-card-owner">SMS admin</span>
+          </div>
+          <span class="shared-page-role shared-page-role-admin">admin</span>
+        `;
         entry.style.cursor = 'pointer';
         entry.addEventListener('click', (e) => {
           e.stopPropagation();
@@ -391,8 +406,8 @@ async function loadUserEntries(username, editable) {
       shareBtn.classList.toggle('hidden', !(window.PAGE_IS_OWNER === true));
     }
 
-    // Start sync if editable and user is editor (or owner with editors)
-    if (editable && window.PAGE_OWNER_ID) {
+    // Start sync for live updates — both admin editors and member viewers
+    if (isLoggedIn && (isOwner || isEditorUser) && window.PAGE_OWNER_ID) {
       startSync(window.PAGE_OWNER_ID);
     }
 

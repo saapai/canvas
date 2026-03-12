@@ -230,7 +230,7 @@ Route: /:username → renders canvas
 | `entries` | id, text, position_x/y, parent_entry_id, user_id, text_html, media_card_data, link_cards_data, latex_data, background_image, deleted_at | All canvas content |
 | `phone_verification_codes` | phone, code, expires_at | SMS auth |
 | `google_tokens` | user_id, access/refresh_token, calendar_settings | Google OAuth |
-| `page_editors` | owner_user_id, editor_user_id, shared_entry_id, pending_phone | Sharing |
+| `page_editors` | owner_user_id, editor_user_id, shared_entry_id, pending_phone, role | Sharing (role: admin/member) |
 | `sms_groups` | id, join_code, admin_phone, group_name | SMS groups |
 | `sms_members` | phone, group_id, is_admin | Group membership |
 | `sms_conversations` | phone, group_id, message_text, direction | SMS history |
@@ -250,6 +250,7 @@ Route: /:username → renders canvas
 
 | Date | Change | Why | Impact |
 |------|--------|-----|--------|
+| 2026-03-11 | Admin sharing: navigate to owner's page + role support (admin/member) | Shared pages should open on owner's canvas like Google Docs, not inline. Members get read-only view. | db.js (role column, getEditorRole), routes.js (role-aware sharing, lightweight cards API), article.js (navigation cards instead of inline entries), entries.js (role-based editing, member sync), index.html (role selector), styles.css (card/role styles) — sharing flow rewritten, editor/sync flows updated |
 | 2026-03-11 | Fix link card disappearing on sync + add daily link scraping for chat | Link card placeholders cleared by 3s sync poll; users want to query link content in chat | article.js (placeholder preservation), editor.js (targetEntryData fix), db.js (link_scrapes table), llm.js (scrapeUrlContent), routes.js (cron + immediate scrape), chat.js (scraped content in context), vercel.json (cron) — entry sync, link card, chat flows updated |
 | 2026-03-09 | Landing page redesign: animations, tighter copy, ink interactions | Page felt bland and wordy | home.html rewritten — no app flows affected |
 | 2026-03-08 | Fix link card race condition + increase file limit to 10MB | Link cards hidden by stale .editing class when placeEditorAtWorld fires during async commitEditor; file upload limit too low | editor.js (placeEditorAtWorld guard, .editing cleanup), media.js (10MB limit) — editor/commit flow updated |
