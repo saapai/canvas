@@ -485,6 +485,7 @@ export async function initDatabase() {
       await db.query(`CREATE INDEX IF NOT EXISTS idx_slack_facts_sync ON slack_facts(sync_id)`);
       await db.query(`CREATE INDEX IF NOT EXISTS idx_slack_facts_current ON slack_facts(is_current)`);
       await db.query(`CREATE INDEX IF NOT EXISTS idx_slack_facts_type ON slack_facts(fact_type)`);
+      await db.query(`ALTER TABLE slack_facts ADD COLUMN IF NOT EXISTS digested_at TIMESTAMP`);
     } catch (error) {
       console.log('Note: slack_facts table check:', error.message);
     }

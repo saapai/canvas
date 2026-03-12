@@ -7,7 +7,7 @@ import { WebClient } from '@slack/web-api';
 import OpenAI from 'openai';
 import * as slackDb from './slack-db.js';
 import { sendSms } from './sms.js';
-import { toE164 } from './sms-db.js';
+import { toE164, getOptedInMembers } from './sms-db.js';
 
 let _slackClient = null;
 
@@ -286,46 +286,7 @@ Return [] if nothing is superseded.`
 // NOTIFICATION SCHEDULING
 // ============================================
 
-/**
- * LLM check: does a new fact about the same event contain a material update?
- * Material = change in where, when, or urgency (cancellation, new requirement).
- * Non-material = same info rephrased, minor additions, reminders.
- */
-async function isMaterialUpdate(existingFactText, newFactText) {
-  if (!process.env.OPENAI_API_KEY) return false;
-  try {
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      temperature: 0.1,
-      max_tokens: 100,
-      messages: [
-        { role: 'system', content: `Compare two facts about the same event. Is the new fact a MATERIAL UPDATE?
-
-Material updates (send notification):
-- Change in WHEN (time/date rescheduled)
-- Change in WHERE (location changed)
-- Urgent info (cancellation, critical new requirement)
-
-NOT material (skip notification):
-- Same info rephrased or repeated
-- Minor additions (agenda, encouragement)
-- General reminders about the same event
-
-Respond with JSON: {"isMaterial": true/false, "reason": "brief reason"}` },
-        { role: 'user', content: `Previously notified: "${existingFactText}"\nNew information: "${newFactText}"` }
-      ],
-      response_format: { type: 'json_object' }
-    });
-    const parsed = JSON.parse(response.choices[0].message.content);
-    console.log(`[Dedup] Material check: ${parsed.isMaterial} — ${parsed.reason}`);
-    return parsed.isMaterial === true;
-  } catch (e) {
-    console.error('[Dedup] LLM check failed:', e.message);
-    return false;
-  }
-}
-
-export function scheduleDeadlineNotifications(userId, entryId, fact, options = {}) {
+export function scheduleDeadlineNotifications(userId, entryId, fact) {
   if (!fact.deadline_date) {
     console.log(`[Notification:schedule] Fact ${fact.id} has no deadline_date, skipping`);
     return [];
@@ -340,32 +301,13 @@ export function scheduleDeadlineNotifications(userId, entryId, fact, options = {
 
   console.log(`[Notification:schedule] Fact ${fact.id}: "${fact.extracted_fact?.substring(0, 60)}" | eventDate=${eventDate.toISOString()} | now=${now.toISOString()} | hasTime=${hasSpecificTime}`);
 
-  // NOTIFICATION 1: "initial" — send soon after discovery (next cron tick, ~1 min from now)
-  // Skip if dedup detected this event was already notified (unless material update)
-  if (!options.skipInitial) {
-    const initialTime = new Date(now.getTime() + 60 * 1000);
-    const prefix = options.isUpdate ? 'Update' : 'Heads up';
-    console.log(`[Notification:schedule] → Scheduling initial for ${initialTime.toISOString()} (${options.isUpdate ? 'material update' : 'new event'})`);
-    notifications.push({
-      userId,
-      entryId,
-      factId: fact.id,
-      notificationType: 'initial',
-      scheduledFor: initialTime,
-      eventDate,
-      message: `${prefix}: ${fact.extracted_fact}`
-    });
-  } else {
-    console.log(`[Notification:schedule] → Skipping initial (already notified, no material change)`);
-  }
-
-  // NOTIFICATION 2: "deadline_reminder" — before the deadline
+  // "deadline_reminder" — before the deadline
   // For timed events: 4 hours before
   // For date-only deadlines (e.g. "end of weekend"): 6 PM PST on deadline day
   if (hasSpecificTime) {
     const fourHoursBefore = new Date(eventDate.getTime() - 4 * 60 * 60 * 1000);
     if (fourHoursBefore > now && fourHoursBefore.getTime() - now.getTime() > 2 * 60 * 60 * 1000) {
-      // Only schedule if reminder is more than 2 hours from now (avoid bunching with initial)
+      // Only schedule if reminder is more than 2 hours from now
       console.log(`[Notification:schedule] → Scheduling deadline_reminder for ${fourHoursBefore.toISOString()}`);
       notifications.push({
         userId,
@@ -457,46 +399,26 @@ export async function syncChannel(syncRecord) {
   // 4. Handle recency bias — supersede outdated facts
   await handleRecencyBias(entryId, savedFacts);
 
-  // 5. Schedule notifications for deadline/event facts (with dedup)
-  console.log(`[Slack:sync] #${channelName}: checking ${savedFacts.length} facts for notifications (deadline/event types)`);
-  const deadlineEventFacts = savedFacts.filter(f => f.fact_type === 'deadline' || f.fact_type === 'event');
-  console.log(`[Slack:sync] #${channelName}: ${deadlineEventFacts.length} deadline/event facts found`);
-  for (const fact of deadlineEventFacts) {
-    console.log(`[Slack:sync] #${channelName}: scheduling for fact ${fact.id} (type=${fact.fact_type}, deadline=${fact.deadline_date}): "${fact.extracted_fact?.substring(0, 80)}"`);
-
-    // DEDUP: Check if this event already has notifications
-    let scheduleOptions = {};
-    if (fact.deadline_date) {
-      const existing = await slackDb.getExistingEventNotifications(entryId, fact.deadline_date);
-      const existingInitial = existing.find(n => n.notification_type === 'initial');
-      const existingReminder = existing.find(n => n.notification_type === 'deadline_reminder');
-
-      if (existingInitial) {
-        // Already sent an initial for this event — check if material update
-        const material = await isMaterialUpdate(existingInitial.extracted_fact, fact.extracted_fact);
-        if (material) {
-          console.log(`[Slack:sync] #${channelName}: material update detected for fact ${fact.id}, sending update initial`);
-          scheduleOptions = { skipInitial: false, isUpdate: true };
-        } else {
-          console.log(`[Slack:sync] #${channelName}: skipping initial for fact ${fact.id} (already notified, no material change)`);
-          scheduleOptions = { skipInitial: true };
-        }
-      }
-
-      // If deadline_reminder already exists (pending), skip scheduling a new one
-      if (existingReminder && existingReminder.status === 'pending') {
-        console.log(`[Slack:sync] #${channelName}: deadline_reminder already pending for this event, skipping fact ${fact.id}`);
-        continue; // Skip entirely — both initial and reminder already handled
-      }
+  // 5. Schedule deadline_reminder notifications for facts with deadline_date only
+  //    (Facts without deadline_date go into the weekly digest instead)
+  const datedFacts = savedFacts.filter(f => f.deadline_date);
+  console.log(`[Slack:sync] #${channelName}: ${datedFacts.length} dated facts to check for deadline reminders`);
+  for (const fact of datedFacts) {
+    // Check if a deadline_reminder already exists for this event
+    const existing = await slackDb.getExistingEventNotifications(entryId, fact.deadline_date);
+    const existingReminder = existing.find(n => n.notification_type === 'deadline_reminder');
+    if (existingReminder && existingReminder.status === 'pending') {
+      console.log(`[Slack:sync] #${channelName}: deadline_reminder already pending for fact ${fact.id}, skipping`);
+      continue;
     }
 
-    const notifs = scheduleDeadlineNotifications(userId, entryId, fact, scheduleOptions);
+    const notifs = scheduleDeadlineNotifications(userId, entryId, fact);
     for (const n of notifs) {
       const saved = await slackDb.createNotification(n);
       if (saved) {
         console.log(`[Slack:sync] #${channelName}: created notification ${saved.id} type=${n.notificationType} scheduled=${n.scheduledFor.toISOString()}`);
       } else {
-        console.log(`[Slack:sync] #${channelName}: notification ${n.notificationType} already sent for fact ${fact.id}, skipping`);
+        console.log(`[Slack:sync] #${channelName}: notification ${n.notificationType} already exists for fact ${fact.id}, skipping`);
       }
     }
   }
@@ -626,14 +548,7 @@ export async function checkAndSendNotifications() {
 
   for (const notification of pending) {
     try {
-      if (!notification.phone) {
-        console.log(`[Notification:cron] SKIP ${notification.id}: no phone number on user`);
-        await slackDb.markNotificationFailed(notification.id);
-        results.push({ id: notification.id, status: 'failed', reason: 'no phone' });
-        continue;
-      }
-
-      // Check if prior notifications were missed for this event
+      // Build enriched message once for all recipients
       let message = notification.message;
       try {
         message = await buildEnrichedNotificationMessage(notification);
@@ -642,15 +557,35 @@ export async function checkAndSendNotifications() {
         console.error(`[Notification:cron] Enrichment failed for ${notification.id}, using original:`, enrichErr.message);
       }
 
-      const phone = toE164(notification.phone);
-      console.log(`[Notification:cron] Sending SMS to ${phone} for notification ${notification.id}`);
-      const smsResult = await sendSms(phone, message);
-      if (smsResult.ok) {
+      // Send to ALL opted-in page members (not just the page owner)
+      const members = await getOptedInMembers(notification.entry_id);
+      if (members.length === 0 && notification.phone) {
+        // Fallback: no SMS members set up, send to page owner
+        const phone = toE164(notification.phone);
+        console.log(`[Notification:cron] No SMS members, falling back to owner ${phone} for ${notification.id}`);
+        const smsResult = await sendSms(phone, message);
+        if (smsResult.ok) {
+          await slackDb.markNotificationSent(notification.id, message);
+          results.push({ id: notification.id, status: 'sent', recipients: 1 });
+        } else {
+          await slackDb.markNotificationFailed(notification.id);
+          results.push({ id: notification.id, status: 'failed', reason: smsResult.error });
+        }
+      } else if (members.length > 0) {
+        let sent = 0;
+        for (const member of members) {
+          const phone = member.phone_normalized;
+          if (!phone || phone.length < 10) continue;
+          const smsResult = await sendSms(toE164(phone), message);
+          if (smsResult.ok) sent++;
+        }
+        console.log(`[Notification:cron] Sent ${notification.id} to ${sent}/${members.length} members`);
         await slackDb.markNotificationSent(notification.id, message);
-        results.push({ id: notification.id, status: 'sent' });
+        results.push({ id: notification.id, status: 'sent', recipients: sent });
       } else {
+        console.log(`[Notification:cron] SKIP ${notification.id}: no phone and no members`);
         await slackDb.markNotificationFailed(notification.id);
-        results.push({ id: notification.id, status: 'failed', reason: smsResult.error });
+        results.push({ id: notification.id, status: 'failed', reason: 'no recipients' });
       }
     } catch (error) {
       console.error(`Notification send failed for ${notification.id}:`, error.message);
@@ -691,8 +626,8 @@ async function buildEnrichedNotificationMessage(notification) {
 
   let relevantFacts = [...todayFacts, ...todayInfoFacts];
 
-  // For initial notifications or when no today facts found, include the specific fact being notified about
-  if (relevantFacts.length === 0 || notification_type === 'initial') {
+  // When no today facts found, include the specific fact being notified about
+  if (relevantFacts.length === 0) {
     const thisFact = allFacts.find(f => f.id === fact_id);
     if (thisFact && !relevantFacts.some(f => f.id === thisFact.id)) {
       relevantFacts.unshift(thisFact);
@@ -776,4 +711,119 @@ CONTENT RULES:
   }
 
   return notification.message;
+}
+
+// ============================================
+// CRON: WEEKLY DIGEST — Sunday 7PM PST
+// ============================================
+
+export async function sendWeeklyDigests() {
+  console.log('[WeeklyDigest] Starting weekly digest run');
+
+  // Get all entries with enabled slack syncs
+  const entries = await slackDb.getEntriesWithEnabledSyncs();
+  console.log(`[WeeklyDigest] ${entries.length} entries with enabled syncs`);
+
+  const results = [];
+
+  for (const { entry_id: entryId } of entries) {
+    try {
+      // Get undigested facts (no deadline_date, current, not yet digested)
+      const facts = await slackDb.getUndigestedFactsByEntry(entryId);
+      if (facts.length === 0) {
+        console.log(`[WeeklyDigest] Entry ${entryId}: no undigested facts, skipping`);
+        continue;
+      }
+      console.log(`[WeeklyDigest] Entry ${entryId}: ${facts.length} undigested facts`);
+
+      // Extract URLs from raw_text
+      const extractedLinks = [];
+      for (const f of facts) {
+        const text = f.raw_text || '';
+        const slackLinks = [...text.matchAll(/<(https?:\/\/[^|>]+)(?:\|[^>]*)?>|(?<!="|'|<)(https?:\/\/[^\s>]+)/g)];
+        for (const match of slackLinks) {
+          const url = match[1] || match[2];
+          if (url && !url.includes('slack.com') && !extractedLinks.includes(url)) {
+            extractedLinks.push(url);
+          }
+        }
+      }
+
+      // Compose digest via LLM
+      const factsList = facts.map(f => {
+        const ch = f.channel_name || f.channel_id || '';
+        let line = `[#${ch}] ${f.extracted_fact}`;
+        if (f.raw_text && f.raw_text !== f.extracted_fact) {
+          line += ` | original: "${f.raw_text.substring(0, 400)}"`;
+        }
+        return line;
+      }).join('\n');
+
+      const linkInfo = extractedLinks.length > 0
+        ? `\nEXTRACTED LINKS (include relevant ones in the digest):\n${extractedLinks.join('\n')}`
+        : '';
+
+      let digestMessage;
+      if (process.env.OPENAI_API_KEY) {
+        try {
+          const response = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [
+              { role: 'system', content: `You compose a weekly SMS digest of Slack updates. Plain text only.
+
+FORMAT RULES:
+- PLAIN TEXT ONLY. No markdown, no asterisks, no bullet points, no bold.
+- Use line breaks to separate items
+- Keep it natural and readable, like a text from a friend
+- Under 600 chars ideally, but include all important info
+- Group by channel if multiple channels
+- 1-2 emoji max, only if natural
+
+CONTENT RULES:
+- Summarize key announcements, updates, and info from the week
+- NEVER generalize action items. Use SPECIFIC terms from the facts
+- If URLs are provided, include the most relevant ones
+- Do NOT make up details not in the facts
+- Start with something like "Weekly update" or "This week's highlights"
+- Do NOT include events/deadlines that have specific dates — those get their own reminders` },
+              { role: 'user', content: `Compose a weekly digest SMS from these Slack facts:\n${factsList}${linkInfo}` }
+            ],
+            temperature: 0.3,
+            max_tokens: 600
+          });
+          digestMessage = response.choices[0]?.message?.content?.trim();
+        } catch (llmErr) {
+          console.error(`[WeeklyDigest] LLM failed for entry ${entryId}:`, llmErr.message);
+        }
+      }
+
+      // Fallback if LLM fails
+      if (!digestMessage || digestMessage.length < 10) {
+        digestMessage = `Weekly update:\n${facts.map(f => `- ${f.extracted_fact}`).join('\n')}`;
+      }
+
+      // Send to ALL opted-in page members
+      const members = await getOptedInMembers(entryId);
+      let sent = 0;
+      for (const member of members) {
+        const phone = member.phone_normalized;
+        if (!phone || phone.length < 10) continue;
+        const smsResult = await sendSms(toE164(phone), digestMessage);
+        if (smsResult.ok) sent++;
+      }
+      console.log(`[WeeklyDigest] Entry ${entryId}: sent digest to ${sent}/${members.length} members`);
+
+      // Mark facts as digested
+      const factIds = facts.map(f => f.id);
+      await slackDb.markFactsDigested(factIds);
+
+      results.push({ entryId, facts: facts.length, sent, members: members.length });
+    } catch (error) {
+      console.error(`[WeeklyDigest] Failed for entry ${entryId}:`, error.message);
+      results.push({ entryId, error: error.message });
+    }
+  }
+
+  console.log(`[WeeklyDigest] Complete: ${results.length} entries processed`);
+  return results;
 }

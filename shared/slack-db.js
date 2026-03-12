@@ -258,6 +258,53 @@ export async function getExistingEventNotifications(entryId, deadlineDate) {
   return result.rows;
 }
 
+// ============================================
+// WEEKLY DIGEST
+// ============================================
+
+/**
+ * Get undigested facts for an entry — current, no deadline_date, not yet digested.
+ * These are the facts that belong in the weekly digest.
+ */
+export async function getUndigestedFactsByEntry(entryId) {
+  const db = getPool();
+  const result = await db.query(
+    `SELECT f.*, s.channel_name FROM slack_facts f
+     LEFT JOIN slack_syncs s ON f.sync_id = s.id
+     WHERE f.entry_id = $1
+       AND f.is_current = TRUE
+       AND f.deadline_date IS NULL
+       AND f.digested_at IS NULL
+     ORDER BY f.message_date ASC NULLS LAST, f.created_at ASC`,
+    [entryId]
+  );
+  return result.rows;
+}
+
+/**
+ * Mark facts as digested so they won't appear in future weekly digests.
+ */
+export async function markFactsDigested(factIds) {
+  if (!factIds.length) return;
+  const db = getPool();
+  const placeholders = factIds.map((_, i) => `$${i + 1}`).join(', ');
+  await db.query(
+    `UPDATE slack_facts SET digested_at = CURRENT_TIMESTAMP WHERE id IN (${placeholders})`,
+    factIds
+  );
+}
+
+/**
+ * Get all unique entry_ids that have enabled slack syncs (for weekly digest).
+ */
+export async function getEntriesWithEnabledSyncs() {
+  const db = getPool();
+  const result = await db.query(
+    `SELECT DISTINCT entry_id, user_id FROM slack_syncs WHERE sync_enabled = TRUE`
+  );
+  return result.rows;
+}
+
 /**
  * Get today's event/deadline facts that have NO scheduled notifications yet.
  * These are facts that were synced before catch-up logic existed.
