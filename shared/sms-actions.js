@@ -398,17 +398,19 @@ export async function getContentQueryAnswer(entryId, question, opts = {}) {
     }
   }
 
-  // Batch-fetch scraped content for all URLs — scrape on demand if missing
+  // Batch-fetch scraped content for all URLs — scrape on demand if missing (with 8s timeout to not block SMS)
   const { getLinkScrape } = await import('./db.js');
   const { scrapeUrlContent } = await import('./llm.js');
   const scrapeMap = new Map();
   for (const url of allUrls) {
     try {
       let scrape = await getLinkScrape(url);
-      // If no scrape or content is empty/stale, scrape it live
       if (!scrape?.content_summary) {
-        console.log('[ContentQuery] No scraped content for', url, '— scraping live');
-        const result = await scrapeUrlContent(url);
+        console.log('[ContentQuery] No scraped content for', url, '— scraping live (8s timeout)');
+        const result = await Promise.race([
+          scrapeUrlContent(url),
+          new Promise(resolve => setTimeout(() => resolve({ error: 'timeout' }), 8000))
+        ]);
         if (result.contentSummary) scrapeMap.set(url, result.contentSummary);
       } else {
         scrapeMap.set(url, scrape.content_summary);
