@@ -2,7 +2,8 @@
   "crons": [
     { "path": "/api/cron/slack-sync", "schedule": "*/30 * * * *" },
     { "path": "/api/cron/notifications", "schedule": "*/5 * * * *" },
-    { "path": "/api/cron/unanswered-questions", "schedule": "5,35 * * * *" }
+    { "path": "/api/cron/unanswered-questions", "schedule": "5,35 * * * *" },
+    { "path": "/api/cron/scrape-links", "schedule": "0 6 * * *" }
   ],
   "rewrites": [
     {

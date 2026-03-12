@@ -1,5 +1,6 @@
 import OpenAI from 'openai';
 import dotenv from 'dotenv';
+import { getLinkScrape } from './db.js';
 
 dotenv.config();
 
@@ -27,7 +28,7 @@ Be specific, curious, and insightful. Reference actual titles, artists, years. M
 
 When you have no context, say something brief and inviting—still distinctive, not corporate.`;
 
-function buildTrenchContext(trench, depth = 0, indent = '') {
+async function buildTrenchContext(trench, depth = 0, indent = '') {
   const lines = [];
   const px = trench.position && trench.position.x != null ? trench.position.x : '?';
   const py = trench.position && trench.position.y != null ? trench.position.y : '?';
@@ -51,6 +52,16 @@ function buildTrenchContext(trench, depth = 0, indent = '') {
         desc = `link: "${p.title}" | ${p.url || ''}`;
         if (p.description) desc += ` | ${p.description.slice(0, 120)}`;
         if (p.siteName) desc += ` (${p.siteName})`;
+        if (p.url) {
+          try {
+            const scrape = await getLinkScrape(p.url);
+            if (scrape && scrape.content_summary) {
+              desc += ` | CONTENT: ${scrape.content_summary.slice(0, 500)}`;
+            }
+          } catch (e) {
+            // non-critical, skip
+          }
+        }
       } else if (p.type === 'media' && p.url) {
         desc = `image: ${p.url}`;
       } else if (p.text) {
@@ -66,14 +77,14 @@ function buildTrenchContext(trench, depth = 0, indent = '') {
   const subTrenches = trench.subTrenches || [];
   if (subTrenches.length > 0) {
     for (const st of subTrenches) {
-      lines.push(...buildTrenchContext(st, depth + 1, indent + '  '));
+      lines.push(...(await buildTrenchContext(st, depth + 1, indent + '  ')));
     }
   }
 
   return lines;
 }
 
-function buildContextBlock(payload) {
+async function buildContextBlock(payload) {
   const { trenches, currentViewEntryId, focusedTrench } = payload;
   if (!trenches || trenches.length === 0) {
     return 'The canvas is empty or has no trenches yet.';
@@ -86,14 +97,14 @@ function buildContextBlock(payload) {
   // If focused on a specific trench, show it first with full detail
   if (focusedTrench) {
     lines.push('=== FOCUSED TRENCH (current view) ===');
-    lines.push(...buildTrenchContext(focusedTrench, 0, ''));
+    lines.push(...(await buildTrenchContext(focusedTrench, 0, '')));
     lines.push('');
     lines.push('=== ALL ROOT TRENCHES ===');
   }
 
   // Show all root trenches with full nested structure
   for (const t of trenches) {
-    lines.push(...buildTrenchContext(t, 0, ''));
+    lines.push(...(await buildTrenchContext(t, 0, '')));
     lines.push('');
   }
 
@@ -162,7 +173,7 @@ export async function organizeDroppedContent(payload) {
     hasUserReply: !!userReply
   });
 
-  const context = buildContextBlock(payload);
+  const context = await buildContextBlock(payload);
   const items = (content?.items || []).map((it, i) => `${i + 1}. [${it.type}] ${it.url || it.text || it.name || '(empty)'}`).join('\n');
 
   // Collect image URLs for vision: dropped items + existing trench images
@@ -273,8 +284,8 @@ export async function chatWithCanvas(payload) {
     currentViewEntryId: payload.currentViewEntryId || null
   });
 
-  const context = buildContextBlock(payload);
-  
+  const context = await buildContextBlock(payload);
+
   console.log('[CHAT] Context built:', {
     contextLength: context.length,
     preview: context.substring(0, 200) + '...'

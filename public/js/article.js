@@ -438,12 +438,12 @@ function applyRemoteEntryUpdate(entryData) {
           displayText = processedText ? escapeHtml(processedText) : '';
         }
         // Preserve link/media cards, replace only text content
-        const hasCards = existing.element.querySelector('.link-card') || existing.element.querySelector('.media-card');
+        const hasCards = existing.element.querySelector('.link-card') || existing.element.querySelector('.media-card') || existing.element.querySelector('.link-card-placeholder');
         if (hasCards) {
           // Remove all non-card children, then prepend new text
           Array.from(existing.element.childNodes).forEach(child => {
             if (child.nodeType === Node.TEXT_NODE ||
-                (child.nodeType === Node.ELEMENT_NODE && !child.classList.contains('link-card') && !child.classList.contains('media-card'))) {
+                (child.nodeType === Node.ELEMENT_NODE && !child.classList.contains('link-card') && !child.classList.contains('media-card') && !child.classList.contains('link-card-placeholder'))) {
               child.remove();
             }
           });

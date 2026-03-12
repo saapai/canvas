@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import * as cheerio from 'cheerio';
 import pdfParse from 'pdf-parse/lib/pdf-parse.js';
 import mammoth from 'mammoth';
+import { upsertLinkScrape } from './db.js';
 
 dotenv.config();
 
@@ -182,6 +183,54 @@ export async function fetchLinkMetadata(url) {
       siteName: new URL(url).hostname.replace('www.', ''),
       url: url
     };
+  }
+}
+
+export async function scrapeUrlContent(url) {
+  try {
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const html = await response.text();
+    const $ = cheerio.load(html);
+
+    // Remove non-content elements
+    $('script, style, nav, footer, header').remove();
+
+    const rawText = $('body').text().replace(/\s+/g, ' ').trim();
+    const rawTextPreview = rawText.slice(0, 5000);
+
+    // LLM summarize into structured queryable content
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a content extraction assistant. Extract and summarize the key data points from this webpage content into structured, queryable text (max 2000 chars). Focus on: key facts, numbers, names, dates, main topics, and important details. Be concise and factual.'
+        },
+        {
+          role: 'user',
+          content: `URL: ${url}\n\nContent:\n${rawTextPreview}`
+        }
+      ],
+      max_tokens: 600,
+      temperature: 0.2
+    });
+
+    const contentSummary = completion.choices[0]?.message?.content?.trim() || '';
+    await upsertLinkScrape(url, contentSummary, rawTextPreview, null);
+    return { contentSummary, rawTextPreview };
+  } catch (error) {
+    console.error('[scrapeUrlContent] Error scraping URL:', url, error.message);
+    await upsertLinkScrape(url, null, null, error.message);
+    return { error: error.message };
   }
 }
 

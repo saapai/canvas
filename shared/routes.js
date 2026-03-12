@@ -43,10 +43,11 @@ import {
   getSharedPagesForUser,
   isEditor,
   getEntriesUpdatedSince,
-  getEntryWithDescendants
+  getEntryWithDescendants,
+  getStaleLinks
 } from './db.js';
 
-import { processTextWithLLM, fetchLinkMetadata, generateLinkCard, extractDeadlinesFromFile, convertTextToLatex, generateResearchEntries, planResearch } from './llm.js';
+import { processTextWithLLM, fetchLinkMetadata, generateLinkCard, extractDeadlinesFromFile, convertTextToLatex, generateResearchEntries, planResearch, scrapeUrlContent } from './llm.js';
 import { chatWithCanvas, organizeDroppedContent } from './chat.js';
 import { requireAuth, validatePhone, validateUsername, setAuthCookie, parseCookies } from './auth.js';
 import { JWT_SECRET, RESERVED_USERNAMES, debugLog } from './config.js';
@@ -861,6 +862,9 @@ export function createRouter(options = {}) {
       }
 
       const card = await generateLinkCard(metadata);
+
+      // Background scrape for chat queries (fire and forget)
+      scrapeUrlContent(url).catch(err => console.error('[SCRAPE] Background scrape failed:', err.message));
 
       res.json(card);
     } catch (error) {
@@ -2556,6 +2560,34 @@ export function createRouter(options = {}) {
       res.json({ ok: true, results });
     } catch (error) {
       console.error('Cron unanswered-questions error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ============================================
+  // CRON: SCRAPE LINKS — daily at 6 AM UTC
+  // ============================================
+  router.get('/api/cron/scrape-links', async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization;
+      const cronSecret = process.env.CRON_SECRET;
+      if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      const urls = await getStaleLinks(24);
+      const toScrape = urls.slice(0, 50);
+      const results = [];
+      for (const url of toScrape) {
+        try {
+          const result = await scrapeUrlContent(url);
+          results.push({ url, ok: !result.error, error: result.error || null });
+        } catch (err) {
+          results.push({ url, ok: false, error: err.message });
+        }
+      }
+      res.json({ ok: true, total: urls.length, scraped: results.length, results });
+    } catch (error) {
+      console.error('Cron scrape-links error:', error);
       res.status(500).json({ error: error.message });
     }
   });

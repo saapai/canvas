@@ -681,9 +681,7 @@ async function commitEditor(){
     }
 
     // Save card data to entry for future loads
-    const targetEntryData = (!editingEntryId)
-      ? entries.get(entry.id)
-      : (editingEntryId !== 'anchor' ? entries.get(editingEntryId) : null);
+    const targetEntryData = entries.get(entry.id);
     if (allCardData.length > 0 && targetEntryData) {
       targetEntryData.linkCardsData = allCardData;
       await updateEntryOnServer(targetEntryData);

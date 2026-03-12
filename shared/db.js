@@ -540,6 +540,24 @@ export async function initDatabase() {
       console.log('Note: slack_channel_id column check:', error.message);
     }
 
+    // ——— link_scrapes table ———
+    try {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS link_scrapes (
+          id TEXT PRIMARY KEY,
+          url TEXT NOT NULL UNIQUE,
+          content_summary TEXT,
+          raw_text_preview TEXT,
+          scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          error TEXT
+        );
+      `);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_link_scrapes_url ON link_scrapes(url)`);
+      await db.query(`CREATE INDEX IF NOT EXISTS idx_link_scrapes_scraped ON link_scrapes(scraped_at)`);
+    } catch (error) {
+      console.log('Note: link_scrapes table check:', error.message);
+    }
+
     dbInitialized = true;
     console.log('Database initialized successfully');
   } catch (error) {
@@ -1430,4 +1448,50 @@ export async function getEntriesUpdatedSince(userId, sinceTimestamp, parentEntry
     updatedAt: row.updated_at,
     deleted: !!row.deleted_at
   }));
+}
+
+// ——— link_scrapes functions ———
+
+export async function upsertLinkScrape(url, contentSummary, rawTextPreview, error) {
+  const db = getPool();
+  const id = crypto.randomUUID();
+  await db.query(
+    `INSERT INTO link_scrapes (id, url, content_summary, raw_text_preview, scraped_at, error)
+     VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, $5)
+     ON CONFLICT (url) DO UPDATE SET
+       content_summary = EXCLUDED.content_summary,
+       raw_text_preview = EXCLUDED.raw_text_preview,
+       scraped_at = CURRENT_TIMESTAMP,
+       error = EXCLUDED.error`,
+    [id, url, contentSummary || null, rawTextPreview || null, error || null]
+  );
+}
+
+export async function getLinkScrape(url) {
+  const db = getPool();
+  const result = await db.query(
+    `SELECT id, url, content_summary, raw_text_preview, scraped_at, error FROM link_scrapes WHERE url = $1`,
+    [url]
+  );
+  return result.rows[0] || null;
+}
+
+export async function getStaleLinks(hours) {
+  const db = getPool();
+  const result = await db.query(
+    `SELECT DISTINCT url FROM (
+       SELECT jsonb_array_elements(link_cards_data)->>'url' AS url
+       FROM entries
+       WHERE link_cards_data IS NOT NULL
+         AND jsonb_array_length(link_cards_data) > 0
+         AND deleted_at IS NULL
+     ) AS extracted_urls
+     WHERE url IS NOT NULL
+       AND url NOT IN (
+         SELECT url FROM link_scrapes
+         WHERE scraped_at > NOW() - INTERVAL '1 hour' * $1
+       )`,
+    [hours]
+  );
+  return result.rows.map(r => r.url);
 }
