@@ -427,6 +427,10 @@ function applyRemoteEntryUpdate(entryData) {
       }
     }
 
+    // Set visibility based on current navigation context
+    const entryParent = entryData.parentEntryId ?? null;
+    entry.style.display = (entryParent === currentViewEntryId) ? '' : 'none';
+
     world.appendChild(entry);
 
     const newEntryData = {

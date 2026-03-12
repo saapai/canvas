@@ -355,18 +355,13 @@ async function loadUserEntries(username, editable) {
         smsType: entryData.smsType || null,
         smsRefId: entryData.smsRefId || null,
         smsJoinCode: entryData.smsJoinCode || null,
-        smsAdminLink: entryData.smsAdminLink || null,
         slackChannelId: entryData.slackChannelId || null
       };
       entries.set(entryData.id, storedEntryData);
 
-      // SMS admin link entries — keep original text, add green left border, navigate on click
-      if (entryData.smsAdminLink) {
-        entry.style.cursor = 'pointer';
-        entry.addEventListener('click', (e) => {
-          e.stopPropagation();
-          window.location.href = entryData.smsAdminLink;
-        });
+      // Register shared entry ownership for bidirectional sync
+      if (entryData.ownerUserId) {
+        sharedEntryOwners.set(entryData.id, entryData.ownerUserId);
       }
 
       if (!isImageOnly && !isFileEntry && entryData.mediaCardData && entryData.mediaCardData.type !== 'image') {
@@ -397,6 +392,14 @@ async function loadUserEntries(username, editable) {
     const isEditorUser = window.PAGE_IS_EDITOR === true;
     if ((editable || isEditorUser) && window.PAGE_OWNER_ID) {
       startSync(window.PAGE_OWNER_ID);
+    }
+
+    // Start sync for each shared entry owner (bidirectional sync)
+    const sharedOwnerIds = new Set(sharedEntryOwners.values());
+    for (const ownerId of sharedOwnerIds) {
+      if (ownerId !== window.PAGE_OWNER_ID) {
+        startSync(ownerId);
+      }
     }
 
     // Load shared page navigation cards on own home page

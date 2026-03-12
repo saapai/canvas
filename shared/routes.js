@@ -1593,15 +1593,16 @@ export function createRouter(options = {}) {
         getEntriesCountByUsername(username)
       ]);
 
-      // On first page, append virtual entries for SMS pages this user admins
+      // On first page, append real entries (with descendants) for SMS pages this user admins
       if (page === 1 && user.phone) {
         try {
           const memberships = await smsDb.getMembershipsByPhone(user.phone);
           const adminPages = memberships.filter(m => m.role === 'admin' || m.role === 'owner');
           const db = getPool();
+          const existingIds = new Set(entries.map(e => e.id));
           for (const m of adminPages) {
             const entryResult = await db.query(
-              `SELECT e.id, e.text, e.sms_join_code, u.username AS owner_username
+              `SELECT e.id, e.user_id AS owner_user_id, u.username AS owner_username
                FROM entries e JOIN users u ON e.user_id = u.id
                WHERE e.id = $1 AND e.deleted_at IS NULL AND e.user_id != $2`,
               [m.entry_id, user.id]
@@ -1609,22 +1610,20 @@ export function createRouter(options = {}) {
             if (entryResult.rows[0]) {
               const row = entryResult.rows[0];
               // Skip if this entry already belongs to this user's page
-              if (entries.some(e => e.id === row.id)) continue;
-              // Find a position that doesn't overlap existing root entries
-              const rootEntries = entries.filter(e => !e.parentEntryId);
-              const maxX = rootEntries.reduce((max, e) => Math.max(max, (e.position?.x || 0)), 200);
-              entries.push({
-                id: `sms-admin-${row.id}`,
-                text: row.text || row.owner_username,
-                textHtml: null,
-                position: { x: maxX + 200, y: 60 },
-                parentEntryId: null,
-                linkCardsData: null,
-                mediaCardData: null,
-                latexData: null,
-                smsJoinCode: row.sms_join_code,
-                smsAdminLink: '/' + row.owner_username
-              });
+              if (existingIds.has(row.id)) continue;
+              // Load real entry + all descendants
+              const descendants = await getEntryWithDescendants(row.id, row.owner_user_id);
+              for (const desc of descendants) {
+                if (existingIds.has(desc.id)) continue;
+                existingIds.add(desc.id);
+                desc.ownerUserId = row.owner_user_id;
+                desc.ownerUsername = row.owner_username;
+                // Root entry shows at Account B's home level
+                if (desc.id === row.id) {
+                  desc.parentEntryId = null;
+                }
+                entries.push(desc);
+              }
             }
           }
         } catch (e) {
