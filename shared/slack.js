@@ -286,7 +286,46 @@ Return [] if nothing is superseded.`
 // NOTIFICATION SCHEDULING
 // ============================================
 
-export function scheduleDeadlineNotifications(userId, entryId, fact) {
+/**
+ * LLM check: does a new fact about the same event contain a material update?
+ * Material = change in where, when, or urgency (cancellation, new requirement).
+ * Non-material = same info rephrased, minor additions, reminders.
+ */
+async function isMaterialUpdate(existingFactText, newFactText) {
+  if (!process.env.OPENAI_API_KEY) return false;
+  try {
+    const response = await openai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      temperature: 0.1,
+      max_tokens: 100,
+      messages: [
+        { role: 'system', content: `Compare two facts about the same event. Is the new fact a MATERIAL UPDATE?
+
+Material updates (send notification):
+- Change in WHEN (time/date rescheduled)
+- Change in WHERE (location changed)
+- Urgent info (cancellation, critical new requirement)
+
+NOT material (skip notification):
+- Same info rephrased or repeated
+- Minor additions (agenda, encouragement)
+- General reminders about the same event
+
+Respond with JSON: {"isMaterial": true/false, "reason": "brief reason"}` },
+        { role: 'user', content: `Previously notified: "${existingFactText}"\nNew information: "${newFactText}"` }
+      ],
+      response_format: { type: 'json_object' }
+    });
+    const parsed = JSON.parse(response.choices[0].message.content);
+    console.log(`[Dedup] Material check: ${parsed.isMaterial} — ${parsed.reason}`);
+    return parsed.isMaterial === true;
+  } catch (e) {
+    console.error('[Dedup] LLM check failed:', e.message);
+    return false;
+  }
+}
+
+export function scheduleDeadlineNotifications(userId, entryId, fact, options = {}) {
   if (!fact.deadline_date) {
     console.log(`[Notification:schedule] Fact ${fact.id} has no deadline_date, skipping`);
     return [];
@@ -302,17 +341,23 @@ export function scheduleDeadlineNotifications(userId, entryId, fact) {
   console.log(`[Notification:schedule] Fact ${fact.id}: "${fact.extracted_fact?.substring(0, 60)}" | eventDate=${eventDate.toISOString()} | now=${now.toISOString()} | hasTime=${hasSpecificTime}`);
 
   // NOTIFICATION 1: "initial" — send soon after discovery (next cron tick, ~1 min from now)
-  const initialTime = new Date(now.getTime() + 60 * 1000);
-  console.log(`[Notification:schedule] → Scheduling initial for ${initialTime.toISOString()}`);
-  notifications.push({
-    userId,
-    entryId,
-    factId: fact.id,
-    notificationType: 'initial',
-    scheduledFor: initialTime,
-    eventDate,
-    message: `Heads up: ${fact.extracted_fact}`
-  });
+  // Skip if dedup detected this event was already notified (unless material update)
+  if (!options.skipInitial) {
+    const initialTime = new Date(now.getTime() + 60 * 1000);
+    const prefix = options.isUpdate ? 'Update' : 'Heads up';
+    console.log(`[Notification:schedule] → Scheduling initial for ${initialTime.toISOString()} (${options.isUpdate ? 'material update' : 'new event'})`);
+    notifications.push({
+      userId,
+      entryId,
+      factId: fact.id,
+      notificationType: 'initial',
+      scheduledFor: initialTime,
+      eventDate,
+      message: `${prefix}: ${fact.extracted_fact}`
+    });
+  } else {
+    console.log(`[Notification:schedule] → Skipping initial (already notified, no material change)`);
+  }
 
   // NOTIFICATION 2: "deadline_reminder" — before the deadline
   // For timed events: 4 hours before
@@ -412,16 +457,47 @@ export async function syncChannel(syncRecord) {
   // 4. Handle recency bias — supersede outdated facts
   await handleRecencyBias(entryId, savedFacts);
 
-  // 5. Schedule notifications for deadline/event facts
+  // 5. Schedule notifications for deadline/event facts (with dedup)
   console.log(`[Slack:sync] #${channelName}: checking ${savedFacts.length} facts for notifications (deadline/event types)`);
   const deadlineEventFacts = savedFacts.filter(f => f.fact_type === 'deadline' || f.fact_type === 'event');
   console.log(`[Slack:sync] #${channelName}: ${deadlineEventFacts.length} deadline/event facts found`);
   for (const fact of deadlineEventFacts) {
     console.log(`[Slack:sync] #${channelName}: scheduling for fact ${fact.id} (type=${fact.fact_type}, deadline=${fact.deadline_date}): "${fact.extracted_fact?.substring(0, 80)}"`);
-    const notifs = scheduleDeadlineNotifications(userId, entryId, fact);
+
+    // DEDUP: Check if this event already has notifications
+    let scheduleOptions = {};
+    if (fact.deadline_date) {
+      const existing = await slackDb.getExistingEventNotifications(entryId, fact.deadline_date);
+      const existingInitial = existing.find(n => n.notification_type === 'initial');
+      const existingReminder = existing.find(n => n.notification_type === 'deadline_reminder');
+
+      if (existingInitial) {
+        // Already sent an initial for this event — check if material update
+        const material = await isMaterialUpdate(existingInitial.extracted_fact, fact.extracted_fact);
+        if (material) {
+          console.log(`[Slack:sync] #${channelName}: material update detected for fact ${fact.id}, sending update initial`);
+          scheduleOptions = { skipInitial: false, isUpdate: true };
+        } else {
+          console.log(`[Slack:sync] #${channelName}: skipping initial for fact ${fact.id} (already notified, no material change)`);
+          scheduleOptions = { skipInitial: true };
+        }
+      }
+
+      // If deadline_reminder already exists (pending), skip scheduling a new one
+      if (existingReminder && existingReminder.status === 'pending') {
+        console.log(`[Slack:sync] #${channelName}: deadline_reminder already pending for this event, skipping fact ${fact.id}`);
+        continue; // Skip entirely — both initial and reminder already handled
+      }
+    }
+
+    const notifs = scheduleDeadlineNotifications(userId, entryId, fact, scheduleOptions);
     for (const n of notifs) {
       const saved = await slackDb.createNotification(n);
-      console.log(`[Slack:sync] #${channelName}: created notification ${saved.id} type=${n.notificationType} scheduled=${n.scheduledFor.toISOString()}`);
+      if (saved) {
+        console.log(`[Slack:sync] #${channelName}: created notification ${saved.id} type=${n.notificationType} scheduled=${n.scheduledFor.toISOString()}`);
+      } else {
+        console.log(`[Slack:sync] #${channelName}: notification ${n.notificationType} already sent for fact ${fact.id}, skipping`);
+      }
     }
   }
 

@@ -161,10 +161,11 @@ export async function createNotification({ userId, entryId, factId, notification
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      ON CONFLICT (fact_id, notification_type) DO UPDATE
        SET scheduled_for = EXCLUDED.scheduled_for, event_date = EXCLUDED.event_date, message = EXCLUDED.message, status = 'pending'
+     WHERE scheduled_notifications.status = 'pending'
      RETURNING *`,
     [id, userId, entryId, factId, notificationType, scheduledFor, eventDate || null, message]
   );
-  return result.rows[0];
+  return result.rows[0] || null;
 }
 
 export async function getPendingNotifications(beforeTime) {
@@ -233,6 +234,28 @@ export async function getChannelNamesForEntry(entryId) {
     [entryId]
   );
   return result.rows.map(r => r.channel_name);
+}
+
+/**
+ * Check if an event already has notifications (sent or pending).
+ * Matches by entry_id and deadline_date within 24h tolerance.
+ * Returns the existing initial notification + its fact text if found.
+ */
+export async function getExistingEventNotifications(entryId, deadlineDate) {
+  const db = getPool();
+  const result = await db.query(
+    `SELECT sn.id, sn.notification_type, sn.status, sn.message, sn.scheduled_for,
+            sf.extracted_fact, sf.deadline_date
+     FROM scheduled_notifications sn
+     JOIN slack_facts sf ON sn.fact_id = sf.id
+     WHERE sn.entry_id = $1
+       AND sf.deadline_date IS NOT NULL
+       AND ABS(EXTRACT(EPOCH FROM (sf.deadline_date - $2::timestamp))) < 86400
+       AND sn.status IN ('sent', 'pending')
+     ORDER BY sn.created_at DESC`,
+    [entryId, deadlineDate]
+  );
+  return result.rows;
 }
 
 /**
