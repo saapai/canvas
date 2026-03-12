@@ -407,7 +407,8 @@ async function loadUserEntries(username, editable) {
     }
 
     // Start sync for live updates — both admin editors and member viewers
-    if (isLoggedIn && (isOwner || isEditorUser) && window.PAGE_OWNER_ID) {
+    const isEditorUser = window.PAGE_IS_EDITOR === true;
+    if ((editable || isEditorUser) && window.PAGE_OWNER_ID) {
       startSync(window.PAGE_OWNER_ID);
     }
 
