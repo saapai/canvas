@@ -57,7 +57,7 @@ import { handleIncomingSms, toTwiml, validateTwilioSignature } from './sms.js';
 import * as smsDb from './sms-db.js';
 import { detectSmsType } from './sms-meta.js';
 import * as slackDb from './slack-db.js';
-import { listAccessibleChannels, syncChannel, syncAllChannels, checkAndSendNotifications, joinAllPublicChannels, handleSlackEvent } from './slack.js';
+import { listAccessibleChannels, syncChannel, syncAllChannels, checkAndSendNotifications, joinAllPublicChannels, handleSlackEvent, sendWeeklyDigests } from './slack.js';
 import crypto from 'crypto';
 import { recheckUnansweredQuestions } from './sms-actions.js';
 
@@ -1603,8 +1603,8 @@ export function createRouter(options = {}) {
             const entryResult = await db.query(
               `SELECT e.id, e.text, e.sms_join_code, u.username AS owner_username
                FROM entries e JOIN users u ON e.user_id = u.id
-               WHERE e.id = $1 AND e.deleted_at IS NULL`,
-              [m.entry_id]
+               WHERE e.id = $1 AND e.deleted_at IS NULL AND e.user_id != $2`,
+              [m.entry_id, user.id]
             );
             if (entryResult.rows[0]) {
               const row = entryResult.rows[0];
@@ -2540,6 +2540,22 @@ export function createRouter(options = {}) {
       res.json({ ok: true, results });
     } catch (error) {
       console.error('Cron notifications error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Weekly: Sunday 7PM PST (Monday 3AM UTC) — send weekly digest of non-dated Slack facts
+  router.get('/api/cron/weekly-digest', async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization;
+      const cronSecret = process.env.CRON_SECRET;
+      if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      const results = await sendWeeklyDigests();
+      res.json({ ok: true, results });
+    } catch (error) {
+      console.error('Cron weekly-digest error:', error);
       res.status(500).json({ error: error.message });
     }
   });
