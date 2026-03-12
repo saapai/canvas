@@ -2232,6 +2232,134 @@ export function createRouter(options = {}) {
     }
   });
 
+  // ============================================
+  // GOOGLE OAUTH REVIEW — Login page for test account
+  // ============================================
+  const REVIEW_ALLOWLIST = ['lysasand.535434@gmail.com'];
+  const REVIEW_USERNAME = 'google-reviewer';
+  const REVIEW_PHONE_PLACEHOLDER = '+10000000000';
+
+  router.get('/login', (_req, res) => {
+    res.send(`<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Duttapad — Login</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    :root { --paper: #f7f2e8; --ink: #1d1d1f; --muted: rgba(0,0,0,0.4); --faint: rgba(0,0,0,0.08); }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+      font-family: "Inter", -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--paper); color: var(--ink);
+      text-rendering: geometricPrecision; -webkit-font-smoothing: antialiased;
+    }
+    body::before {
+      content: ""; position: fixed; inset: 0; pointer-events: none;
+      background: repeating-linear-gradient(to bottom, rgba(0,0,0,0.03) 0px, rgba(0,0,0,0.03) 1px, transparent 1px, transparent 28px);
+      mix-blend-mode: multiply; z-index: 1;
+    }
+    .card {
+      position: relative; z-index: 2; background: white; border: 1px solid var(--faint);
+      border-radius: 12px; padding: 48px 40px; max-width: 400px; width: 100%;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+    }
+    h1 { font-size: 20px; font-weight: 500; margin-bottom: 8px; }
+    p { font-size: 14px; color: var(--muted); margin-bottom: 28px; line-height: 1.5; }
+    label { font-size: 13px; font-weight: 500; display: block; margin-bottom: 6px; }
+    input[type="email"] {
+      width: 100%; padding: 10px 14px; border: 1px solid var(--faint); border-radius: 8px;
+      font-size: 15px; font-family: inherit; outline: none; transition: border-color 0.2s;
+    }
+    input[type="email"]:focus { border-color: var(--ink); }
+    button {
+      width: 100%; margin-top: 16px; padding: 11px; border: none; border-radius: 8px;
+      background: var(--ink); color: var(--paper); font-size: 14px; font-weight: 500;
+      font-family: inherit; cursor: pointer; transition: opacity 0.2s;
+    }
+    button:hover { opacity: 0.85; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .error { color: #c0392b; font-size: 13px; margin-top: 12px; display: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Sign in to Duttapad</h1>
+    <p>Enter your email address to continue.</p>
+    <form id="loginForm">
+      <label for="email">Email</label>
+      <input type="email" id="email" name="email" placeholder="you@example.com" required autocomplete="email">
+      <button type="submit">Continue</button>
+      <div class="error" id="error"></div>
+    </form>
+  </div>
+  <script>
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const btn = e.target.querySelector('button');
+      const errEl = document.getElementById('error');
+      errEl.style.display = 'none';
+      btn.disabled = true;
+      btn.textContent = 'Signing in…';
+      try {
+        const res = await fetch('/api/auth/review-login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: document.getElementById('email').value.trim() })
+        });
+        const data = await res.json();
+        if (!res.ok) { throw new Error(data.error || 'Login failed'); }
+        window.location.href = '/' + data.username;
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Continue';
+      }
+    });
+  </script>
+</body>
+</html>`);
+  });
+
+  router.post('/api/auth/review-login', async (req, res) => {
+    try {
+      const { email } = req.body;
+      if (!email || typeof email !== 'string') {
+        return res.status(400).json({ error: 'Email is required' });
+      }
+
+      const normalizedEmail = email.trim().toLowerCase();
+      if (!REVIEW_ALLOWLIST.includes(normalizedEmail)) {
+        return res.status(403).json({ error: 'This email is not authorized' });
+      }
+
+      // Look up or create the reviewer account
+      let user = await getUserByUsername(REVIEW_USERNAME);
+      if (!user) {
+        user = await createUser(REVIEW_PHONE_PLACEHOLDER);
+        await setUsername(user.id, REVIEW_USERNAME);
+        user = await getUserByUsername(REVIEW_USERNAME);
+      }
+
+      const token = jwt.sign(
+        { id: user.id },
+        JWT_SECRET,
+        { expiresIn: '30d' }
+      );
+      setAuthCookie(res, token);
+
+      return res.json({ success: true, username: REVIEW_USERNAME });
+    } catch (error) {
+      console.error('Error in review login:', error);
+      return res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
   // Root route - redirect logged-in users to their PRIMARY (oldest) duttapad
   router.get('/', async (req, res) => {
     try {
