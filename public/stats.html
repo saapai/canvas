@@ -522,6 +522,8 @@
           const content = escapeHtml((a.content || '').slice(0, 120));
           const source = a.source === 'auto'
             ? '<span class="pill" style="background:rgba(184,134,11,0.15);color:#8b6914;border-color:rgba(184,134,11,0.3);">auto</span>'
+            : a.source === 'slack'
+            ? '<span class="pill" style="background:rgba(74,21,75,0.15);color:#6b3fa0;border-color:rgba(74,21,75,0.3);">slack</span>'
             : '<span class="pill">manual</span>';
           const status = a.status === 'sent'
             ? '<span class="pill" style="background:rgba(107,142,107,0.15);color:#4a7c4a;border-color:rgba(107,142,107,0.3);">sent</span>'

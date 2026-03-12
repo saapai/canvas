@@ -2108,18 +2108,49 @@ export function createRouter(options = {}) {
     }
   });
 
-  // All announcements across all pages
+  // All announcements across all pages (manual + auto + Slack notifications)
   router.get('/api/stats/announcements', async (_req, res) => {
     try {
       const db = getPool();
-      const result = await db.query(
-        `SELECT a.*, e.text AS page_name
+      // Manual/auto announcements from the announcements table
+      const manualResult = await db.query(
+        `SELECT a.id, a.content, a.status, a.sent_count, a.source, a.created_at, a.sent_at, e.text AS page_name
          FROM announcements a
          LEFT JOIN entries e ON e.id = a.entry_id
          ORDER BY a.created_at DESC
          LIMIT 100`
       );
-      res.json(result.rows);
+      // Slack scheduled notifications (sent ones are auto-announcements from Slack)
+      let slackRows = [];
+      try {
+        const slackResult = await db.query(
+          `SELECT sn.id, sn.message AS content, sn.status,
+                  sn.notification_type, sn.scheduled_for, sn.sent_at, sn.created_at,
+                  sf.extracted_fact, sf.channel_name
+           FROM scheduled_notifications sn
+           LEFT JOIN slack_facts sf ON sf.id = sn.fact_id
+           ORDER BY sn.created_at DESC
+           LIMIT 100`
+        );
+        slackRows = slackResult.rows.map(r => ({
+          id: r.id,
+          content: r.content || r.extracted_fact || '',
+          status: r.status === 'sent' ? 'sent' : r.status,
+          sent_count: r.status === 'sent' ? 1 : 0,
+          source: 'slack',
+          created_at: r.created_at,
+          sent_at: r.sent_at,
+          page_name: r.channel_name ? `#${r.channel_name}` : null,
+          notification_type: r.notification_type
+        }));
+      } catch (e) { /* scheduled_notifications table may not exist */ }
+
+      // Merge and sort by created_at descending
+      const all = [...manualResult.rows.map(r => ({ ...r, source: r.source || 'manual' })), ...slackRows]
+        .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+        .slice(0, 100);
+
+      res.json(all);
     } catch (error) {
       console.error('Error fetching announcements:', error);
       res.status(500).json({ error: 'Failed to load announcements' });
@@ -2756,8 +2787,10 @@ export function createRouter(options = {}) {
     const announcement = await smsDb.getAnnouncementById(req.params.id);
     if (!announcement) return res.status(404).json({ error: 'Announcement not found' });
 
+    console.log(`[Announcement:manual] Sending announcement ${req.params.id} for page ${access.entryId}, content: "${announcement.content.slice(0, 80)}..."`);
     const { sendSms } = await import('./sms.js');
     const members = await smsDb.getOptedInMembers(access.entryId);
+    console.log(`[Announcement:manual] Found ${members.length} opted-in members`);
     let sent = 0;
     for (const member of members) {
       const phone = member.phone_normalized;
@@ -2766,9 +2799,12 @@ export function createRouter(options = {}) {
       if (result.ok) {
         await smsDb.logMessage(access.entryId, phone, 'outbound', announcement.content, { action: 'announcement' });
         sent++;
+      } else {
+        console.log(`[Announcement:manual] Failed to send to ${phone.slice(-4)}: ${result.error || 'unknown error'}`);
       }
     }
     await smsDb.updateAnnouncement(req.params.id, { status: 'sent', sent_count: sent, sent_at: new Date() });
+    console.log(`[Announcement:manual] Sent to ${sent}/${members.length} members`);
     res.json({ sent });
   });
 
@@ -2863,7 +2899,11 @@ export function createRouter(options = {}) {
     if (!access) return;
     const { text, childEntryId } = req.body;
     if (!text || !childEntryId) return res.status(400).json({ error: 'text and childEntryId required' });
+    console.log(`[Announcement:detect] Checking entry ${childEntryId} on page ${access.entryId}, text: "${text.slice(0, 80)}..."`);
     const result = await detectSmsType(text, childEntryId, access.entryId);
+    if (result.smsType) {
+      console.log(`[Announcement:detect] Detected type=${result.smsType}, refId=${result.smsRefId}`);
+    }
     res.json(result);
   });
 
