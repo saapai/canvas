@@ -275,10 +275,27 @@ export async function getUndigestedFactsByEntry(entryId) {
        AND f.is_current = TRUE
        AND f.deadline_date IS NULL
        AND f.digested_at IS NULL
+       AND f.message_date > (CURRENT_TIMESTAMP - INTERVAL '7 days')
      ORDER BY f.message_date ASC NULLS LAST, f.created_at ASC`,
     [entryId]
   );
   return result.rows;
+}
+
+/**
+ * Auto-mark facts older than 7 days as digested so they don't accumulate.
+ */
+export async function markStaleFactsDigested() {
+  const db = getPool();
+  const result = await db.query(
+    `UPDATE slack_facts SET digested_at = CURRENT_TIMESTAMP
+     WHERE digested_at IS NULL
+       AND deadline_date IS NULL
+       AND is_current = TRUE
+       AND message_date <= (CURRENT_TIMESTAMP - INTERVAL '7 days')
+     RETURNING id`
+  );
+  return result.rows.length;
 }
 
 /**

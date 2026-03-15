@@ -202,7 +202,16 @@ CRITICAL — PRESERVE SPECIFIC DETAILS:
 
 For each fact, determine:
 - factType: "info" (general), "deadline" (has a due date), "event" (has a date/time), "announcement" (broadcast)
-- deadlineDate: ISO 8601 datetime string if applicable, null otherwise. Resolve relative dates ("next Tuesday") based on the message date.
+- deadlineDate: ISO 8601 datetime string if applicable, null otherwise.
+  CRITICAL: You MUST resolve ALL relative day references to absolute dates using the message's date as reference. A fact like "Formal is on Thursday" posted on March 3 (Tuesday) MUST have deadlineDate set to "2026-03-05T00:00:00Z" (the upcoming Thursday). Never leave deadlineDate as null if ANY day or date is mentioned or implied.
+  Resolution rules:
+  - "tomorrow" → the day after the message date
+  - "Thursday" / "this Thursday" → the next Thursday on or after the message date
+  - "next Thursday" → the Thursday of the following week
+  - "this weekend" → the upcoming Saturday
+  - "end of week" / "by end of week" → the upcoming Friday
+  - "next week" → the Monday of the following week
+  - "tonight" / "today" → the message date itself
   IMPORTANT: If a SPECIFIC TIME is mentioned (e.g. "7pm", "at 3:00", "doors open at 6"), include it in the ISO string using America/Los_Angeles timezone (currently ${new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles', timeZoneName: 'short' }).split(' ').pop()}, UTC offset ${new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles', timeZoneName: 'longOffset' }).split('GMT')[1] || '-07:00'}). Example: "7pm" → "2026-03-06T19:00:00-07:00". If only a DATE is mentioned with no time, use date-only format (e.g. "2026-03-06T00:00:00Z"). This distinction matters for notification scheduling.
 
 Return JSON array:
@@ -566,6 +575,7 @@ export async function checkAndSendNotifications() {
         const smsResult = await sendSms(phone, message);
         if (smsResult.ok) {
           await slackDb.markNotificationSent(notification.id, message);
+          if (notification.fact_id) await slackDb.markFactsDigested([notification.fact_id]);
           results.push({ id: notification.id, status: 'sent', recipients: 1 });
         } else {
           await slackDb.markNotificationFailed(notification.id);
@@ -581,6 +591,7 @@ export async function checkAndSendNotifications() {
         }
         console.log(`[Notification:cron] Sent ${notification.id} to ${sent}/${members.length} members`);
         await slackDb.markNotificationSent(notification.id, message);
+        if (notification.fact_id) await slackDb.markFactsDigested([notification.fact_id]);
         results.push({ id: notification.id, status: 'sent', recipients: sent });
       } else {
         console.log(`[Notification:cron] SKIP ${notification.id}: no phone and no members`);
@@ -674,14 +685,15 @@ async function buildEnrichedNotificationMessage(notification) {
     const response = await openai.chat.completions.create({
       model: 'gpt-4o-mini',
       messages: [
-        { role: 'system', content: `You write clean SMS event reminders. Plain text only.
+        { role: 'system', content: `You write clean SMS event reminders.
 
 FORMAT RULES:
-- PLAIN TEXT ONLY. No markdown, no asterisks, no bullet points, no bold, no formatting.
-- Use line breaks to separate sections
-- Keep it natural and readable, like a text from a friend
+- Plain text only. No markdown, no asterisks, no bold, no emojis.
+- Each item on its own line, like a quick list
+- Extremely succinct — say more with fewer words
+- Sound like a sharp friend texting you, not a bot
+- No filler, no "Hey!" or "Hope you're well", no sign-offs
 - Under 400 chars ideally
-- 1-2 emoji max, only if natural
 
 CONTENT RULES:
 - Include ALL actionable details: times, addresses, dress code, transport
@@ -719,6 +731,16 @@ CONTENT RULES:
 
 export async function sendWeeklyDigests() {
   console.log('[WeeklyDigest] Starting weekly digest run');
+
+  // Auto-mark stale facts (older than 7 days) as digested so they don't accumulate
+  try {
+    const staleCount = await slackDb.markStaleFactsDigested();
+    if (staleCount > 0) {
+      console.log(`[WeeklyDigest] Auto-marked ${staleCount} stale facts as digested`);
+    }
+  } catch (staleErr) {
+    console.error('[WeeklyDigest] Failed to mark stale facts:', staleErr.message);
+  }
 
   // Get all entries with enabled slack syncs
   const entries = await slackDb.getEntriesWithEnabledSyncs();
@@ -769,22 +791,27 @@ export async function sendWeeklyDigests() {
           const response = await openai.chat.completions.create({
             model: 'gpt-4o-mini',
             messages: [
-              { role: 'system', content: `You compose a weekly SMS digest of Slack updates. Plain text only.
+              { role: 'system', content: `You compose a weekly SMS digest of Slack updates.
 
 FORMAT RULES:
-- PLAIN TEXT ONLY. No markdown, no asterisks, no bullet points, no bold.
-- Use line breaks to separate items
-- Keep it natural and readable, like a text from a friend
+- Plain text only. No markdown, no asterisks, no bold, no emojis.
+- Each item on its own line, like a quick list
+- Extremely succinct — say more with fewer words
+- Sound like a sharp friend texting you, not a bot
+- No filler, no "Hey!" or "Hope you're well", no sign-offs
 - Under 600 chars ideally, but include all important info
-- Group by channel if multiple channels
-- 1-2 emoji max, only if natural
+
+TOPIC GROUPING:
+- Group facts about the same topic or event together into one consolidated point
+- If multiple facts mention "retreat", combine them into a single retreat update
+- Deduplicate redundant information — don't repeat the same thing from different channels
+- Present as consolidated points, not one-per-fact
 
 CONTENT RULES:
 - Summarize key announcements, updates, and info from the week
 - NEVER generalize action items. Use SPECIFIC terms from the facts
 - If URLs are provided, include the most relevant ones
 - Do NOT make up details not in the facts
-- Start with something like "Weekly update" or "This week's highlights"
 - Do NOT include events/deadlines that have specific dates — those get their own reminders` },
               { role: 'user', content: `Compose a weekly digest SMS from these Slack facts:\n${factsList}${linkInfo}` }
             ],
