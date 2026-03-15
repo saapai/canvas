@@ -854,3 +854,107 @@ CONTENT RULES:
   console.log(`[WeeklyDigest] Complete: ${results.length} entries processed`);
   return results;
 }
+
+// ============================================
+// BACKFILL: Re-resolve dates on old facts
+// ============================================
+
+/**
+ * Re-run LLM date resolution on existing facts that have deadline_date = NULL.
+ * Sends facts in batches to the LLM asking it to resolve any dates.
+ * Updates facts in-place and schedules notifications for newly-dated ones.
+ */
+export async function backfillFactDates() {
+  console.log('[Backfill] Starting date backfill');
+
+  const facts = await slackDb.getFactsWithUnresolvedDates();
+  console.log(`[Backfill] Found ${facts.length} facts with NULL deadline_date`);
+
+  if (!facts.length) return { total: 0, resolved: 0, notifications: 0 };
+
+  // Process in chunks of 30
+  let resolved = 0;
+  let notificationsCreated = 0;
+
+  for (let i = 0; i < facts.length; i += 30) {
+    const chunk = facts.slice(i, i + 30);
+    const formatted = chunk.map(f => ({
+      id: f.id,
+      fact: f.extracted_fact,
+      rawText: f.raw_text?.substring(0, 500) || '',
+      messageDate: f.message_date ? new Date(f.message_date).toISOString() : null,
+      factType: f.fact_type
+    }));
+
+    try {
+      const response = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        temperature: 0.1,
+        max_tokens: 2000,
+        messages: [
+          {
+            role: 'system',
+            content: `You are re-analyzing facts extracted from Slack messages to resolve dates that were previously missed.
+
+For each fact, determine if it mentions or implies a specific date/time. Use the messageDate (when the Slack message was posted) to resolve relative references.
+
+RESOLUTION RULES:
+- "tomorrow" → the day after messageDate
+- "Thursday" / "this Thursday" → the next Thursday on or after messageDate
+- "next Thursday" → the Thursday of the following week from messageDate
+- "this weekend" → the upcoming Saturday from messageDate
+- "end of week" → the upcoming Friday from messageDate
+- "tonight" / "today" → messageDate itself
+- Any specific date like "March 10" → resolve to that date
+
+If a SPECIFIC TIME is mentioned (e.g. "7pm", "at 3:00"), use America/Los_Angeles timezone.
+If only a DATE, use "YYYY-MM-DDT00:00:00Z" format.
+
+Return JSON array of ONLY the facts that have a resolvable date:
+[{"id": "...", "deadlineDate": "ISO8601", "factType": "event" or "deadline"}]
+
+Return [] if no facts have resolvable dates. Do NOT guess — only resolve when a day/date is clearly mentioned or implied.`
+          },
+          {
+            role: 'user',
+            content: JSON.stringify(formatted)
+          }
+        ]
+      });
+
+      const content = response.choices[0]?.message?.content || '[]';
+      const cleaned = content.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim();
+      const updates = JSON.parse(cleaned);
+
+      if (!Array.isArray(updates)) continue;
+
+      for (const update of updates) {
+        if (!update.id || !update.deadlineDate) continue;
+        const fact = chunk.find(f => f.id === update.id);
+        if (!fact) continue;
+
+        await slackDb.updateFactDeadline(update.id, update.deadlineDate, update.factType || null);
+        resolved++;
+        console.log(`[Backfill] Resolved fact ${update.id}: "${fact.extracted_fact?.substring(0, 60)}" → ${update.deadlineDate}`);
+
+        // Schedule notifications for newly-dated facts if date is in the future
+        const eventDate = new Date(update.deadlineDate);
+        if (eventDate > new Date()) {
+          const notifs = scheduleDeadlineNotifications(fact.user_id || fact.sync_user_id, fact.entry_id, {
+            ...fact,
+            deadline_date: update.deadlineDate
+          });
+          for (const n of notifs) {
+            const saved = await slackDb.createNotification(n);
+            if (saved) notificationsCreated++;
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`[Backfill] Error processing chunk at offset ${i}:`, error.message);
+    }
+  }
+
+  console.log(`[Backfill] Complete: ${resolved} dates resolved, ${notificationsCreated} notifications created out of ${facts.length} total facts`);
+  return { total: facts.length, resolved, notifications: notificationsCreated };
+}

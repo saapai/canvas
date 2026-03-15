@@ -57,7 +57,7 @@ import { handleIncomingSms, toTwiml, validateTwilioSignature } from './sms.js';
 import * as smsDb from './sms-db.js';
 import { detectSmsType } from './sms-meta.js';
 import * as slackDb from './slack-db.js';
-import { listAccessibleChannels, syncChannel, syncAllChannels, checkAndSendNotifications, joinAllPublicChannels, handleSlackEvent, sendWeeklyDigests } from './slack.js';
+import { listAccessibleChannels, syncChannel, syncAllChannels, checkAndSendNotifications, joinAllPublicChannels, handleSlackEvent, sendWeeklyDigests, backfillFactDates } from './slack.js';
 import crypto from 'crypto';
 import { recheckUnansweredQuestions } from './sms-actions.js';
 
@@ -2683,6 +2683,22 @@ export function createRouter(options = {}) {
       res.json({ ok: true, results });
     } catch (error) {
       console.error('Cron weekly-digest error:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // One-time: backfill deadline dates on old facts with NULL deadline_date
+  router.get('/api/cron/backfill-dates', async (req, res) => {
+    try {
+      const authHeader = req.headers.authorization;
+      const cronSecret = process.env.CRON_SECRET;
+      if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      const results = await backfillFactDates();
+      res.json({ ok: true, results });
+    } catch (error) {
+      console.error('Backfill dates error:', error);
       res.status(500).json({ error: error.message });
     }
   });

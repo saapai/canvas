@@ -323,6 +323,40 @@ export async function getEntriesWithEnabledSyncs() {
 }
 
 /**
+ * Get current facts with NULL deadline_date that likely mention a day/date.
+ * Used for backfilling dates on old facts.
+ */
+export async function getFactsWithUnresolvedDates() {
+  const db = getPool();
+  const result = await db.query(
+    `SELECT f.*, s.channel_name FROM slack_facts f
+     LEFT JOIN slack_syncs s ON f.sync_id = s.id
+     WHERE f.is_current = TRUE
+       AND f.deadline_date IS NULL
+     ORDER BY f.message_date DESC NULLS LAST`
+  );
+  return result.rows;
+}
+
+/**
+ * Update a fact's deadline_date (and optionally fact_type).
+ */
+export async function updateFactDeadline(factId, deadlineDate, factType) {
+  const db = getPool();
+  if (factType) {
+    await db.query(
+      `UPDATE slack_facts SET deadline_date = $2, fact_type = $3 WHERE id = $1`,
+      [factId, deadlineDate, factType]
+    );
+  } else {
+    await db.query(
+      `UPDATE slack_facts SET deadline_date = $2 WHERE id = $1`,
+      [factId, deadlineDate]
+    );
+  }
+}
+
+/**
  * Get today's event/deadline facts that have NO scheduled notifications yet.
  * These are facts that were synced before catch-up logic existed.
  */
