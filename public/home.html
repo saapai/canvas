@@ -181,67 +181,10 @@
       transform: translateY(-2px) scale(1.02);
       box-shadow: 0 12px 40px rgba(0,0,0,0.15);
     }
-    .hero-scroll-hint {
-      position: absolute;
-      bottom: 40px;
-      font-size: 11px;
-      color: rgba(0,0,0,0.15);
-      letter-spacing: 3px;
-      text-transform: uppercase;
-      opacity: 0;
-      animation: hero-rise 0.8s cubic-bezier(0.16, 1, 0.3, 1) 1.2s forwards;
-    }
-    .hero-scroll-hint::after {
-      content: "";
-      display: block;
-      width: 1px;
-      height: 24px;
-      background: rgba(0,0,0,0.1);
-      margin: 10px auto 0;
-      animation: scroll-line 2s ease-in-out infinite;
-    }
     @keyframes hero-rise {
       from { opacity: 0; transform: translateY(20px); }
       to { opacity: 1; transform: translateY(0); }
     }
-    @keyframes scroll-line {
-      0%, 100% { transform: scaleY(1); opacity: 0.3; }
-      50% { transform: scaleY(1.5); opacity: 0.6; }
-    }
-
-    /* ─── Social proof ─── */
-    .social-proof {
-      text-align: center;
-      padding: 0 24px 80px;
-      opacity: 0;
-      animation: hero-rise 0.8s cubic-bezier(0.16, 1, 0.3, 1) 1s forwards;
-    }
-    .social-proof-label {
-      font-size: 11px;
-      font-weight: 400;
-      letter-spacing: 2px;
-      text-transform: uppercase;
-      color: rgba(0,0,0,0.2);
-      margin-bottom: 20px;
-    }
-    .social-proof-logos {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      gap: 36px;
-      flex-wrap: wrap;
-    }
-    .social-proof-logos span {
-      font-size: 14px;
-      font-weight: 500;
-      color: rgba(0,0,0,0.18);
-      letter-spacing: -0.3px;
-      transition: color 0.3s;
-    }
-    .social-proof-logos span:hover {
-      color: rgba(0,0,0,0.4);
-    }
-
     /* ─── Canvas demo ─── */
     .canvas-demo {
       position: relative;
@@ -604,9 +547,6 @@
       .nav-links { gap: 20px; }
       .hero { padding: 100px 20px 60px; }
       .hero-tagline { letter-spacing: -1px; }
-      .social-proof { padding: 0 20px 60px; }
-      .social-proof-logos { gap: 24px; }
-      .social-proof-logos span { font-size: 13px; }
       .steps { flex-direction: column; gap: 40px; }
       .steps::before { display: none; }
       .how-it-works { padding: 60px 20px 80px; }
@@ -639,20 +579,7 @@
     <h1 class="hero-tagline">Think anywhere.<br><em>Remember everything.</em></h1>
     <p class="hero-sub">An infinite canvas for your thoughts. Click, type, watch them melt into the page.</p>
     <a href="/" class="hero-cta">Start writing</a>
-    <span class="hero-scroll-hint">scroll</span>
   </section>
-
-  <!-- Social proof -->
-  <div class="social-proof">
-    <p class="social-proof-label">Used by students and creators at</p>
-    <div class="social-proof-logos">
-      <span>Georgia Tech</span>
-      <span>Stanford</span>
-      <span>MIT</span>
-      <span>Carnegie Mellon</span>
-      <span>UC Berkeley</span>
-    </div>
-  </div>
 
   <!-- Canvas demo -->
   <div class="canvas-demo">
@@ -678,11 +605,6 @@
       </div>
       <div class="step reveal">
         <span class="step-number">2</span>
-        <h3>It finds its place</h3>
-        <p>An AI reads what you wrote and moves it near related entries. Meaning creates the map.</p>
-      </div>
-      <div class="step reveal">
-        <span class="step-number">3</span>
         <h3>Go deeper</h3>
         <p>Double-click any entry to fall inside it. A new canvas opens. Ideas nested in ideas.</p>
       </div>
@@ -713,8 +635,8 @@
     </div>
     <div class="feature reveal">
       <span class="feature-label">Intelligence</span>
-      <h3>Semantic organization</h3>
-      <p>An AI reads your entries and arranges them spatially by meaning.</p>
+      <h3>A textable agent</h3>
+      <p>Text it like a friend. It understands your entries and answers back.</p>
     </div>
     <div class="feature reveal">
       <span class="feature-label">Media</span>
