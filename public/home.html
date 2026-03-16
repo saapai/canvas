@@ -209,13 +209,55 @@
       50% { transform: scaleY(1.5); opacity: 0.6; }
     }
 
+    /* ─── Social proof ─── */
+    .social-proof {
+      text-align: center;
+      padding: 0 24px 80px;
+      opacity: 0;
+      animation: hero-rise 0.8s cubic-bezier(0.16, 1, 0.3, 1) 1s forwards;
+    }
+    .social-proof-label {
+      font-size: 11px;
+      font-weight: 400;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: rgba(0,0,0,0.2);
+      margin-bottom: 20px;
+    }
+    .social-proof-logos {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 36px;
+      flex-wrap: wrap;
+    }
+    .social-proof-logos span {
+      font-size: 14px;
+      font-weight: 500;
+      color: rgba(0,0,0,0.18);
+      letter-spacing: -0.3px;
+      transition: color 0.3s;
+    }
+    .social-proof-logos span:hover {
+      color: rgba(0,0,0,0.4);
+    }
+
     /* ─── Canvas demo ─── */
     .canvas-demo {
       position: relative;
       width: 100%;
       max-width: 900px;
       margin: 0 auto;
-      padding: 0 24px 140px;
+      padding: 0 24px 60px;
+    }
+    .canvas-demo-label {
+      text-align: center;
+      font-size: 11px;
+      font-weight: 400;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: rgba(0,0,0,0.2);
+      margin-bottom: 24px;
     }
     .canvas-window {
       position: relative;
@@ -361,11 +403,84 @@
       margin: 0 auto;
     }
 
+    /* ─── How it works ─── */
+    .how-it-works {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 80px 24px 100px;
+    }
+    .how-it-works-label {
+      text-align: center;
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: rgba(0,0,0,0.2);
+      margin-bottom: 60px;
+    }
+    .steps {
+      display: flex;
+      gap: 0;
+      position: relative;
+    }
+    /* Connecting line between steps */
+    .steps::before {
+      content: "";
+      position: absolute;
+      top: 20px;
+      left: 60px;
+      right: 60px;
+      height: 1px;
+      background: rgba(0,0,0,0.06);
+    }
+    .step {
+      flex: 1;
+      text-align: center;
+      padding: 0 16px;
+      opacity: 0;
+      transform: translateY(20px);
+      transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    .step.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+    .step-number {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: 1px solid rgba(0,0,0,0.08);
+      background: var(--paper);
+      font-family: "Newsreader", Georgia, serif;
+      font-size: 16px;
+      font-weight: 400;
+      color: var(--ink);
+      margin-bottom: 20px;
+      position: relative;
+      z-index: 1;
+    }
+    .step h3 {
+      font-family: "Newsreader", Georgia, serif;
+      font-size: 18px;
+      font-weight: 400;
+      margin-bottom: 8px;
+      letter-spacing: -0.3px;
+    }
+    .step p {
+      font-size: 13px;
+      font-weight: 300;
+      line-height: 1.6;
+      color: var(--muted);
+    }
+
     /* ─── Features ─── */
     .features {
       max-width: 720px;
       margin: 0 auto;
-      padding: 80px 24px 120px;
+      padding: 0 24px 120px;
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 0;
@@ -489,10 +604,16 @@
       .nav-links { gap: 20px; }
       .hero { padding: 100px 20px 60px; }
       .hero-tagline { letter-spacing: -1px; }
+      .social-proof { padding: 0 20px 60px; }
+      .social-proof-logos { gap: 24px; }
+      .social-proof-logos span { font-size: 13px; }
+      .steps { flex-direction: column; gap: 40px; }
+      .steps::before { display: none; }
+      .how-it-works { padding: 60px 20px 80px; }
       .features {
         grid-template-columns: 1fr;
         gap: 0;
-        padding: 40px 20px 80px;
+        padding: 0 20px 80px;
       }
       .feature { border-right: none !important; }
       .canvas-entry { font-size: 12px; max-width: 160px; }
@@ -521,8 +642,21 @@
     <span class="hero-scroll-hint">scroll</span>
   </section>
 
+  <!-- Social proof -->
+  <div class="social-proof">
+    <p class="social-proof-label">Used by students and creators at</p>
+    <div class="social-proof-logos">
+      <span>Georgia Tech</span>
+      <span>Stanford</span>
+      <span>MIT</span>
+      <span>Carnegie Mellon</span>
+      <span>UC Berkeley</span>
+    </div>
+  </div>
+
   <!-- Canvas demo -->
   <div class="canvas-demo">
+    <p class="canvas-demo-label">Your canvas, alive</p>
     <div class="canvas-window" id="canvas-window">
       <div class="canvas-dot-grid"></div>
       <div class="canvas-entry serif ce-1">the rain on the window sounds like applause</div>
@@ -533,26 +667,34 @@
     </div>
   </div>
 
-  <!-- Statement 1: Philosophy -->
-  <section class="statement" id="how-it-works">
+  <!-- How it works -->
+  <section class="how-it-works" id="how-it-works">
+    <p class="how-it-works-label">How it works</p>
+    <div class="steps">
+      <div class="step reveal">
+        <span class="step-number">1</span>
+        <h3>Click anywhere</h3>
+        <p>An editor appears wherever you click. Start typing &mdash; a thought, a list, a poem.</p>
+      </div>
+      <div class="step reveal">
+        <span class="step-number">2</span>
+        <h3>It finds its place</h3>
+        <p>An AI reads what you wrote and moves it near related entries. Meaning creates the map.</p>
+      </div>
+      <div class="step reveal">
+        <span class="step-number">3</span>
+        <h3>Go deeper</h3>
+        <p>Double-click any entry to fall inside it. A new canvas opens. Ideas nested in ideas.</p>
+      </div>
+    </div>
+  </section>
+
+  <div class="divider"></div>
+
+  <!-- Statement: Philosophy -->
+  <section class="statement">
     <p class="statement-text reveal">Not a notebook. Not a document.<br><em>A place.</em></p>
     <p class="statement-detail reveal">No folders, no tags, no timelines. Just a blank, infinite surface. Your thoughts live where you put them.</p>
-  </section>
-
-  <div class="divider"></div>
-
-  <!-- Statement 2: Depth -->
-  <section class="statement">
-    <p class="statement-text reveal">Double-click to fall in.<br><em>Ideas inside ideas.</em></p>
-    <p class="statement-detail reveal">Every entry is a door. Open it and find a new canvas. Navigate your mind like a map.</p>
-  </section>
-
-  <div class="divider"></div>
-
-  <!-- Statement 3: Intelligence -->
-  <section class="statement">
-    <p class="statement-text reveal">Write freely. <em>It organizes itself.</em></p>
-    <p class="statement-detail reveal">An LLM reads what you write and arranges your entries into a spatial map of meaning.</p>
   </section>
 
   <div class="divider"></div>
@@ -565,14 +707,14 @@
       <p>No pages. No margins. No end.</p>
     </div>
     <div class="feature reveal">
-      <span class="feature-label">Ink</span>
-      <h3>Words that melt in</h3>
-      <p>Each entry dissolves into the page. Thoughts feel physical.</p>
+      <span class="feature-label">Depth</span>
+      <h3>Ideas inside ideas</h3>
+      <p>Every entry is a door. Double-click to open a new canvas within.</p>
     </div>
     <div class="feature reveal">
       <span class="feature-label">Intelligence</span>
       <h3>Semantic organization</h3>
-      <p>An LLM reads your entries and arranges them spatially by meaning.</p>
+      <p>An AI reads your entries and arranges them spatially by meaning.</p>
     </div>
     <div class="feature reveal">
       <span class="feature-label">Media</span>
@@ -668,6 +810,7 @@
         }
       });
     }, { threshold: 0.15, rootMargin: '0px 0px -40px 0px' });
+    const stepEls = document.querySelectorAll('.steps .step');
     reveals.forEach((el) => {
       // Stagger features: row-based delay
       if (el.closest('.features')) {
@@ -675,6 +818,11 @@
         const row = Math.floor(idx / 2);
         const col = idx % 2;
         el.style.transitionDelay = (row * 0.15 + col * 0.08) + 's';
+      }
+      // Stagger steps: sequential delay
+      if (el.closest('.steps')) {
+        const idx = Array.from(stepEls).indexOf(el);
+        el.style.transitionDelay = (idx * 0.15) + 's';
       }
       revealObserver.observe(el);
     });
