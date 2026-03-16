@@ -341,6 +341,18 @@ export async function getFactsWithUnresolvedDates() {
 /**
  * Update a fact's deadline_date (and optionally fact_type).
  */
+/**
+ * Check the most recent digest announcement date.
+ * Returns the created_at timestamp or null.
+ */
+export async function getLastDigestDate() {
+  const db = getPool();
+  const result = await db.query(
+    `SELECT created_at FROM announcements WHERE source = 'digest' ORDER BY created_at DESC LIMIT 1`
+  );
+  return result.rows[0]?.created_at || null;
+}
+
 export async function updateFactDeadline(factId, deadlineDate, factType) {
   const db = getPool();
   if (factType) {

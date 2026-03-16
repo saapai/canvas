@@ -7,7 +7,7 @@ import { WebClient } from '@slack/web-api';
 import OpenAI from 'openai';
 import * as slackDb from './slack-db.js';
 import { sendSms } from './sms.js';
-import { toE164, getOptedInMembers } from './sms-db.js';
+import { toE164, getOptedInMembers, createAnnouncement, updateAnnouncement, logMessage } from './sms-db.js';
 
 let _slackClient = null;
 
@@ -605,6 +605,24 @@ export async function checkAndSendNotifications() {
     }
   }
 
+  // Piggyback: if it's a digest day (Mon or Sat) between 9AM-11AM PST and no digest sent recently, trigger it
+  try {
+    const nowPST = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+    const dayOfWeek = nowPST.getDay(); // 0=Sun, 1=Mon, 6=Sat
+    const hour = nowPST.getHours();
+    if ((dayOfWeek === 1 || dayOfWeek === 6) && hour >= 9 && hour < 11) {
+      const lastDigest = await slackDb.getLastDigestDate();
+      const twelveHoursAgo = new Date(now.getTime() - 12 * 60 * 60 * 1000);
+      if (!lastDigest || new Date(lastDigest) < twelveHoursAgo) {
+        console.log('[Notification:cron] Piggyback: triggering weekly digest (no recent digest found)');
+        const digestResults = await sendWeeklyDigests();
+        console.log(`[Notification:cron] Piggyback digest complete: ${digestResults.length} entries processed`);
+      }
+    }
+  } catch (piggybackErr) {
+    console.error('[Notification:cron] Piggyback digest error:', piggybackErr.message);
+  }
+
   return results;
 }
 
@@ -791,9 +809,12 @@ export async function sendWeeklyDigests() {
           const response = await openai.chat.completions.create({
             model: 'gpt-4o-mini',
             messages: [
-              { role: 'system', content: `You compose a weekly SMS digest of Slack updates.
+              { role: 'system', content: `You compose a short SMS digest catching people up on Slack activity from the last few days.
+
+Today is ${new Date().toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.
 
 FORMAT RULES:
+- Start with a brief one-line intro like "Catching you up on the last few days:" or "Quick recap from the last few days:"
 - Plain text only. No markdown, no asterisks, no bold, no emojis.
 - Each item on its own line, like a quick list
 - Extremely succinct — say more with fewer words
@@ -808,12 +829,13 @@ TOPIC GROUPING:
 - Present as consolidated points, not one-per-fact
 
 CONTENT RULES:
-- Summarize key announcements, updates, and info from the week
+- Summarize key announcements, updates, and info from the last few days
 - NEVER generalize action items. Use SPECIFIC terms from the facts
 - If URLs are provided, include the most relevant ones
 - Do NOT make up details not in the facts
-- Do NOT include events/deadlines that have specific dates — those get their own reminders` },
-              { role: 'user', content: `Compose a weekly digest SMS from these Slack facts:\n${factsList}${linkInfo}` }
+- Do NOT include events/deadlines that have specific dates — those get their own reminders
+- Skip any facts about events that have already happened (before today). Only include current or future-relevant info.` },
+              { role: 'user', content: `Compose a catch-up digest SMS from these recent Slack facts:\n${factsList}${linkInfo}` }
             ],
             temperature: 0.3,
             max_tokens: 600
@@ -829,6 +851,14 @@ CONTENT RULES:
         digestMessage = `Weekly update:\n${facts.map(f => `- ${f.extracted_fact}`).join('\n')}`;
       }
 
+      // Create announcement record
+      let announcement = null;
+      try {
+        announcement = await createAnnouncement(entryId, digestMessage, 'system', 'digest');
+      } catch (annErr) {
+        console.error(`[WeeklyDigest] Failed to create announcement for entry ${entryId}:`, annErr.message);
+      }
+
       // Send to ALL opted-in page members
       const members = await getOptedInMembers(entryId);
       let sent = 0;
@@ -836,9 +866,25 @@ CONTENT RULES:
         const phone = member.phone_normalized;
         if (!phone || phone.length < 10) continue;
         const smsResult = await sendSms(toE164(phone), digestMessage);
-        if (smsResult.ok) sent++;
+        if (smsResult.ok) {
+          sent++;
+          try {
+            await logMessage(entryId, phone, 'outbound', digestMessage, { action: 'digest' });
+          } catch (logErr) {
+            console.error(`[WeeklyDigest] Failed to log message for ${phone}:`, logErr.message);
+          }
+        }
       }
       console.log(`[WeeklyDigest] Entry ${entryId}: sent digest to ${sent}/${members.length} members`);
+
+      // Update announcement with sent status
+      if (announcement) {
+        try {
+          await updateAnnouncement(announcement.id, { status: 'sent', sent_count: sent, sent_at: new Date() });
+        } catch (updErr) {
+          console.error(`[WeeklyDigest] Failed to update announcement ${announcement.id}:`, updErr.message);
+        }
+      }
 
       // Mark facts as digested
       const factIds = facts.map(f => f.id);
