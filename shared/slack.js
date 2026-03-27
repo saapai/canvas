@@ -10,6 +10,7 @@ import { sendSms } from './sms.js';
 import { toE164, getOptedInMembers, createAnnouncement, updateAnnouncement, logMessage } from './sms-db.js';
 
 let _slackClient = null;
+const _userCache = new Map(); // Slack user ID → display name
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
@@ -24,6 +25,36 @@ export function getSlackClient() {
     _slackClient = new WebClient(token);
   }
   return _slackClient;
+}
+
+/**
+ * Resolve a Slack user ID to a display name (cached).
+ */
+async function resolveUserName(userId) {
+  if (!userId || userId === 'unknown') return null;
+  if (_userCache.has(userId)) return _userCache.get(userId);
+  try {
+    const client = getSlackClient();
+    if (!client) return null;
+    const result = await client.users.info({ user: userId });
+    const profile = result.user?.profile;
+    const name = profile?.display_name || profile?.real_name || result.user?.name || null;
+    if (name) _userCache.set(userId, name);
+    return name;
+  } catch (err) {
+    console.error(`[Slack] Failed to resolve user ${userId}:`, err.message);
+    _userCache.set(userId, null);
+    return null;
+  }
+}
+
+/**
+ * Bulk-resolve user IDs to display names. Returns Map<userId, name>.
+ */
+async function resolveUserNames(userIds) {
+  const unique = [...new Set(userIds.filter(id => id && id !== 'unknown'))];
+  await Promise.all(unique.map(id => resolveUserName(id)));
+  return _userCache;
 }
 
 export async function listAccessibleChannels() {
@@ -160,6 +191,10 @@ export async function fetchChannelMessages(channelId, oldestTs = null) {
 export async function extractFacts(messages, channelName) {
   if (!messages.length) return [];
 
+  // Resolve all user IDs to display names upfront
+  const userIds = messages.map(m => m.user).filter(Boolean);
+  await resolveUserNames(userIds);
+
   // Batch messages into chunks of 20 for LLM processing
   const chunks = [];
   for (let i = 0; i < messages.length; i += 20) {
@@ -173,6 +208,7 @@ export async function extractFacts(messages, channelName) {
       ts: m.ts,
       text: m.text?.substring(0, 500) || '',
       user: m.user || 'unknown',
+      userName: _userCache.get(m.user) || m.user || 'unknown',
       date: new Date(parseFloat(m.ts) * 1000).toISOString()
     }));
 
@@ -199,6 +235,14 @@ CRITICAL — PRESERVE SPECIFIC DETAILS:
 - Keep form names, URLs, specific instructions, exact actions
 - Keep the full meaning — never generalize action items
 - REPLY CONTEXT: If a message starts with "^" or is clearly a reply/follow-up to a previous message in the batch (e.g. "^ pls submit by end of weekend"), combine it with the referenced message. The fact should describe WHAT to submit, not just "submit by weekend".
+
+PRONOUN RESOLUTION — CRITICAL:
+- Each message includes a "userName" field with the sender's display name.
+- If the sender says "me", "I", "my", or "myself", REPLACE it with their actual name in the extracted fact.
+- "text me if you can't make it" from userName "Barima" → "text Barima if you can't make it"
+- "I'll be hosting the event" from userName "Joseph" → "Joseph will be hosting the event"
+- "message me for the link" from userName "Sarah" → "message Sarah for the link"
+- Always resolve first-person references so the fact makes sense out of context.
 
 For each fact, determine:
 - factType: "info" (general), "deadline" (has a due date), "event" (has a date/time), "announcement" (broadcast)
@@ -605,12 +649,12 @@ export async function checkAndSendNotifications() {
     }
   }
 
-  // Piggyback: if it's a digest day (Mon or Sat) between 9AM-11AM PST and no digest sent recently, trigger it
+  // Piggyback: if it's a digest day (Mon or Fri) between 9AM-11AM PST and no digest sent recently, trigger it
   try {
     const nowPST = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
-    const dayOfWeek = nowPST.getDay(); // 0=Sun, 1=Mon, 6=Sat
+    const dayOfWeek = nowPST.getDay(); // 0=Sun, 1=Mon, 5=Fri
     const hour = nowPST.getHours();
-    if ((dayOfWeek === 1 || dayOfWeek === 6) && hour >= 9 && hour < 11) {
+    if ((dayOfWeek === 1 || dayOfWeek === 5) && hour >= 9 && hour < 11) {
       const lastDigest = await slackDb.getLastDigestDate();
       const twelveHoursAgo = new Date(now.getTime() - 12 * 60 * 60 * 1000);
       if (!lastDigest || new Date(lastDigest) < twelveHoursAgo) {
@@ -806,36 +850,48 @@ export async function sendWeeklyDigests() {
       let digestMessage;
       if (process.env.OPENAI_API_KEY) {
         try {
+          const nowLocal = new Date().toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+          const dayName = new Date().toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', weekday: 'long' });
+          const isFriday = dayName === 'Friday';
+          const digestFraming = isFriday
+            ? 'This is a FRIDAY end-of-week recap. Frame it as wrapping up the week — what happened, what to know going into the weekend.'
+            : 'This is a MONDAY start-of-week digest. Frame it as what\'s going on this week — what\'s coming up, what to be aware of.';
+
           const response = await openai.chat.completions.create({
             model: 'gpt-4o-mini',
             messages: [
-              { role: 'system', content: `You compose a short SMS digest catching people up on Slack activity from the last few days.
+              { role: 'system', content: `You compose a short SMS digest catching people up on Slack activity.
 
-Today is ${new Date().toLocaleDateString('en-US', { timeZone: 'America/Los_Angeles', weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}.
+Today is ${nowLocal}. ${digestFraming}
 
 FORMAT RULES:
-- Start with a brief one-line intro like "Catching you up on the last few days:" or "Quick recap from the last few days:"
-- Plain text only. No markdown, no asterisks, no bold, no emojis.
-- Each item on its own line, like a quick list
-- Extremely succinct — say more with fewer words
-- Sound like a sharp friend texting you, not a bot
-- No filler, no "Hey!" or "Hope you're well", no sign-offs
+- Open with a short lowercase opener on its own line. For Monday: "here's what's going on this week" or "quick look at the week ahead". For Friday: "happy friday" followed by a brief recap framing. Keep it casual.
+- Each item starts with "- " on its own line
+- Lowercase, casual, like a sharp friend texting you
+- Extremely concise — trim every unnecessary word
+- Plain text only. No markdown, no asterisks, no bold, no emojis, no quotes.
+- No filler, no "Hey!", no sign-offs, no "hope you're well"
 - Under 600 chars ideally, but include all important info
+- If there are links/URLs, put them inline naturally (not on a separate line)
+
+TONE:
+- Calm, clean, informative — like a personal briefing
+- Each bullet should feel like its own self-contained update
+- Write the way someone texts who doesn't waste words
 
 TOPIC GROUPING:
-- Group facts about the same topic or event together into one consolidated point
-- If multiple facts mention "retreat", combine them into a single retreat update
-- Deduplicate redundant information — don't repeat the same thing from different channels
+- Group facts about the same topic into one consolidated bullet
+- Deduplicate redundant info from different channels
 - Present as consolidated points, not one-per-fact
 
 CONTENT RULES:
-- Summarize key announcements, updates, and info from the last few days
-- NEVER generalize action items. Use SPECIFIC terms from the facts
+- Summarize key announcements, updates, and action items
+- NEVER generalize action items — use SPECIFIC terms from the facts
 - If URLs are provided, include the most relevant ones
 - Do NOT make up details not in the facts
 - Do NOT include events/deadlines that have specific dates — those get their own reminders
-- Skip any facts about events that have already happened (before today). Only include current or future-relevant info.` },
-              { role: 'user', content: `Compose a catch-up digest SMS from these recent Slack facts:\n${factsList}${linkInfo}` }
+- Skip any facts about events that have already happened (before today)` },
+              { role: 'user', content: `Compose the digest from these recent Slack facts:\n${factsList}${linkInfo}` }
             ],
             temperature: 0.3,
             max_tokens: 600

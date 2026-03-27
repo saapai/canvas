@@ -2671,7 +2671,7 @@ export function createRouter(options = {}) {
     }
   });
 
-  // Biweekly: Mon & Sat 9AM PST (5PM UTC) — send digest of non-dated Slack facts
+  // Biweekly: Mon & Fri 9AM PST (5PM UTC) — send digest of non-dated Slack facts
   router.get('/api/cron/weekly-digest', async (req, res) => {
     try {
       const authHeader = req.headers.authorization;
