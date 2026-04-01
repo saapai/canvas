@@ -58,7 +58,8 @@ function activateArticleMode() {
     formatBar.classList.remove('hidden');
   }
 
-  if (!window.PAGE_IS_OWNER && !window.PAGE_IS_EDITOR && !currentUser) {
+  // Only show join banner on community pages (Amia's Lux), not personal spaces
+  if (!window.PAGE_IS_OWNER && !window.PAGE_IS_EDITOR && !currentUser && window.PAGE_USERNAME === 'Amia') {
     showJoinBanner();
   }
 
@@ -526,10 +527,12 @@ async function deletePage(entryId) {
 
 // ——— Join banner ———
 function showJoinBanner() {
+  const username = window.PAGE_USERNAME || 'this page';
+  const keyword = username.toUpperCase();
   const banner = document.createElement('div');
   banner.className = 'article-join-banner';
-  banner.innerHTML = `<span class="article-join-banner-text">Join Project Lux</span>
-    <a href="sms:+17139626862&body=LUX" class="article-join-banner-cta">Text "LUX" to join</a>`;
+  banner.innerHTML = `<span class="article-join-banner-text">Join ${escapeHtml(username)}'s Page</span>
+    <a href="sms:+17139626862&body=${encodeURIComponent(keyword)}" class="article-join-banner-cta">Text "${escapeHtml(keyword)}" to join</a>`;
   document.body.appendChild(banner);
 }
 

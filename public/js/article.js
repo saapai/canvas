@@ -234,7 +234,8 @@ if (window.PAGE_VIEW_MODE === 'article') {
 const shareCopyInvite = document.getElementById('share-copy-invite');
 if (shareCopyInvite) {
   shareCopyInvite.addEventListener('click', () => {
-    const inviteUrl = 'sms:+17139626862&body=LUX';
+    const keyword = (window.PAGE_USERNAME || 'JOIN').toUpperCase();
+    const inviteUrl = `sms:+17139626862&body=${encodeURIComponent(keyword)}`;
     navigator.clipboard.writeText(inviteUrl).then(() => {
       shareCopyInvite.textContent = 'Copied!';
       setTimeout(() => { shareCopyInvite.textContent = 'Copy invite link'; }, 2000);

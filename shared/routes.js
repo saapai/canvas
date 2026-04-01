@@ -1971,23 +1971,53 @@ export function createRouter(options = {}) {
       const response = await openai.chat.completions.create({
         model: 'gpt-4o-mini',
         temperature: 0.5,
+        response_format: { type: 'json_object' },
         messages: [{
           role: 'system',
-          content: `You are a helpful assistant for "${ownerUsername}'s" page. Answer questions based on the page content below. Be concise and specific — this answer will be sent as an iMessage. Keep it under 300 characters if possible.\n\nPage content:\n${context.substring(0, 8000)}`
+          content: `You are a helpful iMessage assistant for "${ownerUsername}'s" page on Duttapad.
+
+YOUR CAPABILITIES:
+- Search and answer questions about the page content below
+- Help find specific information across all pages
+- Summarize page content
+
+THINGS YOU CANNOT DO in this mode (be honest about these):
+- Upload images or files
+- Access external websites or live data
+- Send messages to other people
+- Create new pages (that's a separate command)
+
+INSTRUCTIONS:
+- If the user asks something you CAN answer from the page content, answer concisely (under 300 chars, this is iMessage).
+- If the user asks you to DO something you cannot do, be honest. Say you can't do that and you'll pass it along to be handled.
+
+Respond in JSON:
+{"answer":"your response","escalate":false}
+If the request is beyond your capabilities:
+{"answer":"brief explanation of what you can't do","escalate":true}
+
+Page content:
+${context.substring(0, 8000)}`
         }, {
           role: 'user',
           content: question
         }]
       });
-      const answer = response.choices[0]?.message?.content || "I couldn't find an answer to that.";
-      res.json({ answer });
+      let parsed;
+      try {
+        parsed = JSON.parse(response.choices[0]?.message?.content || '{}');
+      } catch {
+        parsed = { answer: response.choices[0]?.message?.content || "I couldn't find an answer to that.", escalate: false };
+      }
+      const answer = parsed.answer || "I couldn't find an answer to that.";
+      res.json({ answer, escalate: !!parsed.escalate });
     } catch (error) {
       console.error('Error in query-page:', error);
       res.status(500).json({ error: error.message });
     }
   });
 
-  // ——— Add entry via iMessage (for Amia) ———
+  // ——— Conversational iMessage handler (for article-mode users) ———
   router.post('/api/entries/add-via-sms', async (req, res) => {
     try {
       const { text, secret, ownerUsername } = req.body;
@@ -2009,13 +2039,14 @@ export function createRouter(options = {}) {
         !e.media_card_data && !(e.text_html && e.text_html.includes('deadline-table'))
       );
 
+      // Build detailed page list with full content for edit/delete/query operations
       const pageList = pages.map((p, i) => {
         const title = (p.text || '').split('\n')[0].trim();
-        const bodyPreview = (p.text_html || p.text || '').substring(0, 200).replace(/<[^>]+>/g, '');
-        return `${i + 1}. "${title}" — ${bodyPreview}`;
+        const bodyText = (p.text_html || '').replace(/<[^>]+>/g, '').trim();
+        return `${i + 1}. "${title}" — ${bodyText.substring(0, 500)}`;
       }).join('\n');
 
-      // Ask AI which page to add to (or create new)
+      // Ask AI what action to take
       const OpenAI = (await import('openai')).default;
       const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
       const aiRes = await openai.chat.completions.create({
@@ -2023,7 +2054,60 @@ export function createRouter(options = {}) {
         temperature: 0.3,
         messages: [{
           role: 'system',
-          content: `You manage pages for "${ownerUsername}". Here are the current pages:\n${pageList || '(no pages yet)'}\n\nThe user sent a message via iMessage. Decide:\n1. Which existing page to append this to (by number), OR\n2. If it doesn't fit any page, create a new one.\n\nAlso clean up the message text for a page (remove conversational filler like "add to...", fix grammar, keep it concise).\n\nRespond in JSON only:\n{"action":"append","pageIndex":0,"content":"cleaned text"}\nor\n{"action":"new","title":"Page Title","content":"cleaned text"}\n\nIf the message is ambiguous or you're unsure which page, respond:\n{"action":"ask","question":"brief clarifying question"}`
+          content: `You are a conversational iMessage assistant for "${ownerUsername}'s" pages on Duttapad. Be friendly, concise, and helpful — responses go via iMessage.
+
+YOUR CAPABILITIES:
+- Add content to an existing page (append text)
+- Create a new page with a title and content
+- Edit/rewrite content on an existing page
+- Delete an entire page
+- Remove specific content from a page
+- Answer questions about what's on the pages (query/search)
+- Add reminders (stored on a "Reminders" page)
+
+THINGS YOU CANNOT DO (be honest — say so and mention you'll pass it to your superiors):
+- Upload images or files
+- Access external websites or live data
+- Send messages to other people
+- Set timed push notifications (you can store reminders on a page though)
+
+Here are the current pages with their content:
+${pageList || '(no pages yet)'}
+
+Based on the user's message, decide what to do. Respond in JSON only with ONE of these:
+
+ADD to existing page:
+{"action":"append","pageIndex":0,"content":"cleaned text to add","reply":"Done! Added to [page name]."}
+
+CREATE new page:
+{"action":"new","title":"Page Title","content":"page body text","reply":"Created new page: [title]"}
+
+EDIT a page (rewrite its body content):
+{"action":"edit","pageIndex":0,"newContent":"the full updated body text with changes applied","reply":"Updated [page name] — [brief description of change]."}
+
+DELETE a page:
+{"action":"delete_page","pageIndex":0,"reply":"Deleted [page name]."}
+
+REMOVE specific content from a page (rewrite body without the removed part):
+{"action":"edit","pageIndex":0,"newContent":"full body with that content removed","reply":"Removed [what was removed] from [page name]."}
+
+ANSWER a question about page content:
+{"action":"query","reply":"concise answer based on page content (under 300 chars)"}
+
+ADD a reminder (append to Reminders page, or create it if none exists):
+{"action":"reminder","content":"reminder text with date/time if mentioned","reply":"Got it! Added to your reminders."}
+
+ASK for clarification:
+{"action":"ask","question":"brief clarifying question"}
+
+CAN'T DO IT — escalate:
+{"action":"escalate","reply":"honest explanation + I'll pass this to my superiors to handle."}
+
+IMPORTANT:
+- For edits, "newContent" must be the COMPLETE updated body text (not just the changed part)
+- pageIndex is 0-based (page 1 = index 0)
+- Clean up conversational filler from content before saving
+- Keep reply messages short and friendly (this is iMessage)`
         }, {
           role: 'user',
           content: text
@@ -2038,29 +2122,101 @@ export function createRouter(options = {}) {
         return res.status(500).json({ error: 'AI returned invalid JSON' });
       }
 
+      const reply = decision.reply || '';
+
       if (decision.action === 'ask') {
-        return res.json({ action: 'ask', question: decision.question });
+        return res.json({ action: 'ask', question: decision.question || reply });
+      }
+
+      if (decision.action === 'escalate') {
+        return res.json({ action: 'escalate', message: reply || "I can't do that, but I'll pass it along to my superiors." });
+      }
+
+      if (decision.action === 'query') {
+        return res.json({ action: 'query', answer: reply });
       }
 
       const { randomUUID } = await import('crypto');
+      const db = (await import('./db.js')).getPool();
 
       if (decision.action === 'append' && typeof decision.pageIndex === 'number') {
         const targetPage = pages[decision.pageIndex];
         if (!targetPage) return res.status(400).json({ error: 'Invalid page index' });
 
-        // Append to existing page body
         const existingHtml = targetPage.text_html || '';
         const newHtml = existingHtml + `<p>${(decision.content || text).replace(/\n/g, '<br>')}</p>`;
-        const newText = targetPage.text; // Keep title the same
 
-        const db = (await import('./db.js')).getPool();
         await db.query(
           `UPDATE entries SET text_html = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
           [newHtml, targetPage.id]
         );
 
-        const pageTitle = (newText || '').split('\n')[0].trim();
-        return res.json({ action: 'appended', page: pageTitle, content: decision.content });
+        const pageTitle = (targetPage.text || '').split('\n')[0].trim();
+        return res.json({ action: 'appended', page: pageTitle, content: decision.content, reply });
+      }
+
+      if (decision.action === 'edit' && typeof decision.pageIndex === 'number') {
+        const targetPage = pages[decision.pageIndex];
+        if (!targetPage) return res.status(400).json({ error: 'Invalid page index' });
+
+        // Wrap plain text in <p> tags if not already HTML
+        let newHtml = decision.newContent || '';
+        if (!newHtml.includes('<')) {
+          newHtml = newHtml.split('\n').filter(Boolean).map(line => `<p>${line}</p>`).join('');
+        }
+
+        // Update title if provided
+        const newTitle = decision.newTitle || targetPage.text;
+
+        await db.query(
+          `UPDATE entries SET text_html = $1, text = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
+          [newHtml, newTitle, targetPage.id]
+        );
+
+        const pageTitle = (newTitle || '').split('\n')[0].trim();
+        return res.json({ action: 'edited', page: pageTitle, reply });
+      }
+
+      if (decision.action === 'delete_page' && typeof decision.pageIndex === 'number') {
+        const targetPage = pages[decision.pageIndex];
+        if (!targetPage) return res.status(400).json({ error: 'Invalid page index' });
+
+        await db.query(
+          `UPDATE entries SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1`,
+          [targetPage.id]
+        );
+
+        const pageTitle = (targetPage.text || '').split('\n')[0].trim();
+        return res.json({ action: 'deleted', page: pageTitle, reply });
+      }
+
+      if (decision.action === 'reminder') {
+        // Find or create a "Reminders" page
+        let remindersPage = pages.find(p => (p.text || '').toLowerCase().startsWith('reminders'));
+
+        if (remindersPage) {
+          const existingHtml = remindersPage.text_html || '';
+          const newHtml = existingHtml + `<p>${(decision.content || text).replace(/\n/g, '<br>')}</p>`;
+          await db.query(
+            `UPDATE entries SET text_html = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+            [newHtml, remindersPage.id]
+          );
+        } else {
+          const entryId = randomUUID();
+          await saveEntry({
+            id: entryId,
+            text: 'Reminders',
+            textHtml: `<p>${(decision.content || text).replace(/\n/g, '<br>')}</p>`,
+            position: { x: 100, y: 100 },
+            parentEntryId: null,
+            userId: owner.id,
+            linkCardsData: null,
+            mediaCardData: null,
+            latexData: null
+          });
+        }
+
+        return res.json({ action: 'reminder', content: decision.content, reply });
       }
 
       if (decision.action === 'new') {
@@ -2079,7 +2235,7 @@ export function createRouter(options = {}) {
           latexData: null
         });
 
-        return res.json({ action: 'created', page: title, content });
+        return res.json({ action: 'created', page: title, content, reply });
       }
 
       return res.status(400).json({ error: 'Unknown action from AI' });
