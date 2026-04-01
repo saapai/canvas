@@ -32,6 +32,12 @@ function activateArticleMode() {
     shareBtn.classList.remove('hidden');
   }
 
+  // Show format bar for editors (so they can format text)
+  if (articleCanEdit() && formatBar) {
+    formatBar.classList.remove('hidden');
+    formatBar.classList.add('article-format-bar');
+  }
+
   // Show join banner for non-logged-in visitors
   if (!window.PAGE_IS_OWNER && !window.PAGE_IS_EDITOR && !currentUser) {
     showJoinBanner();
@@ -76,15 +82,13 @@ function renderArticleView() {
   const cats = categorizeCurrentEntries();
   const totalCount = Object.values(cats).reduce((s, a) => s + a.length, 0);
 
-  // Header
-  let titleText = window.PAGE_USERNAME || 'Home';
+  // Header — use "Project Lux" as title, no meta line
+  let titleText = 'Project Lux';
   if (currentViewEntryId) {
     const parent = entries.get(currentViewEntryId);
     if (parent) titleText = entryTitle(parent);
   }
-  const now = new Date();
-  const dateStr = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-  articleHeader.innerHTML = `<h1 class="article-header-title">${escapeHtml(titleText)}</h1><div class="article-header-meta">${totalCount} item${totalCount !== 1 ? 's' : ''} &middot; ${dateStr}</div>`;
+  articleHeader.innerHTML = `<h1 class="article-header-title">${escapeHtml(titleText)}</h1>`;
 
   // Sidebar
   const categoryLabels = { notes: 'Notes', links: 'Links', songs: 'Songs', movies: 'Movies', images: 'Images', files: 'Files', latex: 'LaTeX', deadlines: 'Deadlines' };
@@ -105,12 +109,29 @@ function renderArticleView() {
 
   // Content sections
   articleContent.innerHTML = '';
+
+  // If empty and can edit, show a blank typing area
+  if (totalCount === 0 && articleCanEdit()) {
+    const emptyEditor = document.createElement('div');
+    emptyEditor.className = 'article-note-card article-empty-editor';
+    emptyEditor.setAttribute('contenteditable', 'true');
+    emptyEditor.setAttribute('data-placeholder', 'Start typing...');
+    emptyEditor.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        const text = emptyEditor.innerText.trim();
+        if (text) {
+          saveNewArticleEntry(text, emptyEditor.innerHTML);
+          emptyEditor.innerHTML = '';
+        }
+      }
+    });
+    articleContent.appendChild(emptyEditor);
+    return;
+  }
+
   if (totalCount === 0) {
-    articleContent.innerHTML = '<div class="article-empty">No entries on this page yet.</div>';
-    if (articleCanEdit()) {
-      const addBtn = createAddEntryButton();
-      articleContent.appendChild(addBtn);
-    }
+    articleContent.innerHTML = '<div class="article-empty">Nothing here yet.</div>';
     return;
   }
 
@@ -126,16 +147,64 @@ function renderArticleView() {
       const el = renderArticleEntry(ed, key);
       if (el) section.appendChild(el);
     });
-    // Add "new entry" button for admins
-    if (articleCanEdit()) {
-      section.appendChild(createAddEntryButton());
-    }
     articleContent.appendChild(section);
+  }
+
+  // Always-visible typing area at the bottom for editors
+  if (articleCanEdit()) {
+    const typingArea = document.createElement('div');
+    typingArea.className = 'article-note-card article-typing-area';
+    typingArea.setAttribute('contenteditable', 'true');
+    typingArea.setAttribute('data-placeholder', 'Type here...');
+    typingArea.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        const text = typingArea.innerText.trim();
+        if (text) {
+          saveNewArticleEntry(text, typingArea.innerHTML);
+          typingArea.innerHTML = '';
+          // Re-render to show the new entry
+          setTimeout(() => renderArticleView(), 100);
+        }
+      }
+    });
+    // Connect format bar to this typing area when focused
+    typingArea.addEventListener('focus', () => {
+      activeArticleEditor = typingArea;
+    });
+    articleContent.appendChild(typingArea);
   }
 
   // Detect AI phrases for note entries
   if (currentUser) {
     cats.notes.forEach(ed => detectAndHighlightPhrases(ed));
+  }
+}
+
+// ——— Save a new entry from typing area ———
+async function saveNewArticleEntry(text, html) {
+  const id = generateEntryId();
+  const position = { x: 100, y: 100 + entries.size * 50 };
+  const parentEntryId = currentViewEntryId || null;
+  const pageOwnerId = window.PAGE_OWNER_ID;
+
+  try {
+    await fetch('/api/entries', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, text, textHtml: html, position, parentEntryId, pageOwnerId })
+    });
+
+    const entry = document.createElement('div');
+    entry.className = 'entry';
+    entry.id = id;
+    entry.style.display = 'none';
+    world.appendChild(entry);
+
+    entries.set(id, { id, text, textHtml: html, position, parentEntryId, element: entry });
+  } catch (err) {
+    console.error('Failed to create article entry:', err);
   }
 }
 
@@ -151,7 +220,6 @@ function renderArticleEntry(ed, category) {
       } else {
         card.textContent = ed.text || '';
       }
-      // Check for children → make clickable
       const hasChildren = Array.from(entries.values()).some(e => e.parentEntryId === ed.id);
       if (hasChildren) {
         card.classList.add('clickable');
@@ -159,15 +227,29 @@ function renderArticleEntry(ed, category) {
         hint.className = 'article-note-children-hint';
         hint.textContent = 'Open subpage \u2192';
         card.appendChild(hint);
+      }
+      // Single click → edit (for admins); Double-click → traverse (if has children)
+      if (articleCanEdit()) {
+        card.classList.add('editable');
+        let clickTimer = null;
         card.addEventListener('click', (e) => {
           if (e.target.classList.contains('article-clickable-phrase')) return;
-          navigateToEntry(ed.id);
+          if (clickTimer) return; // waiting for dblclick
+          clickTimer = setTimeout(() => {
+            clickTimer = null;
+            startArticleEdit(card, ed);
+          }, 250);
         });
-      }
-      // Make editable for admins
-      if (articleCanEdit() && !hasChildren) {
-        card.classList.add('editable');
-        card.addEventListener('click', () => startArticleEdit(card, ed));
+        if (hasChildren) {
+          card.addEventListener('dblclick', (e) => {
+            if (e.target.classList.contains('article-clickable-phrase')) return;
+            if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
+            navigateToEntry(ed.id);
+          });
+        }
+      } else if (hasChildren) {
+        // Viewers: double-click to traverse
+        card.addEventListener('dblclick', () => navigateToEntry(ed.id));
       }
       return card;
     }
@@ -295,7 +377,11 @@ function renderArticleEntry(ed, category) {
 let activeArticleEditor = null;
 
 function startArticleEdit(card, ed) {
-  if (activeArticleEditor) return;
+  if (activeArticleEditor === card) return;
+  if (activeArticleEditor && activeArticleEditor !== card) {
+    // Commit previous edit
+    activeArticleEditor.blur();
+  }
   activeArticleEditor = card;
   card.classList.add('editing');
   card.contentEditable = 'true';
@@ -314,12 +400,11 @@ function startArticleEdit(card, ed) {
     card.removeEventListener('keydown', handleKey);
     card.contentEditable = 'false';
     card.classList.remove('editing');
-    activeArticleEditor = null;
+    if (activeArticleEditor === card) activeArticleEditor = null;
 
     const newText = card.innerText.trim();
     const newHtml = card.innerHTML;
     if (newText !== (ed.text || '').trim()) {
-      // Save to server
       ed.text = newText;
       ed.textHtml = newHtml;
       const pageOwnerId = getPageOwnerIdForEntry(ed.id);
@@ -327,14 +412,8 @@ function startArticleEdit(card, ed) {
         method: 'PUT',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: newText,
-          textHtml: newHtml,
-          position: ed.position,
-          pageOwnerId
-        })
+        body: JSON.stringify({ text: newText, textHtml: newHtml, position: ed.position, pageOwnerId })
       }).catch(err => console.error('Failed to save article edit:', err));
-      // Clear phrase cache for this entry
       phraseCache.delete(ed.id);
     }
   }
@@ -345,7 +424,6 @@ function startArticleEdit(card, ed) {
       card.blur();
     }
     if (e.key === 'Escape') {
-      // Revert
       if (ed.textHtml) card.innerHTML = ed.textHtml;
       else card.textContent = ed.text || '';
       card.blur();
@@ -356,71 +434,12 @@ function startArticleEdit(card, ed) {
   card.addEventListener('keydown', handleKey);
 }
 
-// ——— Add new entry ———
-function createAddEntryButton() {
-  const btn = document.createElement('button');
-  btn.className = 'article-add-entry-btn';
-  btn.innerHTML = '+ Add entry';
-  btn.addEventListener('click', () => createNewArticleEntry());
-  return btn;
-}
-
-async function createNewArticleEntry() {
-  const id = generateEntryId();
-  const position = { x: 100, y: 100 + entries.size * 50 };
-  const parentEntryId = currentViewEntryId || null;
-  const pageOwnerId = window.PAGE_OWNER_ID;
-
-  // Create entry on server
-  try {
-    await fetch('/api/entries', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        id,
-        text: '',
-        textHtml: '',
-        position,
-        parentEntryId,
-        pageOwnerId
-      })
-    });
-
-    // Add to local entries map
-    const entry = document.createElement('div');
-    entry.className = 'entry';
-    entry.id = id;
-    entry.style.display = 'none';
-    world.appendChild(entry);
-
-    entries.set(id, {
-      id,
-      text: '',
-      textHtml: '',
-      position,
-      parentEntryId,
-      element: entry
-    });
-
-    // Re-render and focus the new card
-    renderArticleView();
-    setTimeout(() => {
-      const newCard = articleContent.querySelector(`[data-entry-id="${id}"]`);
-      if (newCard) startArticleEdit(newCard, entries.get(id));
-    }, 50);
-  } catch (err) {
-    console.error('Failed to create article entry:', err);
-  }
-}
-
 // ——— AI Phrase Detection ———
 async function detectAndHighlightPhrases(ed) {
-  if (!ed.text || ed.text.trim().length < 20) return; // Skip short text
+  if (!ed.text || ed.text.trim().length < 20) return;
   const card = articleContent.querySelector(`[data-entry-id="${ed.id}"]`);
   if (!card) return;
 
-  // Check cache
   const cached = phraseCache.get(ed.id);
   if (cached && Date.now() - cached.timestamp < PHRASE_CACHE_TTL) {
     applyPhraseHighlights(card, cached.phrases, ed);
@@ -440,13 +459,12 @@ async function detectAndHighlightPhrases(ed) {
     phraseCache.set(ed.id, { phrases, timestamp: Date.now() });
     applyPhraseHighlights(card, phrases, ed);
   } catch (err) {
-    // Silently fail — phrase detection is optional
+    // Silently fail
   }
 }
 
 function applyPhraseHighlights(card, phrases, ed) {
   if (!phrases.length) return;
-  // Don't re-apply if already highlighted
   if (card.querySelector('.article-clickable-phrase')) return;
 
   let html = card.innerHTML;
@@ -454,11 +472,18 @@ function applyPhraseHighlights(card, phrases, ed) {
     if (!p.phrase) return;
     const escapedPhrase = p.phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const regex = new RegExp(`(${escapedPhrase})`, 'gi');
-    html = html.replace(regex, `<span class="article-clickable-phrase" data-phrase="$1" data-category="${escapeHtml(p.category || '')}">$1</span>`);
+    // Wrap each character in melt spans for ink-bleed animation
+    html = html.replace(regex, (match) => {
+      const meltChars = match.split('').map((ch, i) => {
+        const delay = i * 30;
+        const drip = Math.random() < 0.15 ? ' drip' : '';
+        return `<span data-ch="${ch === ' ' ? '&nbsp;' : escapeHtml(ch)}" style="animation-delay:${delay}ms"${drip ? ` class="${drip.trim()}"` : ''}>${ch === ' ' ? '&nbsp;' : escapeHtml(ch)}</span>`;
+      }).join('');
+      return `<span class="article-clickable-phrase melt" data-phrase="${escapeHtml(match)}" data-category="${escapeHtml(p.category || '')}">${meltChars}</span>`;
+    });
   });
   card.innerHTML = html;
 
-  // Add click handlers to phrases
   card.querySelectorAll('.article-clickable-phrase').forEach(span => {
     span.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -542,9 +567,8 @@ if (shouldUseArticleMode()) {
   };
 }
 
-// —���— Initialize ———
+// ——— Initialize ———
 if (shouldUseArticleMode()) {
-  // Wait for DOM ready / entries to load before activating
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', activateArticleMode);
   } else {

@@ -4511,18 +4511,28 @@ body.has-bg-image::before {
   width: 100%;
 }
 
-/* AI Clickable Phrases */
+/* AI Clickable Phrases — melt animation on phrases */
 .article-clickable-phrase {
-  border-bottom: 1px dashed rgba(0,0,0,0.3);
   cursor: pointer;
   transition: background 0.15s, box-shadow 0.15s;
   border-radius: 2px;
   padding: 0 1px;
+  border-bottom: 1px dashed rgba(0,0,0,0.2);
 }
 .article-clickable-phrase:hover {
   background: rgba(59, 130, 246, 0.08);
   box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.12);
   border-bottom-color: rgba(59, 130, 246, 0.5);
+}
+/* Melt animation plays once on phrases when they appear */
+.article-clickable-phrase.melt span {
+  animation: inkIn 900ms ease-out forwards;
+}
+.article-clickable-phrase.melt span.drip {
+  animation: inkIn 900ms ease-out forwards, drip 1200ms ease-in forwards;
+}
+.article-clickable-phrase.melt span::after {
+  animation: bleed 1100ms ease-out forwards;
 }
 
 /* Empty state */
@@ -4571,13 +4581,50 @@ body.has-bg-image::before {
   box-shadow: 0 2px 8px rgba(255,255,255,0.2);
 }
 
+/* Article typing area */
+.article-typing-area,
+.article-empty-editor {
+  min-height: 48px;
+  opacity: 0.6;
+  border-style: dashed;
+  transition: opacity 0.15s, border-color 0.15s;
+  outline: none;
+  cursor: text;
+}
+.article-typing-area:focus,
+.article-empty-editor:focus {
+  opacity: 1;
+  border-style: solid;
+  border-color: rgba(0,0,0,0.2);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.06);
+}
+.article-typing-area:empty::before,
+.article-empty-editor:empty::before {
+  content: attr(data-placeholder);
+  color: rgba(0,0,0,0.3);
+  pointer-events: none;
+}
+/* Format bar positioning in article mode */
+.article-format-bar {
+  position: fixed !important;
+  top: auto !important;
+  bottom: 16px !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  z-index: 700 !important;
+  background: var(--paper) !important;
+  border: 1px solid rgba(0,0,0,0.1) !important;
+  border-radius: 10px !important;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.12) !important;
+  padding: 6px 12px !important;
+}
+
 /* ——— Article mode body overrides ——— */
 body.article-mode #viewport,
 body.article-mode .organize-button,
 body.article-mode .bg-picker-button,
 body.article-mode #bg-picker-dropdown,
 body.article-mode .help-button,
-body.article-mode #format-bar,
 body.article-mode #navigator,
 body.article-mode #scrollbar-track {
   display: none !important;

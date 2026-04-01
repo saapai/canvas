@@ -1932,6 +1932,61 @@ export function createRouter(options = {}) {
     }
   });
 
+  // ——— Public page query endpoint (for iMessage bot integration) ———
+  router.post('/api/query-page', async (req, res) => {
+    try {
+      const { question, ownerUsername, secret } = req.body;
+      const expectedSecret = process.env.DUTTAPAD_JOIN_SECRET;
+      if (!expectedSecret || secret !== expectedSecret) {
+        return res.status(403).json({ error: 'Invalid secret' });
+      }
+      if (!question || !ownerUsername) {
+        return res.status(400).json({ error: 'question and ownerUsername are required' });
+      }
+      const owner = await getUserByUsername(ownerUsername);
+      if (!owner) {
+        return res.status(404).json({ error: 'Page not found' });
+      }
+      // Fetch all entries for this user
+      const entriesData = await getEntriesByUsername(ownerUsername);
+      if (!entriesData || entriesData.length === 0) {
+        return res.json({ answer: "This page doesn't have any content yet." });
+      }
+      // Build context from entries
+      const context = entriesData.map(e => {
+        let desc = e.text || '';
+        if (e.media_card_data) {
+          const mcd = typeof e.media_card_data === 'string' ? JSON.parse(e.media_card_data) : e.media_card_data;
+          if (mcd.title) desc += ` [${mcd.type || 'media'}: ${mcd.title}]`;
+        }
+        if (e.link_cards_data) {
+          const lcd = typeof e.link_cards_data === 'string' ? JSON.parse(e.link_cards_data) : e.link_cards_data;
+          if (Array.isArray(lcd)) lcd.forEach(l => { if (l && l.title) desc += ` [link: ${l.title} - ${l.url}]`; });
+        }
+        return desc.trim();
+      }).filter(Boolean).join('\n');
+
+      const OpenAI = (await import('openai')).default;
+      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      const response = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        temperature: 0.5,
+        messages: [{
+          role: 'system',
+          content: `You are a helpful assistant for "${ownerUsername}'s" page. Answer questions based on the page content below. Be concise and specific — this answer will be sent as an iMessage. Keep it under 300 characters if possible.\n\nPage content:\n${context.substring(0, 8000)}`
+        }, {
+          role: 'user',
+          content: question
+        }]
+      });
+      const answer = response.choices[0]?.message?.content || "I couldn't find an answer to that.";
+      res.json({ answer });
+    } catch (error) {
+      console.error('Error in query-page:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ——— AI phrase detection for article mode ———
   router.post('/api/detect-phrases', requireAuth, async (req, res) => {
     try {
