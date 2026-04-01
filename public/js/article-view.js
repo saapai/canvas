@@ -166,37 +166,100 @@ function renderPageContent() {
   articleContent.appendChild(body);
 }
 
-// ——— Body editor with auto-save and entity detection ———
+// ——— Body editor with auto-save and live entity detection ———
 function setupBodyEditor(body, pageEntry) {
-  // Auto-save 2s after typing stops
+  let detectTimer = null;
+  let lastDetectedText = '';
+
+  // On input: strip phrase highlights, debounce save + re-detect
   body.addEventListener('input', () => {
+    stripPhraseSpans(body);
+
     if (bodySaveTimer) clearTimeout(bodySaveTimer);
     bodySaveTimer = setTimeout(() => savePageContent(body, pageEntry), 2000);
+
+    if (detectTimer) clearTimeout(detectTimer);
+    detectTimer = setTimeout(() => {
+      const text = body.innerText.trim();
+      if (text.length >= 5 && text !== lastDetectedText) {
+        lastDetectedText = text;
+        detectAndHighlightPhrases(body);
+      }
+    }, 1000);
   });
 
-  // Save immediately on blur
+  // Save on blur, detect if needed
   body.addEventListener('blur', () => {
     if (bodySaveTimer) clearTimeout(bodySaveTimer);
     savePageContent(body, pageEntry);
-    // Apply entity detection after blur
-    setTimeout(() => detectPhrasesInBody(body), 300);
+    if (detectTimer) clearTimeout(detectTimer);
+    const text = body.innerText.trim();
+    if (text.length >= 5 && text !== lastDetectedText) {
+      lastDetectedText = text;
+      setTimeout(() => detectAndHighlightPhrases(body), 300);
+    }
   });
 
-  // On focus, strip melt phrase spans for clean editing
-  body.addEventListener('focus', () => {
-    body.querySelectorAll('.article-clickable-phrase').forEach(span => {
-      span.replaceWith(document.createTextNode(span.textContent));
-    });
+  // Arrow keys into a phrase span → unwrap it so user can edit
+  body.addEventListener('keydown', (e) => {
+    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+      setTimeout(() => unwrapPhraseAtCursor(body), 0);
+    }
   });
 
-  // Auto-link URLs on paste
+  // Auto-link URLs on paste, then re-detect
   body.addEventListener('paste', () => {
     setTimeout(() => {
       autoLinkUrls(body);
+      stripPhraseSpans(body);
       if (bodySaveTimer) clearTimeout(bodySaveTimer);
       bodySaveTimer = setTimeout(() => savePageContent(body, pageEntry), 1000);
+      if (detectTimer) clearTimeout(detectTimer);
+      detectTimer = setTimeout(() => {
+        lastDetectedText = body.innerText.trim();
+        detectAndHighlightPhrases(body);
+      }, 1000);
     }, 100);
   });
+}
+
+// Strip all phrase highlight spans back to plain text
+function stripPhraseSpans(body) {
+  body.querySelectorAll('.article-clickable-phrase').forEach(span => {
+    span.replaceWith(document.createTextNode(span.textContent));
+  });
+  body.normalize();
+}
+
+// If cursor landed inside a phrase span via arrow keys, unwrap that span
+function unwrapPhraseAtCursor(body) {
+  const sel = window.getSelection();
+  if (!sel.rangeCount) return;
+  let node = sel.anchorNode;
+  while (node && node !== body) {
+    if (node.nodeType === 1 && node.classList && node.classList.contains('article-clickable-phrase')) {
+      // Calculate cursor offset within this span
+      let cursorOff = 0;
+      const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        if (walker.currentNode === sel.anchorNode) { cursorOff += sel.anchorOffset; break; }
+        cursorOff += walker.currentNode.textContent.length;
+      }
+      const text = node.textContent;
+      const textNode = document.createTextNode(text);
+      node.replaceWith(textNode);
+      body.normalize();
+      try {
+        const range = document.createRange();
+        range.setStart(textNode, Math.min(cursorOff, text.length));
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      } catch (e) {}
+      return;
+    }
+    node = node.parentNode;
+  }
 }
 
 async function savePageContent(body, pageEntry) {
@@ -371,9 +434,8 @@ async function deletePage(entryId) {
   }
 }
 
-// ——— Entity Detection (on blur only, to avoid cursor disruption) ———
-async function detectPhrasesInBody(body) {
-  if (document.activeElement === body) return;
+// ——— Live Entity Detection — 1s after typing stops ———
+async function detectAndHighlightPhrases(body) {
   const text = body.innerText.trim();
   if (text.length < 5) return;
   if (body.querySelector('.article-clickable-phrase')) return;
@@ -389,33 +451,60 @@ async function detectPhrasesInBody(body) {
     const data = await res.json();
     const phrases = data.phrases || [];
     if (!phrases.length) return;
-    applyPhraseHighlights(body, phrases);
-  } catch (err) {}
-}
 
-function applyPhraseHighlights(body, phrases) {
-  let html = body.innerHTML;
-  phrases.forEach(p => {
-    if (!p.phrase) return;
-    const escaped = p.phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const regex = new RegExp(`(${escaped})`, 'gi');
-    html = html.replace(regex, (match) => {
-      const meltChars = match.split('').map((ch, i) => {
-        const delay = i * 30;
-        const drip = Math.random() < 0.15 ? ' drip' : '';
-        return `<span style="animation-delay:${delay}ms"${drip ? ` class="${drip.trim()}"` : ''}>${ch === ' ' ? '&nbsp;' : escapeHtml(ch)}</span>`;
+    // Save cursor
+    const sel = window.getSelection();
+    let savedOffset = -1;
+    if (sel.rangeCount > 0 && body.contains(sel.anchorNode)) {
+      savedOffset = 0;
+      const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+      while (walker.nextNode()) {
+        if (walker.currentNode === sel.anchorNode) { savedOffset += sel.anchorOffset; break; }
+        savedOffset += walker.currentNode.textContent.length;
+      }
+    }
+
+    // Apply highlights (avoid matching inside <a> tags)
+    let html = body.innerHTML;
+    phrases.forEach(p => {
+      if (!p.phrase) return;
+      const escaped = p.phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const parts = html.split(/(<[^>]*>)/);
+      let insideA = false;
+      let insidePhrase = false;
+      html = parts.map(part => {
+        if (part.startsWith('<')) {
+          if (/^<a[\s>]/i.test(part)) insideA = true;
+          if (/^<\/a>/i.test(part)) insideA = false;
+          if (/^<span[^>]*article-clickable-phrase/i.test(part)) insidePhrase = true;
+          if (insidePhrase && /^<\/span>/i.test(part)) { insidePhrase = false; return part; }
+          return part;
+        }
+        if (insideA || insidePhrase) return part;
+        const regex = new RegExp(`(${escaped})`, 'gi');
+        return part.replace(regex, (match) => {
+          return `<span class="article-clickable-phrase" data-phrase="${escapeHtml(match)}" data-category="${escapeHtml(p.category || '')}">${escapeHtml(match)}</span>`;
+        });
       }).join('');
-      return `<span class="article-clickable-phrase melt" data-phrase="${escapeHtml(match)}" data-category="${escapeHtml(p.category || '')}">${meltChars}</span>`;
     });
-  });
-  body.innerHTML = html;
+    body.innerHTML = html;
 
-  body.querySelectorAll('.article-clickable-phrase').forEach(span => {
-    span.addEventListener('dblclick', (e) => {
-      e.stopPropagation();
-      createSubpageFromPhrase(span.dataset.phrase, articleCurrentPageId);
+    // Restore cursor
+    if (savedOffset >= 0 && document.activeElement === body) {
+      restoreCursor(body, sel, savedOffset);
+    }
+
+    // Wire up single-click → traverse
+    body.querySelectorAll('.article-clickable-phrase').forEach(span => {
+      span.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        // Prevent contenteditable from placing cursor
+        window.getSelection().removeAllRanges();
+        createSubpageFromPhrase(span.dataset.phrase, articleCurrentPageId);
+      });
     });
-  });
+  } catch (err) {}
 }
 
 async function createSubpageFromPhrase(phrase, parentId) {
