@@ -10,6 +10,9 @@ const articleSidebarNav = document.getElementById('article-sidebar-nav');
 const phraseCache = new Map();
 const PHRASE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
+// Track which entry card is currently being edited
+let activeArticleEditor = null;
+
 // Check if article mode should activate
 function shouldUseArticleMode() {
   return window.PAGE_VIEW_MODE === 'article';
@@ -32,7 +35,7 @@ function activateArticleMode() {
     shareBtn.classList.remove('hidden');
   }
 
-  // Show format bar for editors (so they can format text)
+  // Show format bar for editors (at the top)
   if (articleCanEdit() && formatBar) {
     formatBar.classList.remove('hidden');
     formatBar.classList.add('article-format-bar');
@@ -82,7 +85,7 @@ function renderArticleView() {
   const cats = categorizeCurrentEntries();
   const totalCount = Object.values(cats).reduce((s, a) => s + a.length, 0);
 
-  // Header — use "Project Lux" as title, no meta line
+  // Header
   let titleText = 'Project Lux';
   if (currentViewEntryId) {
     const parent = entries.get(currentViewEntryId);
@@ -107,104 +110,63 @@ function renderArticleView() {
     articleSidebarNav.appendChild(item);
   }
 
-  // Content sections
+  // Content
   articleContent.innerHTML = '';
 
-  // If empty and can edit, show a blank typing area
-  if (totalCount === 0 && articleCanEdit()) {
-    const emptyEditor = document.createElement('div');
-    emptyEditor.className = 'article-note-card article-empty-editor';
-    emptyEditor.setAttribute('contenteditable', 'true');
-    emptyEditor.setAttribute('data-placeholder', 'Start typing...');
-    emptyEditor.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        const text = emptyEditor.innerText.trim();
-        if (text) {
-          saveNewArticleEntry(text, emptyEditor.innerHTML);
-          emptyEditor.innerHTML = '';
-        }
-      }
-    });
-    articleContent.appendChild(emptyEditor);
-    return;
-  }
-
-  if (totalCount === 0) {
+  if (totalCount === 0 && !articleCanEdit()) {
     articleContent.innerHTML = '<div class="article-empty">Nothing here yet.</div>';
     return;
   }
 
+  // Render entries by category
+  const activeCategories = Object.entries(categoryLabels).filter(([k]) => cats[k].length > 0);
   for (const [key, label] of Object.entries(categoryLabels)) {
     if (cats[key].length === 0) continue;
-    const section = document.createElement('div');
-    section.id = 'article-section-' + key;
-    const heading = document.createElement('h2');
-    heading.className = 'article-section-heading';
-    heading.textContent = label;
-    section.appendChild(heading);
+    if (activeCategories.length > 1) {
+      const heading = document.createElement('h2');
+      heading.className = 'article-section-heading';
+      heading.textContent = label;
+      heading.id = 'article-section-' + key;
+      articleContent.appendChild(heading);
+    }
     cats[key].forEach(ed => {
       const el = renderArticleEntry(ed, key);
-      if (el) section.appendChild(el);
+      if (el) articleContent.appendChild(el);
     });
-    articleContent.appendChild(section);
   }
 
-  // Always-visible typing area at the bottom for editors
+  // Seamless new-entry area at the bottom for editors
   if (articleCanEdit()) {
-    const typingArea = document.createElement('div');
-    typingArea.className = 'article-note-card article-typing-area';
-    typingArea.setAttribute('contenteditable', 'true');
-    typingArea.setAttribute('data-placeholder', 'Type here...');
-    typingArea.addEventListener('keydown', (e) => {
+    const newArea = document.createElement('div');
+    newArea.className = 'article-new-entry';
+    newArea.setAttribute('contenteditable', 'true');
+    newArea.setAttribute('data-placeholder', 'Type here...');
+
+    newArea.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        const text = typingArea.innerText.trim();
+        const text = newArea.innerText.trim();
+        const html = newArea.innerHTML;
         if (text) {
-          saveNewArticleEntry(text, typingArea.innerHTML);
-          typingArea.innerHTML = '';
-          // Re-render to show the new entry
-          setTimeout(() => renderArticleView(), 100);
+          newArea.setAttribute('contenteditable', 'false');
+          saveNewArticleEntry(text, html).then(() => {
+            renderArticleView();
+            // Re-focus the new entry area
+            setTimeout(() => {
+              const area = articleContent.querySelector('.article-new-entry');
+              if (area) area.focus();
+            }, 50);
+          });
         }
       }
     });
-    // Connect format bar to this typing area when focused
-    typingArea.addEventListener('focus', () => {
-      activeArticleEditor = typingArea;
-    });
-    articleContent.appendChild(typingArea);
+
+    articleContent.appendChild(newArea);
   }
 
-  // Detect AI phrases for note entries
+  // Detect AI phrases for note entries (auto-meltify)
   if (currentUser) {
     cats.notes.forEach(ed => detectAndHighlightPhrases(ed));
-  }
-}
-
-// ——— Save a new entry from typing area ———
-async function saveNewArticleEntry(text, html) {
-  const id = generateEntryId();
-  const position = { x: 100, y: 100 + entries.size * 50 };
-  const parentEntryId = currentViewEntryId || null;
-  const pageOwnerId = window.PAGE_OWNER_ID;
-
-  try {
-    await fetch('/api/entries', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, text, textHtml: html, position, parentEntryId, pageOwnerId })
-    });
-
-    const entry = document.createElement('div');
-    entry.className = 'entry';
-    entry.id = id;
-    entry.style.display = 'none';
-    world.appendChild(entry);
-
-    entries.set(id, { id, text, textHtml: html, position, parentEntryId, element: entry });
-  } catch (err) {
-    console.error('Failed to create article entry:', err);
   }
 }
 
@@ -215,42 +177,47 @@ function renderArticleEntry(ed, category) {
       const card = document.createElement('div');
       card.className = 'article-note-card';
       card.dataset.entryId = ed.id;
+
       if (ed.textHtml) {
         card.innerHTML = ed.textHtml;
       } else {
         card.textContent = ed.text || '';
       }
+
       const hasChildren = Array.from(entries.values()).some(e => e.parentEntryId === ed.id);
       if (hasChildren) {
-        card.classList.add('clickable');
-        const hint = document.createElement('div');
-        hint.className = 'article-note-children-hint';
-        hint.textContent = 'Open subpage \u2192';
-        card.appendChild(hint);
+        card.classList.add('has-children');
       }
-      // Single click → edit (for admins); Double-click → traverse (if has children)
+
+      // Click/dblclick handling
+      let clickTimer = null;
+
       if (articleCanEdit()) {
-        card.classList.add('editable');
-        let clickTimer = null;
         card.addEventListener('click', (e) => {
-          if (e.target.classList.contains('article-clickable-phrase')) return;
-          if (clickTimer) return; // waiting for dblclick
+          // Don't intercept clicks on melt phrase spans
+          if (e.target.closest('.article-clickable-phrase')) return;
+          if (clickTimer) return;
           clickTimer = setTimeout(() => {
             clickTimer = null;
             startArticleEdit(card, ed);
-          }, 250);
+          }, 200);
         });
-        if (hasChildren) {
-          card.addEventListener('dblclick', (e) => {
-            if (e.target.classList.contains('article-clickable-phrase')) return;
-            if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
-            navigateToEntry(ed.id);
-          });
-        }
-      } else if (hasChildren) {
-        // Viewers: double-click to traverse
-        card.addEventListener('dblclick', () => navigateToEntry(ed.id));
       }
+
+      // Double-click: if on a melt phrase → create subpage & traverse;
+      // otherwise if entry has children → traverse into children
+      card.addEventListener('dblclick', (e) => {
+        if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
+        const phraseEl = e.target.closest('.article-clickable-phrase');
+        if (phraseEl) {
+          createSubpageFromPhrase(phraseEl.dataset.phrase, ed.id);
+          return;
+        }
+        if (hasChildren) {
+          navigateToEntry(ed.id);
+        }
+      });
+
       return card;
     }
     case 'links': {
@@ -267,7 +234,7 @@ function renderArticleEntry(ed, category) {
             <div class="article-link-site">${escapeHtml(lc.siteName || '')}</div>
             <div class="article-link-title">${escapeHtml(lc.title || '')}</div>
             ${lc.description ? `<div class="article-link-desc">${escapeHtml(lc.description)}</div>` : ''}
-            <div class="article-link-open">Open link \u2192</div>
+            <div class="article-link-open">Open link &rarr;</div>
           </div>`;
         frag.appendChild(a);
       });
@@ -373,18 +340,26 @@ function renderArticleEntry(ed, category) {
   }
 }
 
-// ——— Inline editing for article mode ———
-let activeArticleEditor = null;
-
+// ——— Inline editing ———
 function startArticleEdit(card, ed) {
   if (activeArticleEditor === card) return;
-  if (activeArticleEditor && activeArticleEditor !== card) {
-    // Commit previous edit
-    activeArticleEditor.blur();
+  // Commit any previous edit
+  if (activeArticleEditor) {
+    finishArticleEdit(activeArticleEditor, activeArticleEditor._editEntry);
   }
+
   activeArticleEditor = card;
+  card._editEntry = ed;
+
+  // Restore clean HTML (remove melt phrase spans) for editing
+  if (ed.textHtml) {
+    card.innerHTML = ed.textHtml;
+  } else {
+    card.textContent = ed.text || '';
+  }
+
+  card.setAttribute('contenteditable', 'true');
   card.classList.add('editing');
-  card.contentEditable = 'true';
   card.focus();
 
   // Place cursor at end
@@ -395,50 +370,96 @@ function startArticleEdit(card, ed) {
   sel.removeAllRanges();
   sel.addRange(range);
 
-  function finishEdit() {
-    card.removeEventListener('blur', finishEdit);
-    card.removeEventListener('keydown', handleKey);
-    card.contentEditable = 'false';
-    card.classList.remove('editing');
-    if (activeArticleEditor === card) activeArticleEditor = null;
-
-    const newText = card.innerText.trim();
-    const newHtml = card.innerHTML;
-    if (newText !== (ed.text || '').trim()) {
-      ed.text = newText;
-      ed.textHtml = newHtml;
-      const pageOwnerId = getPageOwnerIdForEntry(ed.id);
-      fetch(`/api/entries/${ed.id}`, {
-        method: 'PUT',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text: newText, textHtml: newHtml, position: ed.position, pageOwnerId })
-      }).catch(err => console.error('Failed to save article edit:', err));
-      phraseCache.delete(ed.id);
-    }
+  function onBlur() {
+    card.removeEventListener('blur', onBlur);
+    card.removeEventListener('keydown', onKey);
+    finishArticleEdit(card, ed);
   }
 
-  function handleKey(e) {
+  function onKey(e) {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       card.blur();
     }
     if (e.key === 'Escape') {
+      // Revert to original
       if (ed.textHtml) card.innerHTML = ed.textHtml;
       else card.textContent = ed.text || '';
-      card.blur();
+      card.removeEventListener('blur', onBlur);
+      card.removeEventListener('keydown', onKey);
+      card.setAttribute('contenteditable', 'false');
+      card.classList.remove('editing');
+      if (activeArticleEditor === card) activeArticleEditor = null;
+      // Re-apply phrases on revert
+      if (currentUser) detectAndHighlightPhrases(ed);
     }
   }
 
-  card.addEventListener('blur', finishEdit);
-  card.addEventListener('keydown', handleKey);
+  card.addEventListener('blur', onBlur);
+  card.addEventListener('keydown', onKey);
 }
 
-// ——— AI Phrase Detection ———
+function finishArticleEdit(card, ed) {
+  card.setAttribute('contenteditable', 'false');
+  card.classList.remove('editing');
+  if (activeArticleEditor === card) activeArticleEditor = null;
+
+  const newText = card.innerText.trim();
+  const newHtml = card.innerHTML;
+
+  if (newText !== (ed.text || '').trim()) {
+    ed.text = newText;
+    ed.textHtml = newHtml;
+    const pageOwnerId = getPageOwnerIdForEntry(ed.id);
+    fetch(`/api/entries/${ed.id}`, {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: newText, textHtml: newHtml, position: ed.position, pageOwnerId })
+    }).catch(err => console.error('Failed to save article edit:', err));
+    phraseCache.delete(ed.id);
+  }
+
+  // Re-detect and meltify phrases after edit
+  if (currentUser) {
+    detectAndHighlightPhrases(ed);
+  }
+}
+
+// ——— Save a new entry ———
+async function saveNewArticleEntry(text, html) {
+  const id = generateEntryId();
+  const position = { x: 100, y: 100 + entries.size * 50 };
+  const parentEntryId = currentViewEntryId || null;
+  const pageOwnerId = window.PAGE_OWNER_ID;
+
+  try {
+    await fetch('/api/entries', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, text, textHtml: html, position, parentEntryId, pageOwnerId })
+    });
+
+    const entry = document.createElement('div');
+    entry.className = 'entry';
+    entry.id = id;
+    entry.style.display = 'none';
+    world.appendChild(entry);
+
+    entries.set(id, { id, text, textHtml: html, position, parentEntryId, element: entry });
+  } catch (err) {
+    console.error('Failed to create article entry:', err);
+  }
+}
+
+// ——— AI Phrase Detection & Meltification ———
 async function detectAndHighlightPhrases(ed) {
-  if (!ed.text || ed.text.trim().length < 20) return;
+  if (!ed.text || ed.text.trim().length < 5) return;
   const card = articleContent.querySelector(`[data-entry-id="${ed.id}"]`);
   if (!card) return;
+  // Don't meltify while being edited
+  if (card.getAttribute('contenteditable') === 'true') return;
 
   const cached = phraseCache.get(ed.id);
   if (cached && Date.now() - cached.timestamp < PHRASE_CACHE_TTL) {
@@ -465,6 +486,7 @@ async function detectAndHighlightPhrases(ed) {
 
 function applyPhraseHighlights(card, phrases, ed) {
   if (!phrases.length) return;
+  // Don't re-apply if already has phrases
   if (card.querySelector('.article-clickable-phrase')) return;
 
   let html = card.innerHTML;
@@ -483,13 +505,6 @@ function applyPhraseHighlights(card, phrases, ed) {
     });
   });
   card.innerHTML = html;
-
-  card.querySelectorAll('.article-clickable-phrase').forEach(span => {
-    span.addEventListener('click', (e) => {
-      e.stopPropagation();
-      createSubpageFromPhrase(span.dataset.phrase, ed.id);
-    });
-  });
 }
 
 async function createSubpageFromPhrase(phrase, parentId) {
@@ -539,7 +554,7 @@ function showJoinBanner() {
   banner.className = 'article-join-banner';
   banner.innerHTML = `
     <span class="article-join-banner-text">Join Project Lux</span>
-    <a href="imessage://+17139626862&body=LUX" class="article-join-banner-cta">
+    <a href="sms:+17139626862&body=LUX" class="article-join-banner-cta">
       Text "LUX" to join
     </a>
   `;

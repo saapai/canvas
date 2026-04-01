@@ -222,6 +222,32 @@ if (sharePhoneInput) {
   });
 }
 
+// iMessage invite link for article mode (Project Lux)
+const shareInviteLink = document.getElementById('share-invite-link');
+const shareCopyInvite = document.getElementById('share-copy-invite');
+if (shareInviteLink && window.PAGE_VIEW_MODE === 'article') {
+  shareInviteLink.classList.remove('hidden');
+}
+if (shareCopyInvite) {
+  shareCopyInvite.addEventListener('click', () => {
+    const inviteUrl = 'sms:+17139626862&body=LUX';
+    navigator.clipboard.writeText(inviteUrl).then(() => {
+      shareCopyInvite.textContent = 'Copied!';
+      setTimeout(() => { shareCopyInvite.textContent = 'Copy invite link'; }, 2000);
+    }).catch(() => {
+      // Fallback: select and copy
+      const ta = document.createElement('textarea');
+      ta.value = inviteUrl;
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      shareCopyInvite.textContent = 'Copied!';
+      setTimeout(() => { shareCopyInvite.textContent = 'Copy invite link'; }, 2000);
+    });
+  });
+}
+
 // ——— Shared page cards on home page ———
 
 async function loadSharedEntries() {
