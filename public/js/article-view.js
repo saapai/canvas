@@ -214,13 +214,148 @@ function setupBodyEditor(body, pageEntry, titleEl) {
     saveArticlePage(titleEl, body, pageEntry);
   });
 
-  body.addEventListener('paste', () => {
+  body.addEventListener('paste', (e) => {
+    // Handle pasted images
+    const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) articleUploadAndInsert(file, body, titleEl, pageEntry);
+        return;
+      }
+    }
     setTimeout(() => {
       autoLinkUrls(body);
       if (bodySaveTimer) clearTimeout(bodySaveTimer);
       bodySaveTimer = setTimeout(() => saveArticlePage(titleEl, body, pageEntry), 1000);
     }, 100);
   });
+
+  // ——— Formatting shortcuts (Cmd+B/I/U, Cmd+Shift+X) ———
+  body.addEventListener('keydown', (e) => {
+    if (!(e.metaKey || e.ctrlKey)) return;
+    if (e.key === 'b' && !e.shiftKey) {
+      e.preventDefault();
+      document.execCommand('bold', false, null);
+    } else if (e.key === 'i' && !e.shiftKey) {
+      e.preventDefault();
+      document.execCommand('italic', false, null);
+    } else if (e.key === 'u' && !e.shiftKey) {
+      e.preventDefault();
+      document.execCommand('underline', false, null);
+    } else if (e.key === 'x' && e.shiftKey) {
+      e.preventDefault();
+      document.execCommand('strikeThrough', false, null);
+    }
+  });
+
+  // ——— Drag-and-drop files/images ———
+  body.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    body.classList.add('article-drag-over');
+  });
+  body.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    body.classList.remove('article-drag-over');
+  });
+  body.addEventListener('drop', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    body.classList.remove('article-drag-over');
+    const files = e.dataTransfer.files;
+    if (!files || files.length === 0) return;
+    for (const file of files) {
+      articleUploadAndInsert(file, body, titleEl, pageEntry);
+    }
+  });
+}
+
+// ——— Upload file and insert into body ———
+async function articleUploadAndInsert(file, body, titleEl, pageEntry) {
+  const isImage = file.type.startsWith('image/');
+  const endpoint = isImage ? '/api/upload-image' : '/api/upload-file';
+  const formData = new FormData();
+  formData.append('file', file);
+
+  // Insert a placeholder
+  const placeholderId = 'upload-' + Date.now();
+  const placeholder = document.createElement('div');
+  placeholder.id = placeholderId;
+  placeholder.className = 'article-upload-placeholder';
+  placeholder.textContent = isImage ? 'Uploading image...' : `Uploading ${file.name}...`;
+  body.appendChild(placeholder);
+
+  try {
+    const resp = await fetch(endpoint, {
+      method: 'POST',
+      credentials: 'include',
+      body: formData
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Upload failed');
+
+    const ph = document.getElementById(placeholderId);
+    if (!ph) return;
+
+    if (isImage) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'article-image-wrapper';
+      wrapper.contentEditable = 'false';
+      const img = document.createElement('img');
+      img.src = data.url;
+      img.alt = file.name;
+      img.className = 'article-inline-image';
+      wrapper.appendChild(img);
+      ph.replaceWith(wrapper);
+    } else {
+      const card = document.createElement('a');
+      card.href = data.url;
+      card.target = '_blank';
+      card.rel = 'noopener';
+      card.className = 'article-file-card';
+      card.contentEditable = 'false';
+      const ext = file.name.split('.').pop().toUpperCase();
+      const size = formatFileSize(file.size);
+      card.innerHTML = `<span class="article-file-icon">${getFileIcon(ext)}</span>` +
+        `<span class="article-file-info"><span class="article-file-name">${escapeHtml(file.name)}</span>` +
+        `<span class="article-file-meta">${ext} &middot; ${size}</span></span>`;
+      ph.replaceWith(card);
+    }
+
+    // Save after insert
+    if (bodySaveTimer) clearTimeout(bodySaveTimer);
+    bodySaveTimer = setTimeout(() => saveArticlePage(titleEl, body, pageEntry), 500);
+  } catch (err) {
+    console.error('Upload failed:', err);
+    const ph = document.getElementById(placeholderId);
+    if (ph) {
+      ph.textContent = 'Upload failed: ' + err.message;
+      ph.classList.add('article-upload-error');
+      setTimeout(() => ph.remove(), 3000);
+    }
+  }
+}
+
+function formatFileSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+}
+
+function getFileIcon(ext) {
+  const icons = {
+    PDF: '\u{1F4C4}', DOC: '\u{1F4DD}', DOCX: '\u{1F4DD}',
+    XLS: '\u{1F4CA}', XLSX: '\u{1F4CA}', CSV: '\u{1F4CA}',
+    PPT: '\u{1F4CA}', PPTX: '\u{1F4CA}',
+    ZIP: '\u{1F4E6}', RAR: '\u{1F4E6}', '7Z': '\u{1F4E6}',
+    MP3: '\u{1F3B5}', WAV: '\u{1F3B5}', M4A: '\u{1F3B5}',
+    MP4: '\u{1F3AC}', MOV: '\u{1F3AC}', AVI: '\u{1F3AC}',
+    TXT: '\u{1F4C3}', MD: '\u{1F4C3}', JS: '\u{1F4C3}', PY: '\u{1F4C3}',
+  };
+  return icons[ext] || '\u{1F4CE}';
 }
 
 // ——— Save title + body ———

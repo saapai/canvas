@@ -165,6 +165,12 @@ function applyFontSizePx(px, savedSelection) {
 }
 
 function applyFormat(cmd, value, savedSelection) {
+  // In article mode, keep focus on article body instead of canvas editor
+  const articleBody = document.querySelector('.article-body[contenteditable]');
+  if (articleBody && (document.activeElement === articleBody || articleBody.contains(document.activeElement))) {
+    document.execCommand(cmd, false, value);
+    return;
+  }
   editor.focus();
   if (savedSelection) restoreSelection(savedSelection);
   document.execCommand(cmd, false, value);
@@ -192,6 +198,12 @@ if (formatBar && editor) {
 function handleFormatButton(cmd, value) {
   return (e) => {
     e.preventDefault();
+    // In article mode, apply directly without saving/restoring canvas editor selection
+    const articleBody = document.querySelector('.article-body[contenteditable]');
+    if (articleBody && (document.activeElement === articleBody || articleBody.contains(document.activeElement))) {
+      document.execCommand(cmd, false, value);
+      return;
+    }
     const saved = saveSelectionInEditor();
     applyFormat(cmd, value, saved);
   };
