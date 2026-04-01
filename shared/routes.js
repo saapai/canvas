@@ -2056,7 +2056,7 @@ ${context.substring(0, 8000)}`
       const OpenAI = (await import('openai')).default;
       const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
       const aiRes = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
+        model: 'gpt-4o',
         temperature: 0.3,
         messages: [{
           role: 'system',
@@ -2117,7 +2117,7 @@ IMPORTANT:
 - Keep reply messages short and friendly (this is iMessage)`
         }, {
           role: 'user',
-          content: text
+          content: `[Current pages for reference:\n${pageList || '(none)'}]\n\nMy message: ${text}`
         }],
         response_format: { type: 'json_object' }
       });
