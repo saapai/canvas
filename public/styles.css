@@ -4310,11 +4310,12 @@ body.has-bg-image::before {
 #article-header {
   margin-bottom: 28px;
   padding-bottom: 24px;
-  border-bottom: 2px solid rgba(0,0,0,0.13);
+  border-bottom: 1px solid rgba(0,0,0,0.15);
 }
 
 /* Body — the main editable area */
 .article-body {
+  position: relative;
   min-height: 400px;
   font-size: 17px;
   line-height: 1.85;
@@ -4322,10 +4323,15 @@ body.has-bg-image::before {
   outline: none;
   word-break: break-word;
 }
+/* Placeholder — works even when body has just <br> or empty <p> */
+.article-body.is-empty::before,
 .article-body:empty::before {
   content: attr(data-placeholder);
   color: rgba(0,0,0,0.25);
   pointer-events: none;
+  position: absolute;
+  top: 0;
+  left: 0;
 }
 .article-body p { margin: 0 0 0.8em; }
 

@@ -165,7 +165,7 @@ function renderPageContent() {
   // Body — rich text area
   const body = document.createElement('div');
   body.className = 'article-body';
-  body.setAttribute('data-placeholder', 'Start writing...');
+  body.setAttribute('data-placeholder', 'Start typing...');
 
   if (pageEntry && pageEntry.textHtml) {
     body.innerHTML = pageEntry.textHtml;
@@ -174,6 +174,7 @@ function renderPageContent() {
   if (articleCanEdit()) {
     body.setAttribute('contenteditable', 'true');
     setupBodyEditor(body, pageEntry, titleEl);
+    updateBodyPlaceholder(body);
   }
 
   // Regular click opens links (not cmd+click)
@@ -188,18 +189,24 @@ function renderPageContent() {
   articleContent.appendChild(body);
 }
 
+// ——— Placeholder — shown when body has no real text ———
+function updateBodyPlaceholder(body) {
+  const text = body.innerText.replace(/\n/g, '').trim();
+  body.classList.toggle('is-empty', !text);
+}
+
 // ——— Body editor ———
 function setupBodyEditor(body, pageEntry, titleEl) {
   body.addEventListener('input', () => {
+    updateBodyPlaceholder(body);
     if (bodySaveTimer) clearTimeout(bodySaveTimer);
     bodySaveTimer = setTimeout(() => saveArticlePage(titleEl, body, pageEntry), 2000);
   });
 
-  // Linkify immediately after space or enter (catches "duttapad.com " instantly)
+  // Linkify immediately after space (catches "duttapad.com " instantly)
+  // Don't run on Enter — cursor offset breaks when newline is added
   body.addEventListener('keyup', (e) => {
-    if (e.key === ' ' || e.key === 'Enter') {
-      autoLinkUrls(body);
-    }
+    if (e.key === ' ') autoLinkUrls(body);
   });
 
   body.addEventListener('blur', () => {
@@ -218,7 +225,8 @@ function setupBodyEditor(body, pageEntry, titleEl) {
 
 // ——— Save title + body ———
 async function saveArticlePage(titleEl, bodyEl, pageEntry) {
-  if (bodyEl) autoLinkUrls(bodyEl);
+  // Only auto-link when body isn't focused (avoids cursor jump during typing)
+  if (bodyEl && document.activeElement !== bodyEl) autoLinkUrls(bodyEl);
 
   const title = titleEl ? titleEl.innerText.trim() : '';
   const text = title || 'Untitled';

@@ -1987,6 +1987,108 @@ export function createRouter(options = {}) {
     }
   });
 
+  // ——— Add entry via iMessage (for Amia) ———
+  router.post('/api/entries/add-via-sms', async (req, res) => {
+    try {
+      const { text, secret, ownerUsername } = req.body;
+      const expectedSecret = process.env.DUTTAPAD_JOIN_SECRET;
+      if (!expectedSecret || secret !== expectedSecret) {
+        return res.status(403).json({ error: 'Invalid secret' });
+      }
+      if (!text || !ownerUsername) {
+        return res.status(400).json({ error: 'text and ownerUsername are required' });
+      }
+
+      const owner = await getUserByUsername(ownerUsername);
+      if (!owner) return res.status(404).json({ error: 'Page not found' });
+
+      // Get existing pages (root-level entries) for this user
+      const allEntries = await getEntriesByUsername(ownerUsername);
+      const pages = allEntries.filter(e =>
+        !e.parent_entry_id && e.text && e.text.trim() &&
+        !e.media_card_data && !(e.text_html && e.text_html.includes('deadline-table'))
+      );
+
+      const pageList = pages.map((p, i) => {
+        const title = (p.text || '').split('\n')[0].trim();
+        const bodyPreview = (p.text_html || p.text || '').substring(0, 200).replace(/<[^>]+>/g, '');
+        return `${i + 1}. "${title}" — ${bodyPreview}`;
+      }).join('\n');
+
+      // Ask AI which page to add to (or create new)
+      const OpenAI = (await import('openai')).default;
+      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      const aiRes = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        temperature: 0.3,
+        messages: [{
+          role: 'system',
+          content: `You manage pages for "${ownerUsername}". Here are the current pages:\n${pageList || '(no pages yet)'}\n\nThe user sent a message via iMessage. Decide:\n1. Which existing page to append this to (by number), OR\n2. If it doesn't fit any page, create a new one.\n\nAlso clean up the message text for a page (remove conversational filler like "add to...", fix grammar, keep it concise).\n\nRespond in JSON only:\n{"action":"append","pageIndex":0,"content":"cleaned text"}\nor\n{"action":"new","title":"Page Title","content":"cleaned text"}\n\nIf the message is ambiguous or you're unsure which page, respond:\n{"action":"ask","question":"brief clarifying question"}`
+        }, {
+          role: 'user',
+          content: text
+        }],
+        response_format: { type: 'json_object' }
+      });
+
+      let decision;
+      try {
+        decision = JSON.parse(aiRes.choices[0]?.message?.content || '{}');
+      } catch {
+        return res.status(500).json({ error: 'AI returned invalid JSON' });
+      }
+
+      if (decision.action === 'ask') {
+        return res.json({ action: 'ask', question: decision.question });
+      }
+
+      const { randomUUID } = await import('crypto');
+
+      if (decision.action === 'append' && typeof decision.pageIndex === 'number') {
+        const targetPage = pages[decision.pageIndex];
+        if (!targetPage) return res.status(400).json({ error: 'Invalid page index' });
+
+        // Append to existing page body
+        const existingHtml = targetPage.text_html || '';
+        const newHtml = existingHtml + `<p>${(decision.content || text).replace(/\n/g, '<br>')}</p>`;
+        const newText = targetPage.text; // Keep title the same
+
+        const db = (await import('./db.js')).getPool();
+        await db.query(
+          `UPDATE entries SET text_html = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+          [newHtml, targetPage.id]
+        );
+
+        const pageTitle = (newText || '').split('\n')[0].trim();
+        return res.json({ action: 'appended', page: pageTitle, content: decision.content });
+      }
+
+      if (decision.action === 'new') {
+        const entryId = randomUUID();
+        const title = decision.title || 'New Page';
+        const content = decision.content || text;
+        await saveEntry({
+          id: entryId,
+          text: title,
+          textHtml: `<p>${content.replace(/\n/g, '<br>')}</p>`,
+          position: { x: 100, y: 100 },
+          parentEntryId: null,
+          userId: owner.id,
+          linkCardsData: null,
+          mediaCardData: null,
+          latexData: null
+        });
+
+        return res.json({ action: 'created', page: title, content });
+      }
+
+      return res.status(400).json({ error: 'Unknown action from AI' });
+    } catch (error) {
+      console.error('Error in add-via-sms:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
   // ——— AI phrase detection for article mode ———
   router.post('/api/detect-phrases', requireAuth, async (req, res) => {
     try {
@@ -2546,6 +2648,13 @@ export function createRouter(options = {}) {
                 const primaryUser = usersWithUsernames[0];
                 debugLog(`[ROOT] Redirecting to primary duttapad: ${primaryUser.username}`);
                 return res.redirect(`/${primaryUser.username}`);
+              }
+
+              // No own pages — check if user is an editor of someone else's page (e.g. Lux group)
+              const sharedPages = await getSharedPagesForUser(user.id);
+              if (sharedPages.length > 0 && sharedPages[0].owner_username) {
+                debugLog(`[ROOT] Redirecting editor to shared page: ${sharedPages[0].owner_username}`);
+                return res.redirect(`/${sharedPages[0].owner_username}`);
               }
             }
           }
