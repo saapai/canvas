@@ -259,6 +259,13 @@ export async function initDatabase() {
       console.log('Note: page_editors role migration:', error.message);
     }
 
+    // Add view_mode column to users table (canvas vs article view)
+    try {
+      await db.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS view_mode TEXT DEFAULT 'canvas'`);
+    } catch (error) {
+      console.log('Note: users view_mode migration:', error.message);
+    }
+
     // Index on entries.updated_at for efficient sync polling
     try {
       await db.query(`
@@ -857,7 +864,7 @@ export async function getUserById(id) {
   try {
     const db = getPool();
     const result = await db.query(
-      `SELECT id, phone, username, bg_url, bg_uploads
+      `SELECT id, phone, username, bg_url, bg_uploads, view_mode
        FROM users
        WHERE id = $1`,
       [id]
@@ -951,7 +958,7 @@ export async function getUserByUsername(username) {
   try {
     const db = getPool();
     const result = await db.query(
-      `SELECT id, phone, username
+      `SELECT id, phone, username, view_mode
        FROM users
        WHERE username = $1`,
       [username]

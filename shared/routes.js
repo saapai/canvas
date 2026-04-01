@@ -160,6 +160,7 @@ export function createRouter(options = {}) {
     window.PAGE_IS_EDITOR = ${isEditorFlag};
     window.PAGE_EDITOR_ROLE = ${editorRole ? `'${editorRole}'` : 'null'};
     window.PAGE_OWNER_ID = '${user.id}';
+    window.PAGE_VIEW_MODE = '${user.view_mode || 'canvas'}';
     window.PAGE_PATH = ${JSON.stringify(pathParts)};
   </script>`;
       html = html.replace('<script src="js/state.js"></script>', `${contextScript}\n  <script src="js/state.js"></script>`);
@@ -1869,6 +1870,100 @@ export function createRouter(options = {}) {
       res.json({ success: true });
     } catch (error) {
       console.error('Error removing editor by id:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ——— Public join-by-phone endpoint (for sep-ats iMessage integration) ———
+  router.post('/api/editors/add-by-phone', async (req, res) => {
+    try {
+      const { phone, ownerUsername, role, secret } = req.body;
+      const expectedSecret = process.env.DUTTAPAD_JOIN_SECRET;
+      if (!expectedSecret || secret !== expectedSecret) {
+        return res.status(403).json({ error: 'Invalid secret' });
+      }
+      if (!phone || !ownerUsername) {
+        return res.status(400).json({ error: 'phone and ownerUsername are required' });
+      }
+      const editorRole = (role === 'admin') ? 'admin' : 'member';
+      const owner = await getUserByUsername(ownerUsername);
+      if (!owner) {
+        return res.status(404).json({ error: 'Owner not found' });
+      }
+      // Normalize phone and check if user exists
+      const rawDigits = phone.replace(/\D/g, '');
+      const candidates = [rawDigits, rawDigits.replace(/^1/, ''), '+1' + rawDigits, '1' + rawDigits];
+      let editorUsers = [];
+      for (const candidate of candidates) {
+        if (!candidate) continue;
+        const users = await getUsersByPhone(candidate);
+        if (users.length > 0) { editorUsers = users; break; }
+      }
+      if (editorUsers.length > 0) {
+        const editorUser = editorUsers.find(u => u.username) || editorUsers[0];
+        if (editorUser.id !== owner.id) {
+          await addPageEditor(owner.id, editorUser.id, null, editorRole);
+        }
+        res.json({ success: true, pending: false });
+      } else {
+        const pendingPhone = rawDigits.length === 10 ? '+1' + rawDigits : '+' + rawDigits;
+        await addPendingEditor(owner.id, pendingPhone, null, editorRole);
+        res.json({ success: true, pending: true, phone: pendingPhone });
+      }
+    } catch (error) {
+      console.error('Error in add-by-phone:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ——— View mode toggle ———
+  router.put('/api/user/view-mode', requireAuth, async (req, res) => {
+    try {
+      const { viewMode } = req.body;
+      if (viewMode !== 'canvas' && viewMode !== 'article') {
+        return res.status(400).json({ error: 'viewMode must be "canvas" or "article"' });
+      }
+      const db = getPool();
+      await db.query('UPDATE users SET view_mode = $1 WHERE id = $2', [viewMode, req.user.id]);
+      res.json({ success: true, viewMode });
+    } catch (error) {
+      console.error('Error updating view mode:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ——— AI phrase detection for article mode ———
+  router.post('/api/detect-phrases', requireAuth, async (req, res) => {
+    try {
+      const { text } = req.body;
+      if (!text || typeof text !== 'string') {
+        return res.status(400).json({ error: 'text is required' });
+      }
+      const openaiModule = await import('./llm.js');
+      // Use a lightweight call similar to processTextWithLLM
+      const OpenAI = (await import('openai')).default;
+      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      const response = await openai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        temperature: 0.3,
+        messages: [{
+          role: 'system',
+          content: `You detect important phrases, topics, and concepts in text that could become subpages or categories. Return a JSON array of objects with "phrase" (the exact text to highlight) and "category" (topic/person/place/event/concept). Only include meaningful phrases worth exploring further. Max 5 phrases. Return ONLY valid JSON array, no markdown.`
+        }, {
+          role: 'user',
+          content: text
+        }]
+      });
+      const content = response.choices[0]?.message?.content || '[]';
+      let phrases;
+      try {
+        phrases = JSON.parse(content);
+      } catch {
+        phrases = [];
+      }
+      res.json({ phrases: Array.isArray(phrases) ? phrases : [] });
+    } catch (error) {
+      console.error('Error detecting phrases:', error);
       res.status(500).json({ error: error.message });
     }
   });

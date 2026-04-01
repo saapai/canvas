@@ -70,7 +70,8 @@ canvas/
 │       ├── spaces.js           # Multi-space/username mgmt
 │       ├── manage.js           # Page editor sharing UI
 │       ├── slack.js            # Slack sync UI
-│       ├── article.js          # Article/reading view
+│       ├── article-view.js     # Article mode (Substack-like layout for specific pages)
+│       ├── article.js          # Article/reading view + GCal + Share UI + sync
 │       └── navigator.js        # Navigator panel
 ├── server/                     # Express server
 │   ├── index.js                # App init (port 3000)
@@ -101,7 +102,8 @@ canvas/
 │   └── llm.js                  # Mirror of shared/llm.js
 ├── scripts/                    # Utilities
 │   ├── migrate-jarvis.js       # Data migration
-│   └── seed-sep.js             # DB seeding
+│   ├── seed-sep.js             # DB seeding
+│   └── setup-amia.js           # One-time: set Amia's view_mode to 'article'
 ├── CLAUDE.md                   # Architecture guide for Claude
 ├── FEATURES.md                 # Feature status & changelog
 ├── README.md                   # Setup & deployment guide
@@ -168,6 +170,22 @@ Shared page cards: on owner's home page, lightweight nav cards (link + role badg
 SMS admin link entries: regular entry text with green left border (data-sms-join-code CSS)
   → DO NOT replace entry innerHTML with card layout — keep original text visible
   → Click navigates to owner's page
+```
+
+### Article Mode (per-user)
+
+```
+User visits /:username → server checks user.view_mode
+  ├── 'canvas' (default) → normal canvas rendering
+  └── 'article' → PAGE_VIEW_MODE='article' injected in HTML
+        → article-view.js activates on page load
+        → hides canvas UI (viewport, organize, bg-picker, format-bar)
+        → categorizes entries by type (notes, links, songs, movies, images, etc.)
+        → renders Substack-like article layout with sidebar nav
+        → admins: inline contenteditable editing on click
+        → AI phrase detection: GPT-4o-mini highlights clickable phrases → creates subpages
+        → non-logged-in visitors: join banner with iMessage "LUX" code
+        → sep-ats webhook: "LUX" text → POST /api/editors/add-by-phone → adds as member
 ```
 
 ### Entry Types
@@ -240,7 +258,7 @@ Route: /:username → renders canvas
 
 | Table | Key Columns | Purpose |
 |-------|-------------|---------|
-| `users` | id, phone, username (UNIQUE), bg_url, bg_uploads | User accounts |
+| `users` | id, phone, username (UNIQUE), bg_url, bg_uploads, view_mode | User accounts (view_mode: 'canvas'/'article') |
 | `entries` | id, text, position_x/y, parent_entry_id, user_id, text_html, media_card_data, link_cards_data, latex_data, background_image, deleted_at | All canvas content |
 | `phone_verification_codes` | phone, code, expires_at | SMS auth |
 | `google_tokens` | user_id, access/refresh_token, calendar_settings | Google OAuth |
@@ -264,6 +282,7 @@ Route: /:username → renders canvas
 
 | Date | Change | Why | Impact |
 |------|--------|-----|--------|
+| 2026-04-01 | Article mode for Amia's Project Lux page: per-user view_mode, Substack-like layout, inline editing, AI phrase detection, iMessage join code | Amia wants her duttapad to function as a readable article page for her club. Article mode only activates for users with view_mode='article'. | shared/db.js + api/db.js (view_mode migration), shared/routes.js (PAGE_VIEW_MODE, /api/detect-phrases, /api/editors/add-by-phone, PUT /api/user/view-mode), public/index.html (article-view container + script), public/js/article-view.js (new), public/styles.css (~400 lines article CSS), scripts/setup-amia.js (new), sep-ats webhook.js (LUX handler). Verified: existing canvas mode, auth, sharing, sync all unchanged — article mode only activates when view_mode='article'. |
 | 2026-03-15 | Digest announcements, conversation logging, reliability & past-event filter | Digest SMS invisible in stats (no announcement/message records), Vercel cron timeout (10s default, 57 SMS takes ~17s), digest could include past events | vercel.json (maxDuration: 60), slack-db.js (getLastDigestDate helper), slack.js (import createAnnouncement/updateAnnouncement/logMessage from sms-db, create announcement + log messages in sendWeeklyDigests, add date + past-event filter to LLM prompt, piggyback digest in notifications cron Mon/Sat 9-11AM PST), stats.html (teal digest source badge). Verified: fact extraction, recency bias, sync, auto-entries, deadline_reminder scheduling, existing notification flow all unchanged |
 | 2026-03-15 | Fix digest: stale facts cutoff, date resolution, topic grouping, SMS tone | Stale facts pooled indefinitely, relative dates unresolved, double-sending, no grouping, bot-like tone | slack.js (extractFacts prompt: aggressive date resolution, notification+digest prompts: new tone+topic grouping, checkAndSendNotifications: markFactsDigested after send, sendWeeklyDigests: stale cleanup), slack-db.js (7-day cutoff in getUndigestedFactsByEntry, new markStaleFactsDigested). Verified: fact extraction, recency bias, sync, auto-entries, deadline_reminder scheduling unchanged |
 | 2026-03-11 | Add /login page + /api/auth/review-login for Google OAuth reviewer | Google OAuth verification requires test account login. Added email-based login restricted to allowlisted email, auto-creates `google-reviewer` user with JWT auth. | routes.js only — standalone HTML page + API endpoint. No frontend JS, api/ mirror, or auth middleware changes needed (routes.js is shared). Verified: existing phone auth, JWT flow, cookie handling all unchanged |
