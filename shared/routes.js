@@ -1953,18 +1953,19 @@ export function createRouter(options = {}) {
         return res.json({ answer: "This page doesn't have any content yet." });
       }
       // Build context from entries (include title + body + media/link metadata)
+      // Note: getEntriesByUsername returns camelCase properties (textHtml, mediaCardData, etc.)
       const context = entriesData.map(e => {
         let desc = e.text || '';
-        if (e.text_html) {
-          const bodyText = e.text_html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        if (e.textHtml) {
+          const bodyText = e.textHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
           if (bodyText && bodyText !== desc) desc += '\n' + bodyText;
         }
-        if (e.media_card_data) {
-          const mcd = typeof e.media_card_data === 'string' ? JSON.parse(e.media_card_data) : e.media_card_data;
+        if (e.mediaCardData) {
+          const mcd = typeof e.mediaCardData === 'string' ? JSON.parse(e.mediaCardData) : e.mediaCardData;
           if (mcd.title) desc += ` [${mcd.type || 'media'}: ${mcd.title}]`;
         }
-        if (e.link_cards_data) {
-          const lcd = typeof e.link_cards_data === 'string' ? JSON.parse(e.link_cards_data) : e.link_cards_data;
+        if (e.linkCardsData) {
+          const lcd = typeof e.linkCardsData === 'string' ? JSON.parse(e.linkCardsData) : e.linkCardsData;
           if (Array.isArray(lcd)) lcd.forEach(l => { if (l && l.title) desc += ` [link: ${l.title} - ${l.url}]`; });
         }
         return desc.trim();
@@ -2039,18 +2040,16 @@ ${context.substring(0, 8000)}`
       // Get existing pages (root-level entries) for this user
       const allEntries = await getEntriesByUsername(ownerUsername);
       const pages = allEntries.filter(e =>
-        !e.parent_entry_id && e.text && e.text.trim() &&
-        !e.media_card_data && !(e.text_html && e.text_html.includes('deadline-table'))
+        !e.parentEntryId && e.text && e.text.trim() &&
+        !e.mediaCardData && !(e.textHtml && e.textHtml.includes('deadline-table'))
       );
 
       // Build detailed page list with FULL content for edit/delete/query operations
       const pageList = pages.map((p, i) => {
         const title = (p.text || '').split('\n')[0].trim();
-        const bodyText = (p.text_html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        const bodyText = (p.textHtml || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
         return `PAGE ${i + 1}: "${title}"\nCONTENT: ${bodyText || '(empty)'}`;
       }).join('\n\n');
-
-      console.log('[SMS] Page list for', ownerUsername, ':', pageList);
 
       // Ask AI what action to take
       const OpenAI = (await import('openai')).default;
@@ -2150,7 +2149,7 @@ IMPORTANT:
         const targetPage = pages[decision.pageIndex];
         if (!targetPage) return res.status(400).json({ error: 'Invalid page index' });
 
-        const existingHtml = targetPage.text_html || '';
+        const existingHtml = targetPage.textHtml || '';
         const newHtml = existingHtml + `<p>${(decision.content || text).replace(/\n/g, '<br>')}</p>`;
 
         await db.query(
@@ -2202,7 +2201,7 @@ IMPORTANT:
         let remindersPage = pages.find(p => (p.text || '').toLowerCase().startsWith('reminders'));
 
         if (remindersPage) {
-          const existingHtml = remindersPage.text_html || '';
+          const existingHtml = remindersPage.textHtml || '';
           const newHtml = existingHtml + `<p>${(decision.content || text).replace(/\n/g, '<br>')}</p>`;
           await db.query(
             `UPDATE entries SET text_html = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
