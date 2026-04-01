@@ -42,6 +42,18 @@ function getPageTitle(ed) {
   return firstLine || 'Untitled';
 }
 
+// ——— Format bar visibility ———
+function articleFormatBarToggle() {
+  if (!formatBar) return;
+  // Small delay so focusout fires before focusin on the new target
+  setTimeout(() => {
+    const active = document.activeElement;
+    const inArticle = active &&
+      (active.classList.contains('article-body') || active.classList.contains('article-header-title'));
+    formatBar.classList.toggle('hidden', !inArticle);
+  }, 0);
+}
+
 // ——— Activate ———
 function activateArticleMode() {
   if (!articleView) return;
@@ -53,9 +65,11 @@ function activateArticleMode() {
     shareBtn.classList.remove('hidden');
   }
 
-  // Show format bar in its natural topbar position — don't move it
+  // Format bar: hidden by default, shown only when cursor is in title or body
   if (articleCanEdit() && formatBar) {
-    formatBar.classList.remove('hidden');
+    formatBar.classList.add('hidden');
+    document.addEventListener('focusin', articleFormatBarToggle);
+    document.addEventListener('focusout', articleFormatBarToggle);
   }
 
   // Only show join banner on community pages (Amia's Lux), not personal spaces
