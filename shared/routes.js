@@ -2043,12 +2043,12 @@ ${context.substring(0, 8000)}`
         !e.media_card_data && !(e.text_html && e.text_html.includes('deadline-table'))
       );
 
-      // Build detailed page list with full content for edit/delete/query operations
+      // Build detailed page list with FULL content for edit/delete/query operations
       const pageList = pages.map((p, i) => {
         const title = (p.text || '').split('\n')[0].trim();
-        const bodyText = (p.text_html || '').replace(/<[^>]+>/g, '').trim();
-        return `${i + 1}. "${title}" — ${bodyText.substring(0, 500)}`;
-      }).join('\n');
+        const bodyText = (p.text_html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        return `PAGE ${i + 1}: "${title}"\nCONTENT: ${bodyText || '(empty)'}`;
+      }).join('\n\n');
 
       // Ask AI what action to take
       const OpenAI = (await import('openai')).default;
@@ -2075,7 +2075,8 @@ THINGS YOU CANNOT DO (be honest — say so and mention you'll pass it to your su
 - Send messages to other people
 - Set timed push notifications (you can store reminders on a page though)
 
-Here are the current pages with their content:
+ALL OF THE USER'S PAGES AND THEIR FULL CONTENT ARE BELOW. When answering questions, ALWAYS use this content — it IS the source of truth. Do NOT say content is missing if it appears below.
+
 ${pageList || '(no pages yet)'}
 
 Based on the user's message, decide what to do. Respond in JSON only with ONE of these:
