@@ -1952,9 +1952,13 @@ export function createRouter(options = {}) {
       if (!entriesData || entriesData.length === 0) {
         return res.json({ answer: "This page doesn't have any content yet." });
       }
-      // Build context from entries
+      // Build context from entries (include title + body + media/link metadata)
       const context = entriesData.map(e => {
         let desc = e.text || '';
+        if (e.text_html) {
+          const bodyText = e.text_html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+          if (bodyText && bodyText !== desc) desc += '\n' + bodyText;
+        }
         if (e.media_card_data) {
           const mcd = typeof e.media_card_data === 'string' ? JSON.parse(e.media_card_data) : e.media_card_data;
           if (mcd.title) desc += ` [${mcd.type || 'media'}: ${mcd.title}]`;
