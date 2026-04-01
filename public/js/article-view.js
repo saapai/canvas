@@ -195,6 +195,13 @@ function setupBodyEditor(body, pageEntry, titleEl) {
     bodySaveTimer = setTimeout(() => saveArticlePage(titleEl, body, pageEntry), 2000);
   });
 
+  // Linkify immediately after space or enter (catches "duttapad.com " instantly)
+  body.addEventListener('keyup', (e) => {
+    if (e.key === ' ' || e.key === 'Enter') {
+      autoLinkUrls(body);
+    }
+  });
+
   body.addEventListener('blur', () => {
     if (bodySaveTimer) clearTimeout(bodySaveTimer);
     saveArticlePage(titleEl, body, pageEntry);

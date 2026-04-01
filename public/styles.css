@@ -4308,9 +4308,9 @@ body.has-bg-image::before {
 
 /* Separator between title and body */
 #article-header {
-  margin-bottom: 24px;
-  padding-bottom: 20px;
-  border-bottom: 1px solid rgba(0,0,0,0.06);
+  margin-bottom: 28px;
+  padding-bottom: 24px;
+  border-bottom: 2px solid rgba(0,0,0,0.13);
 }
 
 /* Body — the main editable area */
@@ -4329,20 +4329,21 @@ body.has-bg-image::before {
 }
 .article-body p { margin: 0 0 0.8em; }
 
-/* Inline links — dashed underline */
+/* Inline links — clean underline */
 .article-body a,
 .article-inline-link {
-  color: var(--ink);
-  text-decoration: none;
-  border-bottom: 1px dashed rgba(0,0,0,0.3);
+  color: #1a6e5e;
+  text-decoration: underline;
+  text-decoration-color: rgba(26, 110, 94, 0.3);
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1.5px;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
-  padding: 0 1px;
+  transition: color 0.15s, text-decoration-color 0.2s;
 }
 .article-body a:hover,
 .article-inline-link:hover {
-  background: rgba(59, 130, 246, 0.06);
-  border-bottom-color: rgba(59, 130, 246, 0.5);
+  color: #155a4d;
+  text-decoration-color: rgba(26, 110, 94, 0.7);
 }
 
 /* Share invite link (article/Lux mode) */
@@ -4399,6 +4400,33 @@ body.article-mode .help-button,
 body.article-mode #navigator,
 body.article-mode #scrollbar-track {
   display: none !important;
+}
+
+/* Topbar polish for article mode */
+body.article-mode #topbar {
+  border-bottom: 1px solid rgba(0,0,0,0.06);
+}
+body.article-mode .user-menu-button {
+  border: none;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-weight: 500;
+  font-size: 14px;
+}
+body.article-mode .user-menu-button:hover {
+  background: rgba(0,0,0,0.05);
+}
+body.article-mode .share-button {
+  height: 36px;
+  padding: 0 16px;
+  border-radius: 8px;
+  border: none;
+  background: rgba(0,0,0,0.06);
+  font-size: 13px;
+  font-weight: 500;
+}
+body.article-mode .share-button:hover {
+  background: rgba(0,0,0,0.1);
 }
 
 /* ——— Responsive (<768px) ——— */
