@@ -4198,7 +4198,7 @@ body.has-bg-image::before {
 .article-view {
   position: fixed;
   inset: 0;
-  top: 48px;
+  top: 56px;
   background: var(--paper);
   z-index: 500;
   overflow-y: auto;
@@ -4207,34 +4207,40 @@ body.has-bg-image::before {
 
 .article-layout {
   display: flex;
-  max-width: 1100px;
+  max-width: 1060px;
   margin: 0 auto;
-  padding: 0 24px 80px;
-  gap: 32px;
+  padding: 40px 40px 100px;
+  gap: 48px;
 }
 
 /* Sidebar — page list */
 .article-sidebar {
-  width: 200px;
+  width: 210px;
   flex-shrink: 0;
-  padding-top: 24px;
   position: sticky;
-  top: 0;
+  top: 40px;
   align-self: flex-start;
-  max-height: calc(100vh - 80px);
+  max-height: calc(100vh - 140px);
   overflow-y: auto;
+}
+.article-sidebar-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: rgba(0,0,0,0.35);
+  padding: 0 12px 10px;
 }
 .article-sidebar-item {
   display: flex;
   align-items: center;
-  padding: 8px 12px;
+  padding: 7px 12px;
   border-radius: 6px;
   font-size: 14px;
   color: var(--ink);
   cursor: pointer;
   transition: background 0.15s;
-  margin-bottom: 2px;
-  position: relative;
+  margin-bottom: 1px;
 }
 .article-sidebar-title {
   flex: 1;
@@ -4246,7 +4252,7 @@ body.has-bg-image::before {
   display: none;
   background: none;
   border: none;
-  color: rgba(0,0,0,0.3);
+  color: rgba(0,0,0,0.25);
   font-size: 16px;
   line-height: 1;
   padding: 0 2px;
@@ -4259,12 +4265,16 @@ body.has-bg-image::before {
 .article-sidebar-item:hover .article-sidebar-delete { display: block; }
 .article-sidebar-delete:hover { color: #dc2626; background: rgba(220,38,38,0.08); }
 .article-sidebar-item:hover { background: rgba(0,0,0,0.04); }
-.article-sidebar-item.active { font-weight: 600; background: rgba(0,0,0,0.06); }
+.article-sidebar-item.active {
+  font-weight: 600;
+  background: rgba(0,0,0,0.06);
+  color: var(--ink);
+}
 .article-sidebar-add {
-  padding: 8px 12px;
-  margin-top: 8px;
-  font-size: 14px;
-  color: rgba(0,0,0,0.4);
+  padding: 7px 12px;
+  margin-top: 10px;
+  font-size: 13px;
+  color: rgba(0,0,0,0.35);
   cursor: pointer;
   border-radius: 6px;
   transition: background 0.15s, color 0.15s;
@@ -4275,70 +4285,63 @@ body.has-bg-image::before {
 .article-main {
   flex: 1;
   min-width: 0;
-  max-width: 720px;
-  padding-top: 8px;
+  max-width: 680px;
 }
 
-/* Format bar — sticky inside article-main */
-.article-format-bar {
-  position: sticky !important;
-  top: 0 !important;
-  left: auto !important;
-  right: auto !important;
-  bottom: auto !important;
-  transform: none !important;
-  width: 100% !important;
-  display: flex !important;
-  justify-content: center !important;
-  gap: 2px !important;
-  z-index: 100 !important;
-  background: var(--paper) !important;
-  padding: 8px 12px !important;
-  border: none !important;
-  border-bottom: 1px solid rgba(0,0,0,0.08) !important;
-  border-radius: 0 !important;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.04) !important;
-  margin-bottom: 20px !important;
-}
-
-/* Header */
+/* Header — editable title */
 .article-header-title {
-  font-size: 32px;
+  font-size: 38px;
   font-weight: 700;
   color: var(--ink);
-  margin: 0 0 16px;
+  margin: 0 0 8px;
   line-height: 1.2;
+  outline: none;
+  border: none;
+  letter-spacing: -0.5px;
+}
+.article-header-title:empty::before {
+  content: attr(data-placeholder);
+  color: rgba(0,0,0,0.2);
+  pointer-events: none;
+  font-weight: 500;
+}
+
+/* Separator between title and body */
+#article-header {
+  margin-bottom: 24px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid rgba(0,0,0,0.06);
 }
 
 /* Body — the main editable area */
 .article-body {
-  min-height: 300px;
-  font-size: 16px;
-  line-height: 1.8;
+  min-height: 400px;
+  font-size: 17px;
+  line-height: 1.85;
   color: var(--ink);
   outline: none;
   word-break: break-word;
 }
 .article-body:empty::before {
   content: attr(data-placeholder);
-  color: rgba(0,0,0,0.3);
+  color: rgba(0,0,0,0.25);
   pointer-events: none;
 }
-/* Inline links — dashed underline style like traversable phrases */
+.article-body p { margin: 0 0 0.8em; }
+
+/* Inline links — dashed underline */
 .article-body a,
 .article-inline-link {
   color: var(--ink);
   text-decoration: none;
-  border-bottom: 1px dashed rgba(0,0,0,0.25);
+  border-bottom: 1px dashed rgba(0,0,0,0.3);
   cursor: pointer;
-  transition: background 0.15s, box-shadow 0.15s, border-color 0.15s;
+  transition: background 0.15s, border-color 0.15s;
   padding: 0 1px;
-  border-radius: 2px;
 }
 .article-body a:hover,
 .article-inline-link:hover {
-  background: rgba(59, 130, 246, 0.08);
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.12);
+  background: rgba(59, 130, 246, 0.06);
   border-bottom-color: rgba(59, 130, 246, 0.5);
 }
 
@@ -4370,26 +4373,6 @@ body.has-bg-image::before {
 }
 .share-copy-invite-btn:hover { background: rgba(0,0,0,0.06); }
 
-/* AI Clickable Phrases — melt animation */
-.article-clickable-phrase {
-  cursor: pointer;
-  transition: background 0.15s, box-shadow 0.15s;
-  border-radius: 2px;
-  padding: 0 1px;
-  border-bottom: 1px dashed rgba(0,0,0,0.2);
-}
-.article-clickable-phrase:hover {
-  background: rgba(59, 130, 246, 0.08);
-  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.12);
-  border-bottom-color: rgba(59, 130, 246, 0.5);
-}
-.article-clickable-phrase.melt span { animation: inkIn 900ms ease-out forwards; }
-.article-clickable-phrase.melt span.drip { animation: inkIn 900ms ease-out forwards, drip 1200ms ease-in forwards; }
-.article-clickable-phrase.melt span::after { animation: bleed 1100ms ease-out forwards; }
-
-/* Empty state */
-.article-empty { text-align: center; padding: 80px 20px; opacity: 0.45; font-size: 16px; }
-
 /* Join banner */
 .article-join-banner {
   position: fixed; bottom: 0; left: 0; right: 0;
@@ -4420,10 +4403,11 @@ body.article-mode #scrollbar-track {
 
 /* ——— Responsive (<768px) ——— */
 @media (max-width: 768px) {
-  .article-layout { flex-direction: column; padding: 0 16px 60px; gap: 16px; }
-  .article-sidebar { width: 100%; position: static; max-height: none; display: flex; flex-wrap: wrap; gap: 4px; padding-top: 12px; }
+  .article-layout { flex-direction: column; padding: 16px 20px 60px; gap: 16px; }
+  .article-sidebar { width: 100%; position: static; max-height: none; display: flex; flex-wrap: wrap; gap: 4px; }
+  .article-sidebar-label { display: none; }
   .article-sidebar-item { padding: 6px 10px; font-size: 13px; }
   .article-main { max-width: 100%; }
-  .article-header-title { font-size: 24px; }
+  .article-header-title { font-size: 28px; }
   .article-join-banner { flex-direction: column; gap: 10px; padding: 14px 16px; }
 }

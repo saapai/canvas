@@ -1,5 +1,5 @@
-// article-view.js — Substack-style article mode for Project Lux
-// Each "page" = one entry. The entry's textHtml IS the page body.
+// article-view.js — Substack-style article mode
+// Each "page" = one entry. Editable title + body. Regular click opens links.
 // Sidebar lists pages. "+" creates a new page. Enter = paragraph.
 
 const articleView = document.getElementById('article-view');
@@ -7,12 +7,9 @@ const articleHeader = document.getElementById('article-header');
 const articleContent = document.getElementById('article-content');
 const articleSidebarNav = document.getElementById('article-sidebar-nav');
 
-const phraseCache = new Map();
-const PHRASE_CACHE_TTL = 5 * 60 * 1000;
-
 let articleCurrentPageId = null;
 let bodySaveTimer = null;
-let bodyDetectTimer = null;
+let titleSaveTimer = null;
 
 function shouldUseArticleMode() {
   return window.PAGE_VIEW_MODE === 'article';
@@ -31,7 +28,6 @@ function getArticlePages() {
     if (ed.mediaCardData) return;
     if (ed.latexData && ed.latexData.enabled) return;
     if (ed.textHtml && ed.textHtml.includes('deadline-table')) return;
-    // Skip completely empty entries (ghost entries)
     if (!ed.text || !ed.text.trim()) return;
     pages.push(ed);
   });
@@ -57,14 +53,9 @@ function activateArticleMode() {
     shareBtn.classList.remove('hidden');
   }
 
-  // Move format bar into article-main for clean sticky positioning
+  // Show format bar in its natural topbar position — don't move it
   if (articleCanEdit() && formatBar) {
-    const articleMain = articleView.querySelector('.article-main');
-    if (articleMain) {
-      articleMain.insertBefore(formatBar, articleMain.firstChild);
-    }
     formatBar.classList.remove('hidden');
-    formatBar.classList.add('article-format-bar');
   }
 
   if (!window.PAGE_IS_OWNER && !window.PAGE_IS_EDITOR && !currentUser) {
@@ -93,6 +84,11 @@ function renderArticleView() {
 function renderSidebar() {
   articleSidebarNav.innerHTML = '';
   const pages = getArticlePages();
+
+  const label = document.createElement('div');
+  label.className = 'article-sidebar-label';
+  label.textContent = 'Pages';
+  articleSidebarNav.appendChild(label);
 
   pages.forEach(ed => {
     const item = document.createElement('div');
@@ -130,34 +126,60 @@ function renderSidebar() {
 
 function renderPageContent() {
   articleContent.innerHTML = '';
+  articleHeader.innerHTML = '';
   const pageEntry = articleCurrentPageId ? entries.get(articleCurrentPageId) : null;
 
-  // Title — show selected page's title, not a constant
-  const titleText = pageEntry ? getPageTitle(pageEntry) : 'Untitled';
-  articleHeader.innerHTML = `<h1 class="article-header-title">${escapeHtml(titleText)}</h1>`;
+  // Editable title — independent of body
+  const titleEl = document.createElement('h1');
+  titleEl.className = 'article-header-title';
+  titleEl.setAttribute('data-placeholder', 'Untitled');
 
-  // Body — single contenteditable area for the page
+  if (pageEntry) {
+    const existingTitle = (pageEntry.text || '').split('\n')[0].trim();
+    if (existingTitle) titleEl.textContent = existingTitle;
+  }
+
+  if (articleCanEdit()) {
+    titleEl.setAttribute('contenteditable', 'true');
+    titleEl.addEventListener('input', () => {
+      // Update entry text immediately so sidebar reflects changes
+      if (pageEntry) pageEntry.text = titleEl.innerText.trim() || 'Untitled';
+      renderSidebar();
+      if (titleSaveTimer) clearTimeout(titleSaveTimer);
+      titleSaveTimer = setTimeout(() => saveArticlePage(titleEl, null, pageEntry), 1500);
+    });
+    titleEl.addEventListener('blur', () => {
+      if (titleSaveTimer) clearTimeout(titleSaveTimer);
+      saveArticlePage(titleEl, null, pageEntry);
+    });
+    titleEl.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        const bodyEl = articleContent.querySelector('.article-body');
+        if (bodyEl) bodyEl.focus();
+      }
+    });
+  }
+  articleHeader.appendChild(titleEl);
+
+  // Body — rich text area
   const body = document.createElement('div');
   body.className = 'article-body';
   body.setAttribute('data-placeholder', 'Start writing...');
 
-  if (pageEntry) {
-    if (pageEntry.textHtml) {
-      body.innerHTML = pageEntry.textHtml;
-    } else if (pageEntry.text) {
-      body.innerHTML = escapeHtml(pageEntry.text).replace(/\n/g, '<br>');
-    }
+  if (pageEntry && pageEntry.textHtml) {
+    body.innerHTML = pageEntry.textHtml;
   }
 
   if (articleCanEdit()) {
     body.setAttribute('contenteditable', 'true');
-    setupBodyEditor(body, pageEntry);
+    setupBodyEditor(body, pageEntry, titleEl);
   }
 
-  // Cmd/Ctrl+click to open links
+  // Regular click opens links (not cmd+click)
   body.addEventListener('click', (e) => {
     const link = e.target.closest('a');
-    if (link && (e.metaKey || e.ctrlKey)) {
+    if (link) {
       e.preventDefault();
       window.open(link.href, '_blank');
     }
@@ -166,111 +188,36 @@ function renderPageContent() {
   articleContent.appendChild(body);
 }
 
-// ——— Body editor with auto-save and live entity detection ———
-function setupBodyEditor(body, pageEntry) {
-  let detectTimer = null;
-  let lastDetectedText = '';
-
-  // On input: strip phrase highlights, debounce save + re-detect
+// ——— Body editor ———
+function setupBodyEditor(body, pageEntry, titleEl) {
   body.addEventListener('input', () => {
-    stripPhraseSpans(body);
-
     if (bodySaveTimer) clearTimeout(bodySaveTimer);
-    bodySaveTimer = setTimeout(() => savePageContent(body, pageEntry), 2000);
-
-    if (detectTimer) clearTimeout(detectTimer);
-    detectTimer = setTimeout(() => {
-      const text = body.innerText.trim();
-      if (text.length >= 5 && text !== lastDetectedText) {
-        lastDetectedText = text;
-        detectAndHighlightPhrases(body);
-      }
-    }, 1000);
+    bodySaveTimer = setTimeout(() => saveArticlePage(titleEl, body, pageEntry), 2000);
   });
 
-  // Save on blur, detect if needed
   body.addEventListener('blur', () => {
     if (bodySaveTimer) clearTimeout(bodySaveTimer);
-    savePageContent(body, pageEntry);
-    if (detectTimer) clearTimeout(detectTimer);
-    const text = body.innerText.trim();
-    if (text.length >= 5 && text !== lastDetectedText) {
-      lastDetectedText = text;
-      setTimeout(() => detectAndHighlightPhrases(body), 300);
-    }
+    saveArticlePage(titleEl, body, pageEntry);
   });
 
-  // Arrow keys into a phrase span → unwrap it so user can edit
-  body.addEventListener('keydown', (e) => {
-    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
-      setTimeout(() => unwrapPhraseAtCursor(body), 0);
-    }
-  });
-
-  // Auto-link URLs on paste, then re-detect
   body.addEventListener('paste', () => {
     setTimeout(() => {
       autoLinkUrls(body);
-      stripPhraseSpans(body);
       if (bodySaveTimer) clearTimeout(bodySaveTimer);
-      bodySaveTimer = setTimeout(() => savePageContent(body, pageEntry), 1000);
-      if (detectTimer) clearTimeout(detectTimer);
-      detectTimer = setTimeout(() => {
-        lastDetectedText = body.innerText.trim();
-        detectAndHighlightPhrases(body);
-      }, 1000);
+      bodySaveTimer = setTimeout(() => saveArticlePage(titleEl, body, pageEntry), 1000);
     }, 100);
   });
 }
 
-// Strip all phrase highlight spans back to plain text
-function stripPhraseSpans(body) {
-  body.querySelectorAll('.article-clickable-phrase').forEach(span => {
-    span.replaceWith(document.createTextNode(span.textContent));
-  });
-  body.normalize();
-}
+// ——— Save title + body ———
+async function saveArticlePage(titleEl, bodyEl, pageEntry) {
+  if (bodyEl) autoLinkUrls(bodyEl);
 
-// If cursor landed inside a phrase span via arrow keys, unwrap that span
-function unwrapPhraseAtCursor(body) {
-  const sel = window.getSelection();
-  if (!sel.rangeCount) return;
-  let node = sel.anchorNode;
-  while (node && node !== body) {
-    if (node.nodeType === 1 && node.classList && node.classList.contains('article-clickable-phrase')) {
-      // Calculate cursor offset within this span
-      let cursorOff = 0;
-      const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
-      while (walker.nextNode()) {
-        if (walker.currentNode === sel.anchorNode) { cursorOff += sel.anchorOffset; break; }
-        cursorOff += walker.currentNode.textContent.length;
-      }
-      const text = node.textContent;
-      const textNode = document.createTextNode(text);
-      node.replaceWith(textNode);
-      body.normalize();
-      try {
-        const range = document.createRange();
-        range.setStart(textNode, Math.min(cursorOff, text.length));
-        range.collapse(true);
-        sel.removeAllRanges();
-        sel.addRange(range);
-      } catch (e) {}
-      return;
-    }
-    node = node.parentNode;
-  }
-}
-
-async function savePageContent(body, pageEntry) {
-  // Auto-link any plain URLs
-  autoLinkUrls(body);
-
-  const html = body.innerHTML;
-  const text = body.innerText.trim();
+  const title = titleEl ? titleEl.innerText.trim() : '';
+  const text = title || 'Untitled';
+  const html = bodyEl ? bodyEl.innerHTML : (pageEntry ? (pageEntry.textHtml || '') : '');
 
   if (pageEntry) {
-    // Update existing entry
     if (text === (pageEntry.text || '').trim() && html === (pageEntry.textHtml || '')) return;
     pageEntry.text = text;
     pageEntry.textHtml = html;
@@ -281,9 +228,7 @@ async function savePageContent(body, pageEntry) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text, textHtml: html, position: pageEntry.position, pageOwnerId })
     }).catch(err => console.error('Save failed:', err));
-    renderSidebar(); // Update page title in sidebar
-  } else if (text) {
-    // Create new page entry
+  } else if (text && text !== 'Untitled') {
     const id = generateEntryId();
     const position = { x: 100, y: 100 };
     const parentEntryId = currentViewEntryId || null;
@@ -302,8 +247,6 @@ async function savePageContent(body, pageEntry) {
     entries.set(id, { id, text, textHtml: html, position, parentEntryId, element: el });
 
     articleCurrentPageId = id;
-    // Re-assign pageEntry for future saves
-    body._pageEntry = entries.get(id);
     renderSidebar();
   }
 }
@@ -312,7 +255,6 @@ async function savePageContent(body, pageEntry) {
 function autoLinkUrls(body) {
   const sel = window.getSelection();
   let savedOffset = -1;
-  // Save cursor as text offset
   if (sel.rangeCount > 0 && body.contains(sel.anchorNode)) {
     savedOffset = 0;
     const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
@@ -327,7 +269,6 @@ function autoLinkUrls(body) {
   if (linked === html) return;
   body.innerHTML = linked;
 
-  // Restore cursor
   if (savedOffset >= 0 && document.activeElement === body) {
     restoreCursor(body, sel, savedOffset);
   }
@@ -343,7 +284,6 @@ function linkifyHtml(html) {
       return part;
     }
     if (insideA) return part;
-    // Match full URLs (https://...) and bare domains (duttapad.com, foo.org/path)
     return part.replace(/(https?:\/\/[^\s<"']+|(?:[\w-]+\.)+(?:com|org|net|edu|io|co|dev|app|me|xyz|info|gov|us|uk)(?:\/[^\s<"']*)?)/gi, (match) => {
       const href = match.match(/^https?:\/\//i) ? match : 'https://' + match;
       return `<a href="${href}" target="_blank" rel="noopener" class="article-inline-link">${match}</a>`;
@@ -388,20 +328,21 @@ async function createNewPage() {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, text: title, textHtml: `<p>${escapeHtml(title)}</p>`, position, parentEntryId, pageOwnerId })
+      body: JSON.stringify({ id, text: title, textHtml: '', position, parentEntryId, pageOwnerId })
     });
 
     const el = document.createElement('div');
     el.className = 'entry'; el.id = id; el.style.display = 'none';
     world.appendChild(el);
-    entries.set(id, { id, text: title, textHtml: `<p>${escapeHtml(title)}</p>`, position, parentEntryId, element: el });
+    entries.set(id, { id, text: title, textHtml: '', position, parentEntryId, element: el });
 
     articleCurrentPageId = id;
     renderArticleView();
 
+    // Focus title and select all for easy renaming
     setTimeout(() => {
-      const body = articleContent.querySelector('.article-body');
-      if (body) { body.focus(); document.execCommand('selectAll'); }
+      const titleEl = articleHeader.querySelector('.article-header-title');
+      if (titleEl) { titleEl.focus(); document.execCommand('selectAll'); }
     }, 50);
   } catch (err) {
     console.error('Failed to create page:', err);
@@ -423,7 +364,6 @@ async function deletePage(entryId) {
     if (ed && ed.element) ed.element.remove();
     entries.delete(entryId);
 
-    // If we deleted the active page, switch to the first remaining page
     if (articleCurrentPageId === entryId) {
       const pages = getArticlePages();
       articleCurrentPageId = pages.length > 0 ? pages[0].id : null;
@@ -431,103 +371,6 @@ async function deletePage(entryId) {
     renderArticleView();
   } catch (err) {
     console.error('Failed to delete page:', err);
-  }
-}
-
-// ——— Live Entity Detection — 1s after typing stops ———
-async function detectAndHighlightPhrases(body) {
-  const text = body.innerText.trim();
-  if (text.length < 5) return;
-  if (body.querySelector('.article-clickable-phrase')) return;
-
-  try {
-    const res = await fetch('/api/detect-phrases', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text })
-    });
-    if (!res.ok) return;
-    const data = await res.json();
-    const phrases = data.phrases || [];
-    if (!phrases.length) return;
-
-    // Save cursor
-    const sel = window.getSelection();
-    let savedOffset = -1;
-    if (sel.rangeCount > 0 && body.contains(sel.anchorNode)) {
-      savedOffset = 0;
-      const walker = document.createTreeWalker(body, NodeFilter.SHOW_TEXT);
-      while (walker.nextNode()) {
-        if (walker.currentNode === sel.anchorNode) { savedOffset += sel.anchorOffset; break; }
-        savedOffset += walker.currentNode.textContent.length;
-      }
-    }
-
-    // Apply highlights (avoid matching inside <a> tags)
-    let html = body.innerHTML;
-    phrases.forEach(p => {
-      if (!p.phrase) return;
-      const escaped = p.phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const parts = html.split(/(<[^>]*>)/);
-      let insideA = false;
-      let insidePhrase = false;
-      html = parts.map(part => {
-        if (part.startsWith('<')) {
-          if (/^<a[\s>]/i.test(part)) insideA = true;
-          if (/^<\/a>/i.test(part)) insideA = false;
-          if (/^<span[^>]*article-clickable-phrase/i.test(part)) insidePhrase = true;
-          if (insidePhrase && /^<\/span>/i.test(part)) { insidePhrase = false; return part; }
-          return part;
-        }
-        if (insideA || insidePhrase) return part;
-        const regex = new RegExp(`(${escaped})`, 'gi');
-        return part.replace(regex, (match) => {
-          return `<span class="article-clickable-phrase" data-phrase="${escapeHtml(match)}" data-category="${escapeHtml(p.category || '')}">${escapeHtml(match)}</span>`;
-        });
-      }).join('');
-    });
-    body.innerHTML = html;
-
-    // Restore cursor
-    if (savedOffset >= 0 && document.activeElement === body) {
-      restoreCursor(body, sel, savedOffset);
-    }
-
-    // Wire up single-click → traverse
-    body.querySelectorAll('.article-clickable-phrase').forEach(span => {
-      span.addEventListener('click', (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        // Prevent contenteditable from placing cursor
-        window.getSelection().removeAllRanges();
-        createSubpageFromPhrase(span.dataset.phrase, articleCurrentPageId);
-      });
-    });
-  } catch (err) {}
-}
-
-async function createSubpageFromPhrase(phrase, parentId) {
-  const id = generateEntryId();
-  const position = { x: 100, y: 100 };
-  const pageOwnerId = window.PAGE_OWNER_ID;
-
-  try {
-    await fetch('/api/entries', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, text: phrase, textHtml: `<p>${escapeHtml(phrase)}</p>`, position, parentEntryId: parentId, pageOwnerId })
-    });
-
-    const el = document.createElement('div');
-    el.className = 'entry'; el.id = id; el.style.display = 'none';
-    world.appendChild(el);
-    entries.set(id, { id, text: phrase, textHtml: `<p>${escapeHtml(phrase)}</p>`, position, parentEntryId: parentId, element: el });
-
-    navigateToEntry(parentId);
-  } catch (err) {
-    console.error('Failed to create subpage:', err);
   }
 }
 
