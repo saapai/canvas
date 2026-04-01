@@ -13,12 +13,10 @@ const PHRASE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 // Track which entry card is currently being edited
 let activeArticleEditor = null;
 
-// Check if article mode should activate
 function shouldUseArticleMode() {
   return window.PAGE_VIEW_MODE === 'article';
 }
 
-// Check if current user can edit
 function articleCanEdit() {
   return window.PAGE_IS_OWNER || window.PAGE_EDITOR_ROLE === 'admin';
 }
@@ -29,27 +27,29 @@ function activateArticleMode() {
   document.body.classList.add('article-mode');
   articleView.classList.remove('hidden');
 
-  // Show share button in article mode too
+  // Hide the sidebar — Substack-style, just title + content
+  const sidebar = document.querySelector('.article-sidebar');
+  if (sidebar) sidebar.style.display = 'none';
+
+  // Show share button
   const shareBtn = document.getElementById('share-button');
   if (shareBtn && (window.PAGE_IS_OWNER || window.PAGE_IS_EDITOR)) {
     shareBtn.classList.remove('hidden');
   }
 
-  // Show format bar for editors (at the top)
+  // Move format bar out of #topbar to body so it can be positioned freely
   if (articleCanEdit() && formatBar) {
+    document.body.appendChild(formatBar);
     formatBar.classList.remove('hidden');
     formatBar.classList.add('article-format-bar');
   }
 
-  // Show join banner for non-logged-in visitors
+  // Join banner for visitors
   if (!window.PAGE_IS_OWNER && !window.PAGE_IS_EDITOR && !currentUser) {
     showJoinBanner();
   }
 
-  // Initial render after entries load
-  waitForEntries(() => {
-    renderArticleView();
-  });
+  waitForEntries(() => renderArticleView());
 }
 
 function waitForEntries(cb, attempts = 0) {
@@ -79,13 +79,12 @@ function categorizeCurrentEntries() {
   return cats;
 }
 
-// ——— Render article view ———
+// ——— Render article view (Substack-style: title then content) ———
 function renderArticleView() {
   if (!articleView || articleView.classList.contains('hidden')) return;
   const cats = categorizeCurrentEntries();
-  const totalCount = Object.values(cats).reduce((s, a) => s + a.length, 0);
 
-  // Header
+  // Title
   let titleText = 'Project Lux';
   if (currentViewEntryId) {
     const parent = entries.get(currentViewEntryId);
@@ -93,54 +92,34 @@ function renderArticleView() {
   }
   articleHeader.innerHTML = `<h1 class="article-header-title">${escapeHtml(titleText)}</h1>`;
 
-  // Sidebar
-  const categoryLabels = { notes: 'Notes', links: 'Links', songs: 'Songs', movies: 'Movies', images: 'Images', files: 'Files', latex: 'LaTeX', deadlines: 'Deadlines' };
-  articleSidebarNav.innerHTML = '';
-  for (const [key, label] of Object.entries(categoryLabels)) {
-    if (cats[key].length === 0) continue;
-    const item = document.createElement('div');
-    item.className = 'article-sidebar-item';
-    item.innerHTML = `<span>${label}</span><span class="article-sidebar-count">${cats[key].length}</span>`;
-    item.addEventListener('click', () => {
-      const section = document.getElementById('article-section-' + key);
-      if (section) section.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      articleSidebarNav.querySelectorAll('.article-sidebar-item').forEach(i => i.classList.remove('active'));
-      item.classList.add('active');
-    });
-    articleSidebarNav.appendChild(item);
-  }
-
-  // Content
+  // Content — no section headings, no categories, just entries as plain text
   articleContent.innerHTML = '';
 
-  if (totalCount === 0 && !articleCanEdit()) {
+  // Render all note entries as seamless paragraphs
+  const allEntries = [];
+  entries.forEach((ed) => {
+    if (ed.id === 'anchor') return;
+    if (ed.parentEntryId !== currentViewEntryId) return;
+    allEntries.push(ed);
+  });
+
+  if (allEntries.length === 0 && !articleCanEdit()) {
     articleContent.innerHTML = '<div class="article-empty">Nothing here yet.</div>';
     return;
   }
 
-  // Render entries by category
-  const activeCategories = Object.entries(categoryLabels).filter(([k]) => cats[k].length > 0);
-  for (const [key, label] of Object.entries(categoryLabels)) {
-    if (cats[key].length === 0) continue;
-    if (activeCategories.length > 1) {
-      const heading = document.createElement('h2');
-      heading.className = 'article-section-heading';
-      heading.textContent = label;
-      heading.id = 'article-section-' + key;
-      articleContent.appendChild(heading);
-    }
-    cats[key].forEach(ed => {
-      const el = renderArticleEntry(ed, key);
-      if (el) articleContent.appendChild(el);
-    });
-  }
+  // Render each entry
+  allEntries.forEach(ed => {
+    const el = renderArticleEntry(ed);
+    if (el) articleContent.appendChild(el);
+  });
 
-  // Seamless new-entry area at the bottom for editors
+  // "Start writing..." area at bottom
   if (articleCanEdit()) {
     const newArea = document.createElement('div');
     newArea.className = 'article-new-entry';
     newArea.setAttribute('contenteditable', 'true');
-    newArea.setAttribute('data-placeholder', 'Type here...');
+    newArea.setAttribute('data-placeholder', 'Start writing...');
 
     newArea.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
@@ -151,7 +130,6 @@ function renderArticleView() {
           newArea.setAttribute('contenteditable', 'false');
           saveNewArticleEntry(text, html).then(() => {
             renderArticleView();
-            // Re-focus the new entry area
             setTimeout(() => {
               const area = articleContent.querySelector('.article-new-entry');
               if (area) area.focus();
@@ -164,186 +142,184 @@ function renderArticleView() {
     articleContent.appendChild(newArea);
   }
 
-  // Detect AI phrases for note entries (auto-meltify)
+  // Auto-meltify: detect phrases for note entries
   if (currentUser) {
-    cats.notes.forEach(ed => detectAndHighlightPhrases(ed));
+    allEntries.forEach(ed => {
+      // Only meltify text-based entries (not media/links/etc)
+      const mcd = ed.mediaCardData;
+      if (mcd) return;
+      if (ed.latexData && ed.latexData.enabled) return;
+      if (ed.textHtml && ed.textHtml.includes('deadline-table')) return;
+      detectAndHighlightPhrases(ed);
+    });
   }
 }
 
-// ——— Render individual entry ———
-function renderArticleEntry(ed, category) {
-  switch (category) {
-    case 'notes': {
-      const card = document.createElement('div');
-      card.className = 'article-note-card';
-      card.dataset.entryId = ed.id;
+// ——— Render individual entry (unified, no category separation) ———
+function renderArticleEntry(ed) {
+  const mcd = ed.mediaCardData;
 
-      if (ed.textHtml) {
-        card.innerHTML = ed.textHtml;
-      } else {
-        card.textContent = ed.text || '';
-      }
-
-      const hasChildren = Array.from(entries.values()).some(e => e.parentEntryId === ed.id);
-      if (hasChildren) {
-        card.classList.add('has-children');
-      }
-
-      // Click/dblclick handling
-      let clickTimer = null;
-
-      if (articleCanEdit()) {
-        card.addEventListener('click', (e) => {
-          // Don't intercept clicks on melt phrase spans
-          if (e.target.closest('.article-clickable-phrase')) return;
-          if (clickTimer) return;
-          clickTimer = setTimeout(() => {
-            clickTimer = null;
-            startArticleEdit(card, ed);
-          }, 200);
-        });
-      }
-
-      // Double-click: if on a melt phrase → create subpage & traverse;
-      // otherwise if entry has children → traverse into children
-      card.addEventListener('dblclick', (e) => {
-        if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
-        const phraseEl = e.target.closest('.article-clickable-phrase');
-        if (phraseEl) {
-          createSubpageFromPhrase(phraseEl.dataset.phrase, ed.id);
-          return;
-        }
-        if (hasChildren) {
-          navigateToEntry(ed.id);
-        }
-      });
-
-      return card;
-    }
-    case 'links': {
-      const frag = document.createDocumentFragment();
-      (ed.linkCardsData || []).forEach(lc => {
-        if (!lc || !lc.url) return;
-        const a = document.createElement('a');
-        a.className = 'article-link-card';
-        a.href = lc.url;
-        a.target = '_blank';
-        a.rel = 'noopener';
-        a.innerHTML = `${lc.image ? `<div class="article-link-thumb" style="background-image:url('${lc.image}')"></div>` : ''}
-          <div class="article-link-body">
-            <div class="article-link-site">${escapeHtml(lc.siteName || '')}</div>
-            <div class="article-link-title">${escapeHtml(lc.title || '')}</div>
-            ${lc.description ? `<div class="article-link-desc">${escapeHtml(lc.description)}</div>` : ''}
-            <div class="article-link-open">Open link &rarr;</div>
-          </div>`;
-        frag.appendChild(a);
-      });
-      if (ed.text && ed.text.trim()) {
-        const wrapper = document.createElement('div');
-        const textDiv = document.createElement('div');
-        textDiv.className = 'article-note-card';
-        textDiv.style.marginBottom = '8px';
-        textDiv.textContent = ed.text;
-        wrapper.appendChild(textDiv);
-        wrapper.appendChild(frag);
-        return wrapper;
-      }
-      return frag.childNodes.length > 0 ? (() => { const d = document.createElement('div'); d.appendChild(frag); return d; })() : null;
-    }
-    case 'songs':
-    case 'movies': {
-      const mcd = ed.mediaCardData;
-      if (!mcd) return null;
-      const card = document.createElement('div');
-      card.className = 'article-media-card';
-      const imageUrl = mcd.image || mcd.poster || '';
-      const typeLabel = mcd.type === 'song' ? 'Song' : 'Movie';
-      const subtitle = mcd.type === 'song' ? (mcd.artist || '') : (mcd.year ? String(mcd.year) : '');
-      card.innerHTML = `${imageUrl ? `<div class="article-media-image" style="background-image:url('${imageUrl}')"></div>` : ''}
-        <div class="article-media-info">
-          <div class="article-media-type">${typeLabel}</div>
-          <div class="article-media-title">${escapeHtml(mcd.title || '')}</div>
-          ${subtitle ? `<div class="article-media-subtitle">${escapeHtml(subtitle)}</div>` : ''}
-        </div>`;
-      return card;
-    }
-    case 'images': {
-      const mcd = ed.mediaCardData;
-      if (!mcd || !mcd.url) return null;
-      const card = document.createElement('div');
-      card.className = 'article-image-card';
-      const img = document.createElement('img');
-      img.src = mcd.url;
-      img.alt = 'Image';
-      img.loading = 'lazy';
-      card.appendChild(img);
-      return card;
-    }
-    case 'files': {
-      const mcd = ed.mediaCardData;
-      if (!mcd) return null;
-      const card = document.createElement('div');
-      card.className = 'article-file-card';
-      card.innerHTML = `<span class="article-file-icon">${getFileIcon(mcd.mimetype || '')}</span>
-        <div>
-          <div class="article-file-name">${escapeHtml(mcd.name || 'File')}</div>
-          <div class="article-file-size">${formatFileSize(mcd.size || 0)}</div>
-        </div>`;
-      if (mcd.url) {
-        card.style.cursor = 'pointer';
-        card.addEventListener('click', () => window.open(mcd.url, '_blank'));
-      }
-      return card;
-    }
-    case 'latex': {
-      const card = document.createElement('div');
-      card.className = 'article-latex-card';
-      if (ed.latexData && ed.latexData.source) {
-        const container = document.createElement('div');
-        card.appendChild(container);
-        setTimeout(() => {
-          if (typeof renderMathInElement !== 'undefined') {
-            container.innerHTML = ed.latexData.source;
-            renderMathInElement(container, { delimiters: [
-              { left: '$$', right: '$$', display: true },
-              { left: '$', right: '$', display: false },
-              { left: '\\[', right: '\\]', display: true },
-              { left: '\\(', right: '\\)', display: false }
-            ], throwOnError: false });
-          } else if (typeof katex !== 'undefined') {
-            try { katex.render(ed.latexData.source, container, { displayMode: true, throwOnError: false }); }
-            catch(e) { container.textContent = ed.latexData.source; }
-          } else {
-            container.textContent = ed.latexData.source;
-          }
-        }, 100);
-      }
-      return card;
-    }
-    case 'deadlines': {
-      const card = document.createElement('div');
-      card.className = 'article-deadline-card';
-      if (ed.element) {
-        const dt = ed.element.querySelector('.deadline-table');
-        if (dt) {
-          card.appendChild(dt.cloneNode(true));
-        } else if (ed.textHtml) {
-          card.innerHTML = ed.textHtml;
-        }
-      } else if (ed.textHtml) {
-        card.innerHTML = ed.textHtml;
-      }
-      return card;
-    }
-    default:
-      return null;
+  // Image
+  if (mcd && mcd.type === 'image' && mcd.url) {
+    const card = document.createElement('div');
+    card.className = 'article-image-card';
+    const img = document.createElement('img');
+    img.src = mcd.url;
+    img.alt = 'Image';
+    img.loading = 'lazy';
+    card.appendChild(img);
+    return card;
   }
+
+  // File
+  if (mcd && mcd.type === 'file') {
+    const card = document.createElement('div');
+    card.className = 'article-file-card';
+    card.innerHTML = `<span class="article-file-icon">${getFileIcon(mcd.mimetype || '')}</span>
+      <div>
+        <div class="article-file-name">${escapeHtml(mcd.name || 'File')}</div>
+        <div class="article-file-size">${formatFileSize(mcd.size || 0)}</div>
+      </div>`;
+    if (mcd.url) {
+      card.style.cursor = 'pointer';
+      card.addEventListener('click', () => window.open(mcd.url, '_blank'));
+    }
+    return card;
+  }
+
+  // Song / Movie
+  if (mcd && (mcd.type === 'song' || mcd.type === 'movie')) {
+    const card = document.createElement('div');
+    card.className = 'article-media-card';
+    const imageUrl = mcd.image || mcd.poster || '';
+    const typeLabel = mcd.type === 'song' ? 'Song' : 'Movie';
+    const subtitle = mcd.type === 'song' ? (mcd.artist || '') : (mcd.year ? String(mcd.year) : '');
+    card.innerHTML = `${imageUrl ? `<div class="article-media-image" style="background-image:url('${imageUrl}')"></div>` : ''}
+      <div class="article-media-info">
+        <div class="article-media-type">${typeLabel}</div>
+        <div class="article-media-title">${escapeHtml(mcd.title || '')}</div>
+        ${subtitle ? `<div class="article-media-subtitle">${escapeHtml(subtitle)}</div>` : ''}
+      </div>`;
+    return card;
+  }
+
+  // LaTeX
+  if (ed.latexData && ed.latexData.enabled) {
+    const card = document.createElement('div');
+    card.className = 'article-latex-card';
+    if (ed.latexData.source) {
+      const container = document.createElement('div');
+      card.appendChild(container);
+      setTimeout(() => {
+        if (typeof renderMathInElement !== 'undefined') {
+          container.innerHTML = ed.latexData.source;
+          renderMathInElement(container, { delimiters: [
+            { left: '$$', right: '$$', display: true },
+            { left: '$', right: '$', display: false },
+            { left: '\\[', right: '\\]', display: true },
+            { left: '\\(', right: '\\)', display: false }
+          ], throwOnError: false });
+        } else if (typeof katex !== 'undefined') {
+          try { katex.render(ed.latexData.source, container, { displayMode: true, throwOnError: false }); }
+          catch(e) { container.textContent = ed.latexData.source; }
+        } else {
+          container.textContent = ed.latexData.source;
+        }
+      }, 100);
+    }
+    return card;
+  }
+
+  // Deadline table
+  if (ed.textHtml && ed.textHtml.includes('deadline-table')) {
+    const card = document.createElement('div');
+    card.className = 'article-deadline-card';
+    if (ed.element) {
+      const dt = ed.element.querySelector('.deadline-table');
+      if (dt) card.appendChild(dt.cloneNode(true));
+      else if (ed.textHtml) card.innerHTML = ed.textHtml;
+    } else if (ed.textHtml) {
+      card.innerHTML = ed.textHtml;
+    }
+    return card;
+  }
+
+  // Links
+  if (ed.linkCardsData && ed.linkCardsData.length > 0 && ed.linkCardsData.some(c => c && c.url)) {
+    const frag = document.createDocumentFragment();
+    (ed.linkCardsData || []).forEach(lc => {
+      if (!lc || !lc.url) return;
+      const a = document.createElement('a');
+      a.className = 'article-link-card';
+      a.href = lc.url;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.innerHTML = `${lc.image ? `<div class="article-link-thumb" style="background-image:url('${lc.image}')"></div>` : ''}
+        <div class="article-link-body">
+          <div class="article-link-site">${escapeHtml(lc.siteName || '')}</div>
+          <div class="article-link-title">${escapeHtml(lc.title || '')}</div>
+          ${lc.description ? `<div class="article-link-desc">${escapeHtml(lc.description)}</div>` : ''}
+          <div class="article-link-open">Open link &rarr;</div>
+        </div>`;
+      frag.appendChild(a);
+    });
+    const wrapper = document.createElement('div');
+    if (ed.text && ed.text.trim()) {
+      const textP = document.createElement('div');
+      textP.className = 'article-note-card';
+      textP.dataset.entryId = ed.id;
+      textP.textContent = ed.text;
+      wrapper.appendChild(textP);
+    }
+    wrapper.appendChild(frag);
+    return wrapper;
+  }
+
+  // Default: note/text entry — seamless paragraph
+  const card = document.createElement('div');
+  card.className = 'article-note-card';
+  card.dataset.entryId = ed.id;
+
+  if (ed.textHtml) {
+    card.innerHTML = ed.textHtml;
+  } else {
+    card.textContent = ed.text || '';
+  }
+
+  const hasChildren = Array.from(entries.values()).some(e => e.parentEntryId === ed.id);
+  if (hasChildren) card.classList.add('has-children');
+
+  // Click/dblclick handling
+  let clickTimer = null;
+
+  if (articleCanEdit()) {
+    card.addEventListener('click', (e) => {
+      if (e.target.closest('.article-clickable-phrase')) return;
+      if (clickTimer) return;
+      clickTimer = setTimeout(() => {
+        clickTimer = null;
+        startArticleEdit(card, ed);
+      }, 200);
+    });
+  }
+
+  // Double-click: phrase → create subpage; has-children → traverse
+  card.addEventListener('dblclick', (e) => {
+    if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; }
+    const phraseEl = e.target.closest('.article-clickable-phrase');
+    if (phraseEl) {
+      createSubpageFromPhrase(phraseEl.dataset.phrase, ed.id);
+      return;
+    }
+    if (hasChildren) navigateToEntry(ed.id);
+  });
+
+  return card;
 }
 
 // ——— Inline editing ———
 function startArticleEdit(card, ed) {
   if (activeArticleEditor === card) return;
-  // Commit any previous edit
   if (activeArticleEditor) {
     finishArticleEdit(activeArticleEditor, activeArticleEditor._editEntry);
   }
@@ -351,7 +327,7 @@ function startArticleEdit(card, ed) {
   activeArticleEditor = card;
   card._editEntry = ed;
 
-  // Restore clean HTML (remove melt phrase spans) for editing
+  // Restore clean HTML (strip melt spans)
   if (ed.textHtml) {
     card.innerHTML = ed.textHtml;
   } else {
@@ -362,7 +338,7 @@ function startArticleEdit(card, ed) {
   card.classList.add('editing');
   card.focus();
 
-  // Place cursor at end
+  // Cursor at end
   const range = document.createRange();
   const sel = window.getSelection();
   range.selectNodeContents(card);
@@ -382,7 +358,6 @@ function startArticleEdit(card, ed) {
       card.blur();
     }
     if (e.key === 'Escape') {
-      // Revert to original
       if (ed.textHtml) card.innerHTML = ed.textHtml;
       else card.textContent = ed.text || '';
       card.removeEventListener('blur', onBlur);
@@ -390,7 +365,6 @@ function startArticleEdit(card, ed) {
       card.setAttribute('contenteditable', 'false');
       card.classList.remove('editing');
       if (activeArticleEditor === card) activeArticleEditor = null;
-      // Re-apply phrases on revert
       if (currentUser) detectAndHighlightPhrases(ed);
     }
   }
@@ -416,14 +390,12 @@ function finishArticleEdit(card, ed) {
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: newText, textHtml: newHtml, position: ed.position, pageOwnerId })
-    }).catch(err => console.error('Failed to save article edit:', err));
+    }).catch(err => console.error('Failed to save:', err));
     phraseCache.delete(ed.id);
   }
 
-  // Re-detect and meltify phrases after edit
-  if (currentUser) {
-    detectAndHighlightPhrases(ed);
-  }
+  // Re-meltify after edit
+  if (currentUser) detectAndHighlightPhrases(ed);
 }
 
 // ——— Save a new entry ———
@@ -453,12 +425,11 @@ async function saveNewArticleEntry(text, html) {
   }
 }
 
-// ——— AI Phrase Detection & Meltification ———
+// ——— AI Phrase Detection & Auto-meltify ———
 async function detectAndHighlightPhrases(ed) {
   if (!ed.text || ed.text.trim().length < 5) return;
   const card = articleContent.querySelector(`[data-entry-id="${ed.id}"]`);
   if (!card) return;
-  // Don't meltify while being edited
   if (card.getAttribute('contenteditable') === 'true') return;
 
   const cached = phraseCache.get(ed.id);
@@ -486,7 +457,6 @@ async function detectAndHighlightPhrases(ed) {
 
 function applyPhraseHighlights(card, phrases, ed) {
   if (!phrases.length) return;
-  // Don't re-apply if already has phrases
   if (card.querySelector('.article-clickable-phrase')) return;
 
   let html = card.innerHTML;
@@ -494,7 +464,6 @@ function applyPhraseHighlights(card, phrases, ed) {
     if (!p.phrase) return;
     const escapedPhrase = p.phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const regex = new RegExp(`(${escapedPhrase})`, 'gi');
-    // Wrap each character in melt spans for ink-bleed animation
     html = html.replace(regex, (match) => {
       const meltChars = match.split('').map((ch, i) => {
         const delay = i * 30;
@@ -534,12 +503,9 @@ async function createSubpageFromPhrase(phrase, parentId) {
     world.appendChild(entry);
 
     entries.set(id, {
-      id,
-      text: phrase,
+      id, text: phrase,
       textHtml: `<span>${escapeHtml(phrase)}</span>`,
-      position,
-      parentEntryId: parentId,
-      element: entry
+      position, parentEntryId: parentId, element: entry
     });
 
     navigateToEntry(parentId);
@@ -548,7 +514,7 @@ async function createSubpageFromPhrase(phrase, parentId) {
   }
 }
 
-// ——— Join banner for non-logged-in visitors ———
+// ——— Join banner ———
 function showJoinBanner() {
   const banner = document.createElement('div');
   banner.className = 'article-join-banner';
@@ -561,7 +527,7 @@ function showJoinBanner() {
   document.body.appendChild(banner);
 }
 
-// ——— Patch navigation for article mode ———
+// ——— Patch navigation ———
 if (shouldUseArticleMode()) {
   const _origNavigateToEntry = navigateToEntry;
   navigateToEntry = function(entryId) {

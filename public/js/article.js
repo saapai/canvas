@@ -222,12 +222,16 @@ if (sharePhoneInput) {
   });
 }
 
-// iMessage invite link for article mode (Project Lux)
-const shareInviteLink = document.getElementById('share-invite-link');
-const shareCopyInvite = document.getElementById('share-copy-invite');
-if (shareInviteLink && window.PAGE_VIEW_MODE === 'article') {
-  shareInviteLink.classList.remove('hidden');
+// In article mode, replace the whole share form with just the invite link
+if (window.PAGE_VIEW_MODE === 'article') {
+  // Hide the phone form — article mode uses iMessage invite instead
+  const shareAddForm = document.querySelector('.share-add-form');
+  if (shareAddForm) shareAddForm.style.display = 'none';
+  const shareInviteLink = document.getElementById('share-invite-link');
+  if (shareInviteLink) shareInviteLink.classList.remove('hidden');
 }
+
+const shareCopyInvite = document.getElementById('share-copy-invite');
 if (shareCopyInvite) {
   shareCopyInvite.addEventListener('click', () => {
     const inviteUrl = 'sms:+17139626862&body=LUX';
@@ -235,7 +239,6 @@ if (shareCopyInvite) {
       shareCopyInvite.textContent = 'Copied!';
       setTimeout(() => { shareCopyInvite.textContent = 'Copy invite link'; }, 2000);
     }).catch(() => {
-      // Fallback: select and copy
       const ta = document.createElement('textarea');
       ta.value = inviteUrl;
       document.body.appendChild(ta);

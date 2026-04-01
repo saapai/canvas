@@ -4207,11 +4207,10 @@ body.has-bg-image::before {
   display: none;
 }
 .article-layout {
-  display: flex;
-  max-width: 1100px;
+  display: block;
+  max-width: 680px;
   margin: 0 auto;
   padding: 32px 24px 80px;
-  gap: 40px;
 }
 
 /* Sidebar */
@@ -4253,9 +4252,8 @@ body.has-bg-image::before {
 
 /* Main content */
 .article-main {
-  flex: 1;
-  min-width: 0;
-  max-width: 720px;
+  width: 100%;
+  max-width: 100%;
 }
 
 /* Header */
@@ -4597,19 +4595,23 @@ body.has-bg-image::before {
   box-shadow: 0 2px 8px rgba(255,255,255,0.2);
 }
 
-/* Format bar positioning in article mode — fixed at top */
+/* Format bar positioning in article mode — fixed at top, below header */
 .article-format-bar {
   position: fixed !important;
-  top: 56px !important;
+  top: 52px !important;
   bottom: auto !important;
   left: 50% !important;
   transform: translateX(-50%) !important;
-  z-index: 700 !important;
+  z-index: 10000 !important;
   background: var(--paper) !important;
   border: 1px solid rgba(0,0,0,0.1) !important;
   border-radius: 10px !important;
   box-shadow: 0 4px 16px rgba(0,0,0,0.12) !important;
   padding: 6px 12px !important;
+}
+/* Ensure article content starts below format bar */
+body.article-mode .article-layout {
+  padding-top: 56px;
 }
 
 /* ——— Article mode body overrides ——— */
