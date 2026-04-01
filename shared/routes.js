@@ -2050,6 +2050,8 @@ ${context.substring(0, 8000)}`
         return `PAGE ${i + 1}: "${title}"\nCONTENT: ${bodyText || '(empty)'}`;
       }).join('\n\n');
 
+      console.log('[SMS] Page list for', ownerUsername, ':', pageList);
+
       // Ask AI what action to take
       const OpenAI = (await import('openai')).default;
       const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
