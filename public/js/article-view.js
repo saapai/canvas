@@ -98,7 +98,20 @@ function renderSidebar() {
     const item = document.createElement('div');
     item.className = 'article-sidebar-item';
     if (articleCurrentPageId === ed.id) item.classList.add('active');
-    item.innerHTML = `<span>${escapeHtml(getPageTitle(ed))}</span>`;
+    item.innerHTML = `<span class="article-sidebar-title">${escapeHtml(getPageTitle(ed))}</span>`;
+
+    if (articleCanEdit()) {
+      const delBtn = document.createElement('button');
+      delBtn.className = 'article-sidebar-delete';
+      delBtn.innerHTML = '&times;';
+      delBtn.title = 'Delete page';
+      delBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deletePage(ed.id);
+      });
+      item.appendChild(delBtn);
+    }
+
     item.addEventListener('click', () => {
       articleCurrentPageId = ed.id;
       renderArticleView();
@@ -119,12 +132,8 @@ function renderPageContent() {
   articleContent.innerHTML = '';
   const pageEntry = articleCurrentPageId ? entries.get(articleCurrentPageId) : null;
 
-  // Title
-  let titleText = 'Project Lux';
-  if (currentViewEntryId) {
-    const parent = entries.get(currentViewEntryId);
-    if (parent) titleText = entryTitle(parent);
-  }
+  // Title — show selected page's title, not a constant
+  const titleText = pageEntry ? getPageTitle(pageEntry) : 'Untitled';
   articleHeader.innerHTML = `<h1 class="article-header-title">${escapeHtml(titleText)}</h1>`;
 
   // Body — single contenteditable area for the page
@@ -144,6 +153,15 @@ function renderPageContent() {
     body.setAttribute('contenteditable', 'true');
     setupBodyEditor(body, pageEntry);
   }
+
+  // Cmd/Ctrl+click to open links
+  body.addEventListener('click', (e) => {
+    const link = e.target.closest('a');
+    if (link && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      window.open(link.href, '_blank');
+    }
+  });
 
   articleContent.appendChild(body);
 }
@@ -262,7 +280,11 @@ function linkifyHtml(html) {
       return part;
     }
     if (insideA) return part;
-    return part.replace(/(https?:\/\/[^\s<"']+)/gi, '<a href="$1" target="_blank" rel="noopener" class="article-inline-link">$1</a>');
+    // Match full URLs (https://...) and bare domains (duttapad.com, foo.org/path)
+    return part.replace(/(https?:\/\/[^\s<"']+|(?:[\w-]+\.)+(?:com|org|net|edu|io|co|dev|app|me|xyz|info|gov|us|uk)(?:\/[^\s<"']*)?)/gi, (match) => {
+      const href = match.match(/^https?:\/\//i) ? match : 'https://' + match;
+      return `<a href="${href}" target="_blank" rel="noopener" class="article-inline-link">${match}</a>`;
+    });
   }).join('');
 }
 
@@ -320,6 +342,32 @@ async function createNewPage() {
     }, 50);
   } catch (err) {
     console.error('Failed to create page:', err);
+  }
+}
+
+// ——— Delete page ———
+async function deletePage(entryId) {
+  try {
+    const pageOwnerId = getPageOwnerIdForEntry(entryId);
+    await fetch(`/api/entries/${entryId}`, {
+      method: 'DELETE',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pageOwnerId })
+    });
+
+    const ed = entries.get(entryId);
+    if (ed && ed.element) ed.element.remove();
+    entries.delete(entryId);
+
+    // If we deleted the active page, switch to the first remaining page
+    if (articleCurrentPageId === entryId) {
+      const pages = getArticlePages();
+      articleCurrentPageId = pages.length > 0 ? pages[0].id : null;
+    }
+    renderArticleView();
+  } catch (err) {
+    console.error('Failed to delete page:', err);
   }
 }
 
