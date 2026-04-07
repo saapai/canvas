@@ -64,6 +64,39 @@ import { recheckUnansweredQuestions } from './sms-actions.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// ============================================
+// SENDBLUE HELPERS
+// ============================================
+
+async function sendBlueMessage(to, content) {
+  const apiKey = process.env.SENDBLUE_API_KEY;
+  const apiSecret = process.env.SENDBLUE_API_SECRET;
+  if (!apiKey || !apiSecret) {
+    console.error('[SendBlue] Missing SENDBLUE_API_KEY or SENDBLUE_API_SECRET');
+    return { ok: false, error: 'SendBlue not configured' };
+  }
+  try {
+    const resp = await fetch('https://api.sendblue.co/api/send-message', {
+      method: 'POST',
+      headers: {
+        'sb-api-key-id': apiKey,
+        'sb-api-secret-key': apiSecret,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        number: to.startsWith('+') ? to : `+1${to}`,
+        content: content.substring(0, 1600)
+      })
+    });
+    const data = await resp.json();
+    console.log(`[SendBlue] Sent to ${to}: "${content.substring(0, 80)}..." status=${resp.status}`);
+    return { ok: resp.ok, data };
+  } catch (error) {
+    console.error('[SendBlue] Send failed:', error);
+    return { ok: false, error: String(error) };
+  }
+}
+
 export function createRouter(options = {}) {
   const { authLimiter } = options;
   const authLimiterMiddleware = authLimiter || ((req, res, next) => next());
@@ -2247,6 +2280,279 @@ IMPORTANT:
       return res.status(400).json({ error: 'Unknown action from AI' });
     } catch (error) {
       console.error('Error in add-via-sms:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ——— SendBlue iMessage webhook (replaces sep-ats for article-mode users) ———
+  router.post('/api/sendblue/webhook', async (req, res) => {
+    try {
+      const { content, number, from_number, is_outbound, media_url } = req.body;
+      const phone = from_number || number || '';
+      const msg = (content || '').trim();
+
+      console.log(`[SendBlue] Incoming from ${phone}: "${msg}"`);
+
+      // Ignore outbound echoes
+      if (is_outbound) {
+        return res.json({ ok: true, ignored: true });
+      }
+
+      if (!phone || !msg) {
+        return res.json({ ok: true, ignored: true, reason: 'no phone or message' });
+      }
+
+      // Look up user by phone number
+      const rawDigits = phone.replace(/\D/g, '');
+      const candidates = [rawDigits, rawDigits.replace(/^1/, ''), '+1' + rawDigits, '1' + rawDigits];
+      let matchedUser = null;
+      for (const candidate of candidates) {
+        if (!candidate) continue;
+        const users = await getUsersByPhone(candidate);
+        if (users.length > 0) {
+          matchedUser = users.find(u => u.username) || users[0];
+          break;
+        }
+      }
+
+      // Determine which space to route to
+      let ownerUsername = null;
+
+      if (matchedUser) {
+        // Check if user owns a page (article-mode user)
+        if (matchedUser.username) {
+          ownerUsername = matchedUser.username;
+        }
+
+        // If no own page, check if they're an editor of someone else's page
+        if (!ownerUsername) {
+          const sharedPages = await getSharedPagesForUser(matchedUser.id);
+          if (sharedPages.length > 0 && sharedPages[0].owner_username) {
+            ownerUsername = sharedPages[0].owner_username;
+          }
+        }
+      }
+
+      if (!ownerUsername) {
+        // Check pending editors by phone
+        const db = getPool();
+        const pending = await db.query(
+          `SELECT u.username FROM page_editors pe
+           JOIN users u ON pe.owner_user_id = u.id
+           WHERE pe.pending_phone = $1 OR pe.pending_phone = $2 OR pe.pending_phone = $3
+           LIMIT 1`,
+          [phone, '+1' + rawDigits, rawDigits]
+        );
+        if (pending.rows.length > 0) {
+          ownerUsername = pending.rows[0].username;
+        }
+      }
+
+      if (!ownerUsername) {
+        console.log(`[SendBlue] No space found for phone ${phone}`);
+        await sendBlueMessage(phone, "I don't know which space you belong to. Ask the page owner to add you first.");
+        return res.json({ ok: true, noSpace: true });
+      }
+
+      console.log(`[SendBlue] Routing ${phone} → ${ownerUsername}'s space`);
+
+      // Use the same AI conversational handler as /api/entries/add-via-sms
+      const owner = await getUserByUsername(ownerUsername);
+      if (!owner) {
+        await sendBlueMessage(phone, "Couldn't find that space. Something went wrong.");
+        return res.json({ ok: false, error: 'owner not found' });
+      }
+
+      const allEntries = await getEntriesByUsername(ownerUsername);
+      const pages = allEntries.filter(e =>
+        !e.parentEntryId && e.text && e.text.trim() &&
+        !e.mediaCardData && !(e.textHtml && e.textHtml.includes('deadline-table'))
+      );
+
+      const pageList = pages.map((p, i) => {
+        const title = (p.text || '').split('\n')[0].trim();
+        const bodyText = (p.textHtml || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+        return `PAGE ${i + 1}: "${title}"\nCONTENT: ${bodyText || '(empty)'}`;
+      }).join('\n\n');
+
+      const OpenAI = (await import('openai')).default;
+      const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+      const aiRes = await openai.chat.completions.create({
+        model: 'gpt-4o',
+        temperature: 0.3,
+        messages: [{
+          role: 'system',
+          content: `You are a conversational iMessage assistant for "${ownerUsername}'s" pages on Duttapad. Be friendly, concise, and helpful — responses go via iMessage so keep them SHORT (under 300 chars ideally).
+
+YOUR CAPABILITIES:
+- Add content to an existing page (append text)
+- Create a new page with a title and content
+- Edit/rewrite content on an existing page
+- Delete an entire page
+- Remove specific content from a page
+- Answer questions about what's on the pages (query/search)
+- Add reminders (stored on a "Reminders" page)
+
+THINGS YOU CANNOT DO (be honest — say so):
+- Upload images or files
+- Access external websites or live data
+- Send messages to other people
+- Set timed push notifications (you can store reminders on a page though)
+
+ALL OF THE USER'S PAGES AND THEIR FULL CONTENT ARE BELOW. When answering questions, ALWAYS use this content — it IS the source of truth.
+
+${pageList || '(no pages yet)'}
+
+Based on the user's message, decide what to do. Respond in JSON only with ONE of these:
+
+ADD to existing page:
+{"action":"append","pageIndex":0,"content":"cleaned text to add","reply":"Done! Added to [page name]."}
+
+CREATE new page:
+{"action":"new","title":"Page Title","content":"page body text","reply":"Created new page: [title]"}
+
+EDIT a page (rewrite its body content):
+{"action":"edit","pageIndex":0,"newContent":"the full updated body text with changes applied","reply":"Updated [page name] — [brief description of change]."}
+
+DELETE a page:
+{"action":"delete_page","pageIndex":0,"reply":"Deleted [page name]."}
+
+REMOVE specific content from a page (rewrite body without the removed part):
+{"action":"edit","pageIndex":0,"newContent":"full body with that content removed","reply":"Removed [what was removed] from [page name]."}
+
+ANSWER a question about page content:
+{"action":"query","reply":"concise answer based on page content (under 300 chars)"}
+
+ADD a reminder (append to Reminders page, or create it if none exists):
+{"action":"reminder","content":"reminder text with date/time if mentioned","reply":"Got it! Added to your reminders."}
+
+ASK for clarification:
+{"action":"ask","question":"brief clarifying question"}
+
+CAN'T DO IT — escalate:
+{"action":"escalate","reply":"honest explanation"}
+
+IMPORTANT:
+- For edits, "newContent" must be the COMPLETE updated body text (not just the changed part)
+- pageIndex is 0-based (page 1 = index 0)
+- Clean up conversational filler from content before saving
+- Keep reply messages short and friendly (this is iMessage)`
+        }, {
+          role: 'user',
+          content: `[Current pages for reference:\n${pageList || '(none)'}]\n\nMy message: ${msg}`
+        }],
+        response_format: { type: 'json_object' }
+      });
+
+      let decision;
+      try {
+        decision = JSON.parse(aiRes.choices[0]?.message?.content || '{}');
+      } catch {
+        await sendBlueMessage(phone, "Hmm, I got confused. Try rephrasing?");
+        return res.json({ ok: false, error: 'AI returned invalid JSON' });
+      }
+
+      const reply = decision.reply || decision.question || "Done!";
+
+      // Handle non-mutating actions first
+      if (decision.action === 'ask' || decision.action === 'escalate' || decision.action === 'query') {
+        await sendBlueMessage(phone, reply);
+        return res.json({ ok: true, action: decision.action, reply });
+      }
+
+      // Handle mutations
+      const { randomUUID } = await import('crypto');
+      const db = getPool();
+
+      if (decision.action === 'append' && typeof decision.pageIndex === 'number') {
+        const targetPage = pages[decision.pageIndex];
+        if (!targetPage) {
+          await sendBlueMessage(phone, "Couldn't find that page.");
+          return res.json({ ok: false, error: 'Invalid page index' });
+        }
+        const existingHtml = targetPage.textHtml || '';
+        const newHtml = existingHtml + `<p>${(decision.content || msg).replace(/\n/g, '<br>')}</p>`;
+        await db.query(
+          `UPDATE entries SET text_html = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+          [newHtml, targetPage.id]
+        );
+      }
+
+      if (decision.action === 'edit' && typeof decision.pageIndex === 'number') {
+        const targetPage = pages[decision.pageIndex];
+        if (!targetPage) {
+          await sendBlueMessage(phone, "Couldn't find that page.");
+          return res.json({ ok: false, error: 'Invalid page index' });
+        }
+        let newHtml = decision.newContent || '';
+        if (!newHtml.includes('<')) {
+          newHtml = newHtml.split('\n').filter(Boolean).map(line => `<p>${line}</p>`).join('');
+        }
+        const newTitle = decision.newTitle || targetPage.text;
+        await db.query(
+          `UPDATE entries SET text_html = $1, text = $2, updated_at = CURRENT_TIMESTAMP WHERE id = $3`,
+          [newHtml, newTitle, targetPage.id]
+        );
+      }
+
+      if (decision.action === 'delete_page' && typeof decision.pageIndex === 'number') {
+        const targetPage = pages[decision.pageIndex];
+        if (!targetPage) {
+          await sendBlueMessage(phone, "Couldn't find that page.");
+          return res.json({ ok: false, error: 'Invalid page index' });
+        }
+        await db.query(
+          `UPDATE entries SET deleted_at = CURRENT_TIMESTAMP WHERE id = $1`,
+          [targetPage.id]
+        );
+      }
+
+      if (decision.action === 'reminder') {
+        let remindersPage = pages.find(p => (p.text || '').toLowerCase().startsWith('reminders'));
+        if (remindersPage) {
+          const existingHtml = remindersPage.textHtml || '';
+          const newHtml = existingHtml + `<p>${(decision.content || msg).replace(/\n/g, '<br>')}</p>`;
+          await db.query(
+            `UPDATE entries SET text_html = $1, updated_at = CURRENT_TIMESTAMP WHERE id = $2`,
+            [newHtml, remindersPage.id]
+          );
+        } else {
+          const entryId = randomUUID();
+          await saveEntry({
+            id: entryId,
+            text: 'Reminders',
+            textHtml: `<p>${(decision.content || msg).replace(/\n/g, '<br>')}</p>`,
+            position: { x: 100, y: 100 },
+            parentEntryId: null,
+            userId: owner.id,
+            linkCardsData: null,
+            mediaCardData: null,
+            latexData: null
+          });
+        }
+      }
+
+      if (decision.action === 'new') {
+        const entryId = randomUUID();
+        const title = decision.title || 'New Page';
+        const contentText = decision.content || msg;
+        await saveEntry({
+          id: entryId,
+          text: title,
+          textHtml: `<p>${contentText.replace(/\n/g, '<br>')}</p>`,
+          position: { x: 100, y: 100 },
+          parentEntryId: null,
+          userId: owner.id,
+          linkCardsData: null,
+          mediaCardData: null,
+          latexData: null
+        });
+      }
+
+      await sendBlueMessage(phone, reply);
+      return res.json({ ok: true, action: decision.action, reply });
+    } catch (error) {
+      console.error('[SendBlue] Webhook error:', error);
       res.status(500).json({ error: error.message });
     }
   });

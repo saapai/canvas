@@ -1,7 +1,6 @@
 import OpenAI from 'openai';
 import dotenv from 'dotenv';
 import * as cheerio from 'cheerio';
-import pdfParse from 'pdf-parse/lib/pdf-parse.js';
 import mammoth from 'mammoth';
 import { upsertLinkScrape } from './db.js';
 
@@ -656,6 +655,7 @@ Respond ONLY with valid JSON: { "deadlines": [...] }`;
     } else {
       let text;
       if (mimetype === 'application/pdf') {
+        const pdfParse = (await import('pdf-parse/lib/pdf-parse.js')).default;
         const parsed = await pdfParse(buffer);
         text = parsed.text;
       } else if (mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
