@@ -1911,8 +1911,9 @@ export function createRouter(options = {}) {
   router.post('/api/editors/add-by-phone', async (req, res) => {
     try {
       const { phone, ownerUsername, role, secret } = req.body;
-      const expectedSecret = (process.env.DUTTAPAD_JOIN_SECRET || '').trim();
-      if (!expectedSecret || secret !== expectedSecret) {
+      const expectedSecret = (process.env.DUTTAPAD_JOIN_SECRET || '').replace(/\\n$/, '').trim();
+      const incomingSecret = (secret || '').replace(/\\n$/, '').trim();
+      if (!expectedSecret || incomingSecret !== expectedSecret) {
         return res.status(403).json({ error: 'Invalid secret' });
       }
       if (!phone || !ownerUsername) {
@@ -1969,8 +1970,9 @@ export function createRouter(options = {}) {
   router.post('/api/query-page', async (req, res) => {
     try {
       const { question, ownerUsername, secret } = req.body;
-      const expectedSecret = (process.env.DUTTAPAD_JOIN_SECRET || '').trim();
-      if (!expectedSecret || secret !== expectedSecret) {
+      const expectedSecret = (process.env.DUTTAPAD_JOIN_SECRET || '').replace(/\\n$/, '').trim();
+      const incomingSecret = (secret || '').replace(/\\n$/, '').trim();
+      if (!expectedSecret || incomingSecret !== expectedSecret) {
         return res.status(403).json({ error: 'Invalid secret' });
       }
       if (!question || !ownerUsername) {
@@ -2059,8 +2061,9 @@ ${context.substring(0, 8000)}`
   router.post('/api/entries/add-via-sms', async (req, res) => {
     try {
       const { text, secret, ownerUsername } = req.body;
-      const expectedSecret = (process.env.DUTTAPAD_JOIN_SECRET || '').trim();
-      if (!expectedSecret || secret !== expectedSecret) {
+      const expectedSecret = (process.env.DUTTAPAD_JOIN_SECRET || '').replace(/\\n$/, '').trim();
+      const incomingSecret = (secret || '').replace(/\\n$/, '').trim();
+      if (!expectedSecret || incomingSecret !== expectedSecret) {
         return res.status(403).json({ error: 'Invalid secret' });
       }
       if (!text || !ownerUsername) {
