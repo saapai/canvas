@@ -113,14 +113,34 @@ async function handleVerifyCode() {
   setAuthError('');
   authVerifyCodeBtn.disabled = true;
   try {
-    const res = await fetch('/api/auth/verify-code', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone, code })
-    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    let res;
+    try {
+      res = await fetch('/api/auth/verify-code', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone, code }),
+        signal: controller.signal
+      });
+    } catch (fetchErr) {
+      if (fetchErr.name === 'AbortError') throw new Error('Request timed out. Please try again.');
+      throw fetchErr;
+    } finally {
+      clearTimeout(timeout);
+    }
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {
+      // If max attempts reached, go back to phone step so user can request new code
+      if (res.status === 429) {
+        authCodeInput.value = '';
+        updateCodeBoxes();
+        authStepCode.classList.add('hidden');
+        authStepPhone.classList.remove('hidden');
+        if (authTitle) authTitle.textContent = 'Enter your phone number';
+        throw new Error('Too many attempts. Please request a new code.');
+      }
       throw new Error(data.error || 'Failed to verify code');
     }
 

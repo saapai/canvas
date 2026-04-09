@@ -291,6 +291,10 @@ export function createRouter(options = {}) {
         if (verifyError.code === 20404 || verifyError.status === 404) {
           return res.status(400).json({ error: 'Invalid or expired code' });
         }
+        // Twilio 60202: max check attempts reached — user must request a new code
+        if (verifyError.code === 60202 || verifyError.status === 429) {
+          return res.status(429).json({ error: 'Too many attempts. Please request a new code.' });
+        }
         return res.status(500).json({ error: 'Failed to verify code' });
       }
 
