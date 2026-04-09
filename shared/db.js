@@ -23,7 +23,7 @@ export function getPool() {
       ssl: { rejectUnauthorized: false },
       max: 20, // Maximum number of clients in the pool
       idleTimeoutMillis: 30000, // Close idle clients after 30 seconds
-      connectionTimeoutMillis: 2000, // Return an error after 2 seconds if connection could not be established
+      connectionTimeoutMillis: 10000, // Return an error after 10 seconds if connection could not be established (Supabase pooler can be slow on cold start)
       allowExitOnIdle: false // Keep pool alive even when idle
     });
 
@@ -40,7 +40,17 @@ export async function initDatabase() {
 
   try {
     const db = getPool();
-    
+
+    // Fast path: if core tables already exist, skip all migrations
+    const tableCheck = await db.query(`
+      SELECT COUNT(*) as cnt FROM information_schema.tables
+      WHERE table_schema = 'public' AND table_name IN ('users', 'entries', 'notifications')
+    `);
+    if (parseInt(tableCheck.rows[0].cnt) >= 3) {
+      dbInitialized = true;
+      return;
+    }
+
     // MATCHES PRODUCTION SCHEMA - DO NOT CHANGE
     await db.query(`
       CREATE TABLE IF NOT EXISTS users (
