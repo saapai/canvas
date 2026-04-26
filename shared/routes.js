@@ -60,6 +60,7 @@ import * as slackDb from './slack-db.js';
 import { listAccessibleChannels, syncChannel, syncAllChannels, checkAndSendNotifications, joinAllPublicChannels, handleSlackEvent, sendWeeklyDigests, backfillFactDates } from './slack.js';
 import crypto from 'crypto';
 import { recheckUnansweredQuestions } from './sms-actions.js';
+import { maybeDispatchToBruinMeals } from './bruinMealsDispatch.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -2307,6 +2308,14 @@ IMPORTANT:
 
       if (!phone || !msg) {
         return res.json({ ok: true, ignored: true, reason: 'no phone or message' });
+      }
+
+      // Bruin Meals dispatcher — forward to the meals app if this sender's
+      // active service is meals, or if they're texting `MEALS <code>` to
+      // claim an invite. Never throws; falls through on any failure.
+      const dispatched = await maybeDispatchToBruinMeals(req);
+      if (dispatched.handled) {
+        return res.json({ ok: true, dispatched: 'bruin-meals' });
       }
 
       // Look up user by phone number
