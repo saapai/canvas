@@ -84,6 +84,7 @@ export async function maybeDispatchToBruinMeals(req) {
       from_number: body.from_number,
       is_outbound: body.is_outbound,
       message_handle: body.message_handle,
+      media_url: body.media_url,
     });
     const sig = sign(secret, fwdBody);
 
