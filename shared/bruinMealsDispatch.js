@@ -75,10 +75,8 @@ export async function maybeDispatchToBruinMeals(req) {
     const phoneNormalized = normalizePhone(body.from_number || body.number);
     if (!phoneNormalized) return { handled: false };
 
-    const msg = (body.content || '').trim();
-    const isUnlock = UNLOCK_RE.test(msg);
-    const member = !isUnlock && (await isMealsUser(phoneNormalized));
-    if (!isUnlock && !member) return { handled: false };
+    // All inbound messages route exclusively to bruin-meals.
+    // Canvas texting and sep-ats are disabled.
 
     const fwdBody = JSON.stringify({
       content: body.content,
@@ -108,14 +106,14 @@ export async function maybeDispatchToBruinMeals(req) {
 
     if (!resp.ok) {
       console.warn(`[bm-dispatch] non-2xx ${resp.status} for ${phoneNormalized}`);
-      // Fall through so the user isn't left hanging — canvas may still try
-      // to route, which is suboptimal but better than silent loss.
-      return { handled: false };
+      // Still mark as handled — canvas texting is disabled, only bruin-meals responds.
+      return { handled: true };
     }
 
     return { handled: true };
   } catch (err) {
     console.warn('[bm-dispatch] forward failed:', err && err.message);
-    return { handled: false };
+    // Canvas texting disabled — nothing to fall through to.
+    return { handled: true };
   }
 }
