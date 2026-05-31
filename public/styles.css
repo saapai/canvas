@@ -4533,7 +4533,13 @@ body.has-bg-image::before {
 }
 
 /* ——— Article mode body overrides ——— */
-body.article-mode #viewport,
+/* Keep viewport rendered but hidden so entries/images stay cached */
+body.article-mode #viewport {
+  visibility: hidden !important;
+  position: absolute !important;
+  pointer-events: none !important;
+  z-index: -1 !important;
+}
 body.article-mode .organize-button,
 body.article-mode .bg-picker-button,
 body.article-mode #bg-picker-dropdown,
