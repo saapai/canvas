@@ -273,6 +273,87 @@ function renderPageContent() {
   });
 
   articleContent.appendChild(body);
+
+  // Render child entries inline below the parent body
+  if (pageEntry) {
+    const children = [];
+    entries.forEach(ed => {
+      if (ed.id === 'anchor') return;
+      const parent = ed.parentEntryId || null;
+      if (parent !== pageEntry.id) return;
+      const hasContent = (ed.text && ed.text.trim()) ||
+                         ed.mediaCardData ||
+                         (ed.latexData && ed.latexData.enabled) ||
+                         (ed.textHtml && ed.textHtml.includes('deadline-table'));
+      if (!hasContent) return;
+      children.push(ed);
+    });
+
+    children.forEach(child => {
+      const childBlock = document.createElement('div');
+      childBlock.className = 'article-child-entry';
+
+      const childTitle = document.createElement('h3');
+      childTitle.className = 'article-child-title';
+      childTitle.textContent = getPageTitle(child);
+      childBlock.appendChild(childTitle);
+
+      const childBody = document.createElement('div');
+      childBody.className = 'article-child-body';
+
+      const cIsMedia = child.mediaCardData;
+      const cIsLatex = child.latexData && child.latexData.enabled;
+      const cIsDeadline = child.textHtml && child.textHtml.includes('deadline-table');
+
+      if (cIsMedia) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'article-media-embed';
+        if (child.mediaCardData.type === 'image' && child.mediaCardData.url) {
+          const img = document.createElement('img');
+          img.src = child.mediaCardData.url;
+          img.alt = child.mediaCardData.title || 'Image';
+          img.style.maxWidth = '100%';
+          img.style.borderRadius = '8px';
+          wrapper.appendChild(img);
+        } else if (child.element) {
+          const clone = child.element.cloneNode(true);
+          clone.style.position = 'static';
+          clone.style.display = 'block';
+          clone.style.transform = 'none';
+          clone.style.width = 'auto';
+          wrapper.appendChild(clone);
+        }
+        childBody.appendChild(wrapper);
+      } else if (cIsLatex) {
+        if (child.latexData.renderedHtml) {
+          childBody.innerHTML = child.latexData.renderedHtml;
+        } else if (child.textHtml) {
+          childBody.innerHTML = child.textHtml;
+        }
+      } else if (cIsDeadline) {
+        childBody.innerHTML = child.textHtml;
+        if (typeof setupDeadlineTableHandlers === 'function') {
+          setTimeout(() => {
+            const table = childBody.querySelector('.deadline-table');
+            if (table) setupDeadlineTableHandlers(table, child);
+          }, 50);
+        }
+      } else if (child.textHtml) {
+        childBody.innerHTML = child.textHtml;
+      } else if (child.text) {
+        const lines = child.text.split('\n').slice(1);
+        childBody.innerHTML = lines.map(line => {
+          const trimmed = line.trim();
+          return trimmed ? `<p>${escapeHtml(trimmed)}</p>` : '';
+        }).filter(Boolean).join('');
+      }
+
+      if (childBody.innerHTML) {
+        childBlock.appendChild(childBody);
+      }
+      articleContent.appendChild(childBlock);
+    });
+  }
 }
 
 // ——— Placeholder — shown when body has no real text ———

@@ -4611,3 +4611,31 @@ body.article-mode .share-button:hover {
 .article-body .katex-display {
   margin: 16px 0;
 }
+
+/* ——— Article child entries ——— */
+.article-child-entry {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid rgba(0,0,0,0.06);
+}
+.article-child-title {
+  font-family: 'Inter', sans-serif;
+  font-size: 20px;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin: 0 0 12px;
+  letter-spacing: -0.01em;
+}
+.article-child-body {
+  font-size: 16px;
+  line-height: 1.7;
+  color: #333;
+}
+.article-child-body .deadline-table {
+  pointer-events: auto;
+  max-width: 100%;
+}
+.article-child-body .article-media-embed img {
+  max-width: 100%;
+  border-radius: 8px;
+}
