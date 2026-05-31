@@ -39,6 +39,19 @@ if (templateMenuButton && templateMenuDropdown) {
 }
 
 async function insertTemplate(templateType) {
+  // In article mode, create a new entry with the template content
+  if (typeof shouldUseArticleMode === 'function' && shouldUseArticleMode()) {
+    if (templateType === 'deadlines') {
+      await insertArticleDeadlinesTemplate();
+    } else if (templateType === 'google') {
+      handleGoogleConnection();
+    } else if (templateType === 'gcal-card') {
+      await insertCalendarTemplate();
+    } else if (templateType === 'slack') {
+      await insertSlackSyncTemplate();
+    }
+    return;
+  }
   if (templateType === 'deadlines') {
     await insertDeadlinesTemplate();
   } else if (templateType === 'gcal-card') {
@@ -47,6 +60,59 @@ async function insertTemplate(templateType) {
     handleGoogleConnection();
   } else if (templateType === 'slack') {
     await insertSlackSyncTemplate();
+  }
+}
+
+async function insertArticleDeadlinesTemplate() {
+  const tableHTML = `
+<div class="deadline-table" contenteditable="false">
+  <div class="deadline-header">
+    <div></div>
+    <div>assignment</div>
+    <div>deadline</div>
+    <div>class</div>
+    <div>status</div>
+    <div>notes</div>
+  </div>
+  <div class="deadline-row">
+    ${getDeadlineRowHTML()}
+  </div>
+  <div class="deadline-ghost-row">
+    <div>+</div>
+    <div>Assignment...</div>
+    <div>Date...</div>
+    <div>Class...</div>
+    <div>Status</div>
+    <div></div>
+  </div>
+</div>`;
+
+  const id = generateEntryId();
+  const position = { x: 100, y: 100 + entries.size * 50 };
+  const parentEntryId = currentViewEntryId || null;
+  const pageOwnerId = window.PAGE_OWNER_ID;
+
+  try {
+    await fetch('/api/entries', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, text: 'Deadlines', textHtml: tableHTML, position, parentEntryId, pageOwnerId })
+    });
+
+    const el = document.createElement('div');
+    el.className = 'entry'; el.id = id; el.style.display = 'none';
+    world.appendChild(el);
+    entries.set(id, { id, text: 'Deadlines', textHtml: tableHTML, position, parentEntryId, element: el });
+
+    if (typeof articleCurrentPageId !== 'undefined') {
+      articleCurrentPageId = id;
+    }
+    if (typeof renderArticleView === 'function') {
+      renderArticleView();
+    }
+  } catch (err) {
+    console.error('Failed to create deadline page:', err);
   }
 }
 

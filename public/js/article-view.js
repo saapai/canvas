@@ -245,6 +245,14 @@ function renderPageContent() {
       }
     } else if (pageEntry.textHtml) {
       body.innerHTML = pageEntry.textHtml;
+    } else if (pageEntry.text) {
+      // Fallback: entries created in canvas mode may only have plain text
+      // Render each line after the title as a paragraph
+      const lines = pageEntry.text.split('\n').slice(1); // skip first line (title)
+      body.innerHTML = lines.map(line => {
+        const trimmed = line.trim();
+        return trimmed ? `<p>${escapeHtml(trimmed)}</p>` : '<p><br></p>';
+      }).join('');
     }
   }
 
@@ -660,8 +668,8 @@ if (shouldUseArticleMode()) {
     toggle.classList.remove('hidden');
   }
 
-  // Label shows what you'll switch TO
-  label.textContent = shouldUseArticleMode() ? 'Canvas View' : 'Page View';
+  // Label shows the current mode
+  label.textContent = shouldUseArticleMode() ? 'Page View' : 'Canvas View';
 
   toggle.addEventListener('click', async () => {
     const newMode = shouldUseArticleMode() ? 'canvas' : 'article';
