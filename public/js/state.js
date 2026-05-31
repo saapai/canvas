@@ -45,6 +45,7 @@ let isReadOnly = false; // Set to true when viewing someone else's page
 let cam = { x: 0, y: 0, z: 1 };
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 let hasZoomedToFit = false;
+let defaultCamPos = null; // Stored after zoomToFitEntries completes, for center button
 
 const anchorPos = { x: 0, y: 0 };
 

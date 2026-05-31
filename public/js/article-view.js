@@ -25,10 +25,12 @@ function getArticlePages() {
   entries.forEach(ed => {
     if (ed.id === 'anchor') return;
     if (ed.parentEntryId !== currentViewEntryId) return;
-    if (ed.mediaCardData) return;
-    if (ed.latexData && ed.latexData.enabled) return;
-    if (ed.textHtml && ed.textHtml.includes('deadline-table')) return;
-    if (!ed.text || !ed.text.trim()) return;
+    // Include all entry types: text, media, deadlines, LaTeX
+    const hasContent = (ed.text && ed.text.trim()) ||
+                       ed.mediaCardData ||
+                       (ed.latexData && ed.latexData.enabled) ||
+                       (ed.textHtml && ed.textHtml.includes('deadline-table'));
+    if (!hasContent) return;
     pages.push(ed);
   });
   return pages;
@@ -36,6 +38,20 @@ function getArticlePages() {
 
 function getPageTitle(ed) {
   if (!ed) return 'Untitled';
+  // Media card titles
+  if (ed.mediaCardData) {
+    if (ed.mediaCardData.type === 'image') return 'Image';
+    if (ed.mediaCardData.title) return ed.mediaCardData.title.substring(0, 40);
+    return ed.mediaCardData.type === 'song' ? 'Song' : 'Movie';
+  }
+  // LaTeX entry
+  if (ed.latexData && ed.latexData.enabled) {
+    const t = (ed.text || '').split('\n')[0].substring(0, 40);
+    return t || 'LaTeX';
+  }
+  // Deadline table
+  if (ed.textHtml && ed.textHtml.includes('deadline-table')) return 'Deadlines';
+  // Normal text
   const text = (ed.text || '').trim();
   const firstLine = text.split('\n')[0].trim();
   if (firstLine.length > 40) return firstLine.substring(0, 40) + '...';
@@ -72,10 +88,7 @@ function activateArticleMode() {
     document.addEventListener('focusout', articleFormatBarToggle);
   }
 
-  // Only show join banner on community pages (Amia's Lux), not personal spaces
-  if (!window.PAGE_IS_OWNER && !window.PAGE_IS_EDITOR && !currentUser && window.PAGE_USERNAME === 'Amia') {
-    showJoinBanner();
-  }
+  // Join banner for community pages (disabled — was Amia-specific)
 
   waitForEntries(() => {
     const pages = getArticlePages();
@@ -177,16 +190,62 @@ function renderPageContent() {
   }
   articleHeader.appendChild(titleEl);
 
-  // Body — rich text area
+  // Body — rich text area (or special component)
   const body = document.createElement('div');
   body.className = 'article-body';
   body.setAttribute('data-placeholder', 'Start typing...');
 
-  if (pageEntry && pageEntry.textHtml) {
-    body.innerHTML = pageEntry.textHtml;
+  const isMedia = pageEntry && pageEntry.mediaCardData;
+  const isLatex = pageEntry && pageEntry.latexData && pageEntry.latexData.enabled;
+  const isDeadline = pageEntry && pageEntry.textHtml && pageEntry.textHtml.includes('deadline-table');
+  const isSpecial = isMedia || isLatex || isDeadline;
+
+  if (pageEntry) {
+    if (isMedia) {
+      // Media card: render image or clone the canvas element
+      body.contentEditable = 'false';
+      const wrapper = document.createElement('div');
+      wrapper.className = 'article-media-embed';
+      if (pageEntry.mediaCardData.type === 'image' && pageEntry.mediaCardData.url) {
+        const img = document.createElement('img');
+        img.src = pageEntry.mediaCardData.url;
+        img.alt = pageEntry.mediaCardData.title || 'Image';
+        img.style.maxWidth = '100%';
+        img.style.borderRadius = '8px';
+        wrapper.appendChild(img);
+      } else if (pageEntry.element) {
+        const clone = pageEntry.element.cloneNode(true);
+        clone.style.position = 'static';
+        clone.style.display = 'block';
+        clone.style.transform = 'none';
+        clone.style.width = 'auto';
+        wrapper.appendChild(clone);
+      }
+      body.appendChild(wrapper);
+    } else if (isLatex) {
+      // LaTeX: render the stored HTML
+      body.contentEditable = 'false';
+      if (pageEntry.latexData.renderedHtml) {
+        body.innerHTML = pageEntry.latexData.renderedHtml;
+      } else if (pageEntry.textHtml) {
+        body.innerHTML = pageEntry.textHtml;
+      }
+    } else if (isDeadline) {
+      // Deadline table: render as interactive HTML
+      body.innerHTML = pageEntry.textHtml;
+      if (typeof setupDeadlineTableHandlers === 'function') {
+        setTimeout(() => {
+          const table = body.querySelector('.deadline-table');
+          if (table) setupDeadlineTableHandlers(table, pageEntry);
+        }, 50);
+      }
+    } else if (pageEntry.textHtml) {
+      body.innerHTML = pageEntry.textHtml;
+    }
   }
 
-  if (articleCanEdit()) {
+  // Only make editable for normal text entries
+  if (articleCanEdit() && !isSpecial) {
     body.setAttribute('contenteditable', 'true');
     setupBodyEditor(body, pageEntry, titleEl);
     updateBodyPlaceholder(body);
@@ -585,6 +644,36 @@ if (shouldUseArticleMode()) {
     }, 300);
   };
 }
+
+// ——— View mode toggle ———
+(function initViewModeToggle() {
+  const toggle = document.getElementById('view-mode-toggle');
+  const label = document.getElementById('view-mode-label');
+  if (!toggle || !label) return;
+
+  // Show toggle for owners and editors
+  if (window.PAGE_IS_OWNER || window.PAGE_IS_EDITOR) {
+    toggle.classList.remove('hidden');
+  }
+
+  // Label shows what you'll switch TO
+  label.textContent = shouldUseArticleMode() ? 'Canvas View' : 'Page View';
+
+  toggle.addEventListener('click', async () => {
+    const newMode = shouldUseArticleMode() ? 'canvas' : 'article';
+    try {
+      await fetch('/api/user/view-mode', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ viewMode: newMode })
+      });
+      window.location.reload();
+    } catch (err) {
+      console.error('Failed to toggle view mode:', err);
+    }
+  });
+})();
 
 // ——— Initialize ———
 if (shouldUseArticleMode()) {

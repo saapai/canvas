@@ -110,6 +110,23 @@ function revealNavEntries() {
   });
 }
 
+function isCameraAtDefault() {
+  if (!defaultCamPos) return true;
+  return Math.abs(cam.x - defaultCamPos.x) < 2 &&
+         Math.abs(cam.y - defaultCamPos.y) < 2 &&
+         Math.abs(cam.z - defaultCamPos.z) < 0.01;
+}
+
+function updateCenterButtonVisibility() {
+  const btn = document.getElementById('center-button');
+  if (!btn) return;
+  if (typeof shouldUseArticleMode === 'function' && shouldUseArticleMode()) {
+    btn.classList.add('hidden');
+    return;
+  }
+  btn.classList.toggle('hidden', isCameraAtDefault());
+}
+
 function zoomToFitEntries(opts = {}) {
   const skipAnimation = opts.instant === true;
   const visibleEntries = Array.from(entries.values()).filter(entryData => {
@@ -130,6 +147,8 @@ function zoomToFitEntries(opts = {}) {
     centerAnchor();
     // Reveal any nav-entering elements (e.g. anchor)
     revealNavEntries();
+    defaultCamPos = { x: cam.x, y: cam.y, z: cam.z };
+    updateCenterButtonVisibility();
 
     // Always show cursor after navigation or initial load when there are no entries
     if (!isReadOnly) {
@@ -259,8 +278,9 @@ function zoomToFitEntries(opts = {}) {
     if (progress < 1) {
       requestAnimationFrame(animate);
     } else {
-      // Animation completed - clear navigation flags to allow clicking
-      // This happens after ~800ms, allowing immediate interaction after zoom
+      // Animation completed - store default position and clear navigation flags
+      defaultCamPos = { x: cam.x, y: cam.y, z: cam.z };
+      updateCenterButtonVisibility();
       const wasNavigating = navigationJustCompleted;
       if (navigationJustCompleted) {
         navigationJustCompleted = false;
@@ -298,6 +318,8 @@ function zoomToFitEntries(opts = {}) {
     cam.y = targetY;
     cam.z = targetZ;
     applyTransform();
+    defaultCamPos = { x: cam.x, y: cam.y, z: cam.z };
+    updateCenterButtonVisibility();
     // Reveal entries now that camera is in the right place
     revealNavEntries();
     if (navigationJustCompleted) navigationJustCompleted = false;
@@ -308,6 +330,8 @@ function zoomToFitEntries(opts = {}) {
   } else {
     // No animation needed, but still show cursor after traversal
     console.log('[ZOOM] No animation needed, showing cursor immediately');
+    defaultCamPos = { x: cam.x, y: cam.y, z: cam.z };
+    updateCenterButtonVisibility();
     // Reveal entries (camera was already correct)
     revealNavEntries();
     if (navigationJustCompleted) {

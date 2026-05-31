@@ -21,6 +21,7 @@ export function setAuthCookie(res, token) {
     'Path=/',
     'HttpOnly',
     'SameSite=Lax',
+    'Max-Age=2592000',
     isProd ? 'Secure' : ''
   ].filter(Boolean).join('; ');
   res.setHeader('Set-Cookie', cookie);

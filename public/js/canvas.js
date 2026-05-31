@@ -400,6 +400,7 @@ viewport.addEventListener('mousemove', (e) => {
       cam.x += dx;
       cam.y += dy;
       scheduleTransform();
+      updateCenterButtonVisibility();
       isClick = false;
     }
     return;
@@ -554,6 +555,7 @@ viewport.addEventListener('mousemove', (e) => {
     cam.x += dx;
     cam.y += dy;
     scheduleTransform();
+    updateCenterButtonVisibility();
     isClick = false;
   }
 });
@@ -929,6 +931,7 @@ viewport.addEventListener('wheel', (e) => {
   }
 
   scheduleTransform();
+  updateCenterButtonVisibility();
 }, { passive: false });
 
 // ——— Two-finger touch: pan + pinch-to-zoom ———
@@ -975,6 +978,7 @@ viewport.addEventListener('touchmove', (e) => {
   touchState.lastDist = dist;
 
   scheduleTransform();
+  updateCenterButtonVisibility();
 }, { passive: false });
 
 viewport.addEventListener('touchend', (e) => {
@@ -1772,3 +1776,12 @@ viewport.addEventListener('contextmenu', (e) => {
     }
   }
 });
+
+// ——— Center button ———
+const centerButton = document.getElementById('center-button');
+if (centerButton) {
+  centerButton.addEventListener('click', (e) => {
+    e.stopPropagation();
+    zoomToFitEntries();
+  });
+}

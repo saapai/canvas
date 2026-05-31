@@ -4480,12 +4480,65 @@ body.has-bg-image::before {
 }
 .article-join-banner-cta:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(255,255,255,0.2); }
 
+/* ——— Center button ——— */
+.center-button {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 999;
+  padding: 8px 20px;
+  border: 1px solid rgba(0,0,0,0.12);
+  border-radius: 20px;
+  background: rgba(255,255,255,0.92);
+  backdrop-filter: blur(8px);
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  color: #333;
+  cursor: pointer;
+  opacity: 1;
+  transition: opacity 0.2s, transform 0.2s;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+.center-button:hover {
+  background: rgba(255,255,255,1);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.12);
+}
+.center-button.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* ——— View mode toggle ——— */
+.view-mode-toggle {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid rgba(0,0,0,0.1);
+  background: rgba(0,0,0,0.04);
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 500;
+  color: #555;
+  cursor: pointer;
+  transition: background 0.15s;
+  margin-right: 8px;
+}
+.view-mode-toggle:hover {
+  background: rgba(0,0,0,0.08);
+}
+.view-mode-toggle.hidden {
+  display: none;
+}
+
 /* ——— Article mode body overrides ——— */
 body.article-mode #viewport,
 body.article-mode .organize-button,
 body.article-mode .bg-picker-button,
 body.article-mode #bg-picker-dropdown,
 body.article-mode .help-button,
+body.article-mode .center-button,
 body.article-mode #navigator,
 body.article-mode #scrollbar-track {
   display: none !important;
@@ -4527,4 +4580,28 @@ body.article-mode .share-button:hover {
   .article-main { max-width: 100%; }
   .article-header-title { font-size: 32px; letter-spacing: -0.014em; }
   .article-join-banner { flex-direction: column; gap: 10px; padding: 14px 16px; }
+}
+
+/* ——— Article mode: special component styles ——— */
+.article-body .deadline-table {
+  pointer-events: auto;
+  max-width: 100%;
+}
+.article-body .article-media-embed {
+  max-width: 100%;
+  margin: 16px 0;
+}
+.article-body .article-media-embed img {
+  max-width: 100%;
+  border-radius: 8px;
+}
+.article-body .article-media-embed .entry {
+  position: static !important;
+  display: block !important;
+  transform: none !important;
+  width: auto !important;
+  max-width: 100%;
+}
+.article-body .katex-display {
+  margin: 16px 0;
 }
