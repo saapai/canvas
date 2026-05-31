@@ -621,40 +621,61 @@ function showJoinBanner() {
   document.body.appendChild(banner);
 }
 
-// ——— Navigation patches ———
-if (shouldUseArticleMode()) {
-  const _origNavigateToEntry = navigateToEntry;
-  navigateToEntry = function(entryId) {
-    _origNavigateToEntry(entryId);
-    if (shouldUseArticleMode()) setTimeout(() => {
-      articleCurrentPageId = null;
-      const pages = getArticlePages();
-      if (pages.length > 0) articleCurrentPageId = pages[0].id;
-      renderArticleView();
-    }, 300);
-  };
+// ——— Navigation patches (always installed so they work after runtime toggle) ———
+const _origNavigateToEntry = navigateToEntry;
+navigateToEntry = function(entryId) {
+  _origNavigateToEntry(entryId);
+  if (shouldUseArticleMode()) setTimeout(() => {
+    articleCurrentPageId = null;
+    const pages = getArticlePages();
+    if (pages.length > 0) articleCurrentPageId = pages[0].id;
+    renderArticleView();
+  }, 300);
+};
 
-  const _origNavigateBack = navigateBack;
-  navigateBack = function(level) {
-    _origNavigateBack(level);
-    if (shouldUseArticleMode()) setTimeout(() => {
-      articleCurrentPageId = null;
-      const pages = getArticlePages();
-      if (pages.length > 0) articleCurrentPageId = pages[0].id;
-      renderArticleView();
-    }, 300);
-  };
+const _origNavigateBack = navigateBack;
+navigateBack = function(level) {
+  _origNavigateBack(level);
+  if (shouldUseArticleMode()) setTimeout(() => {
+    articleCurrentPageId = null;
+    const pages = getArticlePages();
+    if (pages.length > 0) articleCurrentPageId = pages[0].id;
+    renderArticleView();
+  }, 300);
+};
 
-  const _origNavigateToRoot = navigateToRoot;
-  navigateToRoot = function() {
-    _origNavigateToRoot();
-    if (shouldUseArticleMode()) setTimeout(() => {
-      articleCurrentPageId = null;
-      const pages = getArticlePages();
-      if (pages.length > 0) articleCurrentPageId = pages[0].id;
-      renderArticleView();
-    }, 300);
-  };
+const _origNavigateToRoot = navigateToRoot;
+navigateToRoot = function() {
+  _origNavigateToRoot();
+  if (shouldUseArticleMode()) setTimeout(() => {
+    articleCurrentPageId = null;
+    const pages = getArticlePages();
+    if (pages.length > 0) articleCurrentPageId = pages[0].id;
+    renderArticleView();
+  }, 300);
+};
+
+// ——— Deactivate article mode (switch back to canvas) ———
+function deactivateArticleMode() {
+  if (!articleView) return;
+  document.body.classList.remove('article-mode');
+  articleView.classList.add('hidden');
+  articleContent.innerHTML = '';
+  articleHeader.innerHTML = '';
+  articleSidebarNav.innerHTML = '';
+
+  // Remove article format bar listeners
+  document.removeEventListener('focusin', articleFormatBarToggle);
+  document.removeEventListener('focusout', articleFormatBarToggle);
+
+  // Show format bar for canvas mode
+  if (formatBar) formatBar.classList.remove('hidden');
+
+  // Re-show canvas entries and fit camera
+  if (typeof updateEntryVisibility === 'function') updateEntryVisibility();
+  requestAnimationFrame(() => {
+    if (typeof zoomToFitEntries === 'function') zoomToFitEntries({ instant: true });
+  });
 }
 
 // ——— View mode toggle ———
@@ -668,22 +689,31 @@ if (shouldUseArticleMode()) {
     toggle.classList.remove('hidden');
   }
 
-  // Label shows the current mode
-  label.textContent = shouldUseArticleMode() ? 'Page View' : 'Canvas View';
+  function updateLabel() {
+    label.textContent = shouldUseArticleMode() ? 'Page View' : 'Canvas View';
+  }
+  updateLabel();
 
   toggle.addEventListener('click', async () => {
     const newMode = shouldUseArticleMode() ? 'canvas' : 'article';
-    try {
-      await fetch('/api/user/view-mode', {
-        method: 'PUT',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ viewMode: newMode })
-      });
-      window.location.reload();
-    } catch (err) {
-      console.error('Failed to toggle view mode:', err);
+
+    // Persist preference to server (fire-and-forget)
+    fetch('/api/user/view-mode', {
+      method: 'PUT',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ viewMode: newMode })
+    }).catch(err => console.error('Failed to save view mode:', err));
+
+    // Update global state immediately
+    window.PAGE_VIEW_MODE = newMode;
+
+    if (newMode === 'article') {
+      activateArticleMode();
+    } else {
+      deactivateArticleMode();
     }
+    updateLabel();
   });
 })();
 
