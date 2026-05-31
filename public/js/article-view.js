@@ -22,9 +22,12 @@ function articleCanEdit() {
 // ——— Get pages at the current navigation level ———
 function getArticlePages() {
   const pages = [];
+  const viewId = currentViewEntryId || null;
   entries.forEach(ed => {
     if (ed.id === 'anchor') return;
-    if (ed.parentEntryId !== currentViewEntryId) return;
+    // Normalize: treat undefined and null both as "root level"
+    const parent = ed.parentEntryId || null;
+    if (parent !== viewId) return;
     // Include all entry types: text, media, deadlines, LaTeX
     const hasContent = (ed.text && ed.text.trim()) ||
                        ed.mediaCardData ||
@@ -98,7 +101,8 @@ function activateArticleMode() {
 }
 
 function waitForEntries(cb, attempts = 0) {
-  if (entries.size > 1 || attempts > 20) cb();
+  // Wait until entries are loaded (more than just anchor), up to 10 seconds
+  if (entries.size > 1 || attempts > 50) cb();
   else setTimeout(() => waitForEntries(cb, attempts + 1), 200);
 }
 
