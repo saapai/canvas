@@ -100,7 +100,8 @@ async function insertPageTemplate() {
     world.appendChild(el);
 
     entries.set(id, { id, text: title, textHtml, position, parentEntryId, element: el });
-    placeEntry(el, position.x, position.y);
+    el.style.left = position.x + 'px';
+    el.style.top = position.y + 'px';
     updateEntryDimensions(el);
     updateEntryVisibility();
 
