@@ -98,10 +98,17 @@ function activateArticleMode() {
 
   // Join banner for community pages (disabled — was Amia-specific)
 
-  waitForEntries(() => {
+  waitForEntries(async () => {
     const pages = getArticlePages();
-    if (pages.length > 0) articleCurrentPageId = pages[0].id;
-    renderArticleView();
+    if (pages.length > 0) {
+      articleCurrentPageId = pages[0].id;
+      renderArticleView();
+    } else if (isInsidePageCard() && articleCanEdit()) {
+      // Auto-create first page when entering an empty page-card
+      await createNewPage();
+    } else {
+      renderArticleView();
+    }
   });
 }
 
