@@ -113,9 +113,50 @@ function renderArticleView() {
   renderPageContent();
 }
 
+function isInsidePageCard() {
+  if (!currentViewEntryId) return false;
+  const parentEntry = entries.get(currentViewEntryId);
+  return parentEntry && parentEntry.textHtml && parentEntry.textHtml.includes('page-card');
+}
+
 function renderSidebar() {
   articleSidebarNav.innerHTML = '';
   const pages = getArticlePages();
+
+  // If inside a page-card entry, show its title as an editable header
+  if (isInsidePageCard()) {
+    const parentEntry = entries.get(currentViewEntryId);
+    const pageTitleEl = document.createElement('div');
+    pageTitleEl.className = 'article-sidebar-page-title';
+    pageTitleEl.setAttribute('contenteditable', articleCanEdit() ? 'true' : 'false');
+    pageTitleEl.setAttribute('data-placeholder', 'Page title...');
+    pageTitleEl.textContent = parentEntry.text || 'Untitled Page';
+
+    if (articleCanEdit()) {
+      let pageTitleTimer = null;
+      const savePageTitle = () => {
+        const newTitle = pageTitleEl.textContent.trim() || 'Untitled Page';
+        parentEntry.text = newTitle;
+        // Update the page-card HTML on the canvas entry
+        const cardEl = parentEntry.element ? parentEntry.element.querySelector('.page-card-title') : null;
+        if (cardEl) cardEl.textContent = newTitle;
+        parentEntry.textHtml = parentEntry.element ? parentEntry.element.querySelector('.page-card').outerHTML : parentEntry.textHtml.replace(/<div class="page-card-title"[^>]*>.*?<\/div>/, `<div class="page-card-title" contenteditable="true">${escapeHtml(newTitle)}</div>`);
+        updateEntryOnServer(parentEntry);
+      };
+      pageTitleEl.addEventListener('input', () => {
+        if (pageTitleTimer) clearTimeout(pageTitleTimer);
+        pageTitleTimer = setTimeout(savePageTitle, 1500);
+      });
+      pageTitleEl.addEventListener('blur', () => {
+        if (pageTitleTimer) clearTimeout(pageTitleTimer);
+        savePageTitle();
+      });
+      pageTitleEl.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); pageTitleEl.blur(); }
+      });
+    }
+    articleSidebarNav.appendChild(pageTitleEl);
+  }
 
   const label = document.createElement('div');
   label.className = 'article-sidebar-label';

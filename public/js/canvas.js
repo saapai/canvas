@@ -691,7 +691,21 @@ window.addEventListener('mouseup', async (e) => {
             } else if(draggingEntry.querySelector('.slack-sync-card')) {
               // Slack card: no edit mode, do nothing on click
             } else if(draggingEntry.querySelector('.page-card')) {
-              // Page card: title is inline-editable, no editor mode
+              // Page card: single click selects and focuses title for editing
+              selectOnlyEntry(draggingEntry.id);
+              showTrashButton();
+              const titleEl = draggingEntry.querySelector('.page-card-title');
+              if (titleEl) {
+                requestAnimationFrame(() => {
+                  titleEl.focus();
+                  // Select all text for easy renaming
+                  const sel = window.getSelection();
+                  const range = document.createRange();
+                  range.selectNodeContents(titleEl);
+                  sel.removeAllRanges();
+                  sel.addRange(range);
+                });
+              }
             } else if(draggingEntry.querySelector('.deadline-table')) {
               const alreadyEditing = editingEntryId === draggingEntry.id;
               if (!alreadyEditing) {
@@ -887,25 +901,8 @@ window.addEventListener('mouseup', async (e) => {
             const urls = extractUrls(entryData.text);
             if (urls.length > 0) window.open(urls[0], '_blank');
           }
-        } else if (entryEl.id !== 'anchor' && entryEl.id && !editingEntryId && !entryEl.querySelector('.deadline-table') && !entryEl.querySelector('.gcal-card') && !entryEl.querySelector('.slack-sync-card')) {
-          // Page cards: navigate and switch to article mode
-          if (entryEl.querySelector('.page-card')) {
-            navigateToEntry(entryEl.id);
-            setTimeout(() => {
-              window.PAGE_VIEW_MODE = 'article';
-              if (typeof activateArticleMode === 'function') activateArticleMode();
-              const label = document.getElementById('view-mode-label');
-              if (label) label.textContent = 'Page View';
-              fetch('/api/user/view-mode', {
-                method: 'PUT',
-                credentials: 'include',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ viewMode: 'article' })
-              }).catch(() => {});
-            }, 300);
-          } else {
-            navigateToEntry(entryEl.id);
-          }
+        } else if (entryEl.id !== 'anchor' && entryEl.id && !editingEntryId && !entryEl.querySelector('.deadline-table') && !entryEl.querySelector('.gcal-card') && !entryEl.querySelector('.slack-sync-card') && !entryEl.querySelector('.page-card')) {
+          navigateToEntry(entryEl.id);
         }
       }
     }
@@ -922,7 +919,26 @@ viewport.addEventListener('dblclick', (e) => {
   }
   const entryEl = findEntryElement(e.target);
   if (e.target.closest('.link-card, .link-card-placeholder, .media-card')) return;
-  if (entryEl && (entryEl.querySelector('.deadline-table') || entryEl.querySelector('.gcal-card') || entryEl.querySelector('.slack-sync-card') || entryEl.querySelector('.page-card'))) return;
+  if (entryEl && (entryEl.querySelector('.deadline-table') || entryEl.querySelector('.gcal-card') || entryEl.querySelector('.slack-sync-card'))) return;
+  // Page card: double-click navigates into it and switches to page view
+  if (entryEl && entryEl.querySelector('.page-card')) {
+    e.preventDefault();
+    e.stopPropagation();
+    navigateToEntry(entryEl.id);
+    setTimeout(() => {
+      window.PAGE_VIEW_MODE = 'article';
+      if (typeof activateArticleMode === 'function') activateArticleMode();
+      const label = document.getElementById('view-mode-label');
+      if (label) label.textContent = 'Page View';
+      fetch('/api/user/view-mode', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ viewMode: 'article' })
+      }).catch(() => {});
+    }, 300);
+    return;
+  }
   if (entryEl && entryEl.id !== 'anchor' && entryEl.id && !editingEntryId) {
     e.preventDefault();
     e.stopPropagation();
