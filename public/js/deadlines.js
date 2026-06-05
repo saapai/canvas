@@ -103,9 +103,23 @@ async function insertPageTemplate() {
   const parentEntryId = currentViewEntryId || null;
   const pageOwnerId = window.PAGE_OWNER_ID;
 
-  // Position: center of current viewport
-  const center = screenToWorld(window.innerWidth / 2, window.innerHeight / 2);
-  const position = { x: center.x - 100, y: center.y - 40 };
+  // Position: near existing entries at current level, or default
+  let position;
+  const siblings = Array.from(entries.values()).filter(e =>
+    e.id !== 'anchor' && (e.parentEntryId ?? null) === parentEntryId && e.element && e.element.style.display !== 'none'
+  );
+  if (siblings.length > 0) {
+    let maxY = -Infinity;
+    let atX = 100;
+    siblings.forEach(e => {
+      const ey = e.position ? e.position.y : 0;
+      const eh = e.element ? (e.element.offsetHeight || 40) : 40;
+      if (ey + eh > maxY) { maxY = ey + eh; atX = e.position ? e.position.x : 100; }
+    });
+    position = { x: atX, y: maxY + 30 };
+  } else {
+    position = { x: 100, y: 100 };
+  }
 
   const title = 'Untitled Page';
   const textHtml = `<div class="page-card" contenteditable="false"><div class="page-card-icon">📄</div><div class="page-card-title" contenteditable="true">${title}</div></div>`;
