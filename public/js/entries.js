@@ -266,6 +266,8 @@ async function loadUserEntries(username, editable) {
           entry.innerHTML = entryData.textHtml;
           const card = entry.querySelector('.slack-sync-card');
           if (card) setupSlackSyncCardHandlers(card);
+        } else if (entryData.textHtml && entryData.textHtml.includes('page-card')) {
+          entry.innerHTML = entryData.textHtml;
         } else if (processedText) {
           if (entryData.textHtml && /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(entryData.textHtml)) {
             // Strip URLs from HTML — they're shown as link cards
@@ -918,6 +920,8 @@ async function loadEntriesFromServer() {
           entry.innerHTML = entryData.textHtml;
           const card = entry.querySelector('.slack-sync-card');
           if (card) setupSlackSyncCardHandlers(card);
+        } else if (entryData.textHtml && entryData.textHtml.includes('page-card')) {
+          entry.innerHTML = entryData.textHtml;
         } else if (processedText) {
           if (entryData.textHtml && /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(entryData.textHtml)) {
             // Has formatting — strip URLs from HTML (they're shown as link cards)

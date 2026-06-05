@@ -235,7 +235,8 @@ async function commitEditor(){
   const isDeadlineTable = htmlContent.includes('deadline-table');
   const isCalendarCard = htmlContent.includes('gcal-card');
   const isSlackCard = htmlContent.includes('slack-sync-card');
-  const hasFormatting = isDeadlineTable || isCalendarCard || isSlackCard || /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(htmlContent);
+  const isPageCard = htmlContent.includes('page-card');
+  const hasFormatting = isDeadlineTable || isCalendarCard || isSlackCard || isPageCard || /<(strong|b|em|i|u|strike|span[^>]*style)/i.test(htmlContent);
   const trimmedHtml = hasFormatting ? htmlContent : null;
 
   console.log('[COMMIT] HTML content length:', htmlContent.length, 'hasFormatting:', hasFormatting);

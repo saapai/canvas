@@ -886,7 +886,24 @@ window.addEventListener('mouseup', async (e) => {
             if (urls.length > 0) window.open(urls[0], '_blank');
           }
         } else if (entryEl.id !== 'anchor' && entryEl.id && !editingEntryId && !entryEl.querySelector('.deadline-table') && !entryEl.querySelector('.gcal-card') && !entryEl.querySelector('.slack-sync-card')) {
-          navigateToEntry(entryEl.id);
+          // Page cards: navigate and switch to article mode
+          if (entryEl.querySelector('.page-card')) {
+            navigateToEntry(entryEl.id);
+            setTimeout(() => {
+              window.PAGE_VIEW_MODE = 'article';
+              if (typeof activateArticleMode === 'function') activateArticleMode();
+              const label = document.getElementById('view-mode-label');
+              if (label) label.textContent = 'Page View';
+              fetch('/api/user/view-mode', {
+                method: 'PUT',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ viewMode: 'article' })
+              }).catch(() => {});
+            }, 300);
+          } else {
+            navigateToEntry(entryEl.id);
+          }
         }
       }
     }
@@ -903,7 +920,7 @@ viewport.addEventListener('dblclick', (e) => {
   }
   const entryEl = findEntryElement(e.target);
   if (e.target.closest('.link-card, .link-card-placeholder, .media-card')) return;
-  if (entryEl && (entryEl.querySelector('.deadline-table') || entryEl.querySelector('.gcal-card') || entryEl.querySelector('.slack-sync-card'))) return;
+  if (entryEl && (entryEl.querySelector('.deadline-table') || entryEl.querySelector('.gcal-card') || entryEl.querySelector('.slack-sync-card') || entryEl.querySelector('.page-card'))) return;
   if (entryEl && entryEl.id !== 'anchor' && entryEl.id && !editingEntryId) {
     e.preventDefault();
     e.stopPropagation();

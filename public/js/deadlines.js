@@ -39,6 +39,11 @@ if (templateMenuButton && templateMenuDropdown) {
 }
 
 async function insertTemplate(templateType) {
+  // Page template always creates a new entry directly (works in both modes)
+  if (templateType === 'page') {
+    await insertPageTemplate();
+    return;
+  }
   // In article mode, create a new entry with the template content
   if (typeof shouldUseArticleMode === 'function' && shouldUseArticleMode()) {
     if (templateType === 'deadlines') {
@@ -60,6 +65,62 @@ async function insertTemplate(templateType) {
     handleGoogleConnection();
   } else if (templateType === 'slack') {
     await insertSlackSyncTemplate();
+  }
+}
+
+async function insertPageTemplate() {
+  const id = generateEntryId();
+  const parentEntryId = currentViewEntryId || null;
+  const pageOwnerId = window.PAGE_OWNER_ID;
+
+  // Position: center of current viewport
+  const center = screenToWorld(window.innerWidth / 2, window.innerHeight / 2);
+  const position = { x: center.x - 100, y: center.y - 40 };
+
+  const title = 'Untitled Page';
+  const textHtml = `<div class="page-card" contenteditable="false"><div class="page-card-icon">📄</div><div class="page-card-title">${title}</div></div>`;
+
+  try {
+    // Commit any current editor content first
+    if (editingEntryId || editor.textContent.trim()) {
+      await commitEditor();
+    }
+
+    await fetch('/api/entries', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, text: title, textHtml, position, parentEntryId, pageOwnerId })
+    });
+
+    const el = document.createElement('div');
+    el.className = 'entry';
+    el.id = id;
+    el.innerHTML = textHtml;
+    world.appendChild(el);
+
+    entries.set(id, { id, text: title, textHtml, position, parentEntryId, element: el });
+    placeEntry(el, position.x, position.y);
+    updateEntryDimensions(el);
+    updateEntryVisibility();
+
+    // Navigate into the page and activate article mode
+    navigateToEntry(id);
+    setTimeout(() => {
+      window.PAGE_VIEW_MODE = 'article';
+      activateArticleMode();
+      const label = document.getElementById('view-mode-label');
+      if (label) label.textContent = 'Page View';
+      // Persist preference
+      fetch('/api/user/view-mode', {
+        method: 'PUT',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ viewMode: 'article' })
+      }).catch(() => {});
+    }, 300);
+  } catch (err) {
+    console.error('Failed to create page:', err);
   }
 }
 
