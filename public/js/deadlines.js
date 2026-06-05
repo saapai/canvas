@@ -184,6 +184,28 @@ async function insertArticleDeadlinesTemplate() {
   </div>
 </div>`;
 
+  // If there's an active page, insert the deadline table into its body
+  if (typeof articleCurrentPageId !== 'undefined' && articleCurrentPageId) {
+    const bodyEl = document.querySelector('.article-body');
+    if (bodyEl) {
+      // Append table HTML at the end of the body
+      const wrapper = document.createElement('div');
+      wrapper.innerHTML = tableHTML;
+      const table = wrapper.firstElementChild;
+      bodyEl.appendChild(table);
+      setupDeadlineTableHandlers(table);
+
+      // Save the updated page content
+      const pageEntry = entries.get(articleCurrentPageId);
+      if (pageEntry) {
+        pageEntry.textHtml = bodyEl.innerHTML;
+        updateEntryOnServer(pageEntry);
+      }
+      return;
+    }
+  }
+
+  // Fallback: create as a new page entry (no active page)
   const id = generateEntryId();
   const position = { x: 100, y: 100 + entries.size * 50 };
   const parentEntryId = currentViewEntryId || null;
