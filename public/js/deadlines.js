@@ -68,6 +68,36 @@ async function insertTemplate(templateType) {
   }
 }
 
+function setupPageCardHandlers(entryEl) {
+  const titleEl = entryEl.querySelector('.page-card-title');
+  if (!titleEl) return;
+  titleEl.setAttribute('contenteditable', 'true');
+
+  // Prevent click from bubbling to canvas (which would navigate)
+  titleEl.addEventListener('mousedown', (e) => e.stopPropagation());
+  titleEl.addEventListener('click', (e) => e.stopPropagation());
+  titleEl.addEventListener('dblclick', (e) => e.stopPropagation());
+
+  // Save title on blur
+  titleEl.addEventListener('blur', () => {
+    const entryData = entries.get(entryEl.id);
+    if (!entryData) return;
+    const newTitle = titleEl.textContent.trim() || 'Untitled Page';
+    titleEl.textContent = newTitle;
+    entryData.text = newTitle;
+    entryData.textHtml = entryEl.querySelector('.page-card').outerHTML;
+    updateEntryOnServer(entryData);
+  });
+
+  // Enter key commits (blurs)
+  titleEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      titleEl.blur();
+    }
+  });
+}
+
 async function insertPageTemplate() {
   const id = generateEntryId();
   const parentEntryId = currentViewEntryId || null;
@@ -78,7 +108,7 @@ async function insertPageTemplate() {
   const position = { x: center.x - 100, y: center.y - 40 };
 
   const title = 'Untitled Page';
-  const textHtml = `<div class="page-card" contenteditable="false"><div class="page-card-icon">📄</div><div class="page-card-title">${title}</div></div>`;
+  const textHtml = `<div class="page-card" contenteditable="false"><div class="page-card-icon">📄</div><div class="page-card-title" contenteditable="true">${title}</div></div>`;
 
   try {
     // Commit any current editor content first
@@ -102,6 +132,7 @@ async function insertPageTemplate() {
     entries.set(id, { id, text: title, textHtml, position, parentEntryId, element: el });
     el.style.left = position.x + 'px';
     el.style.top = position.y + 'px';
+    setupPageCardHandlers(el);
     updateEntryDimensions(el);
     updateEntryVisibility();
 

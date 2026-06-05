@@ -3040,6 +3040,15 @@ body.has-bg-image::before {
   font-weight: 500;
   color: var(--ink, #1a1a1a);
   line-height: 1.3;
+  outline: none;
+  border-radius: 4px;
+  padding: 2px 4px;
+  margin: -2px -4px;
+  cursor: text;
+}
+
+.page-card-title:focus {
+  background: rgba(0, 0, 0, 0.04);
 }
 
 /* Google connected indicator on template button */

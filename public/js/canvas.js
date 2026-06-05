@@ -690,6 +690,8 @@ window.addEventListener('mouseup', async (e) => {
               selectOnlyEntry(draggingEntry.id);
             } else if(draggingEntry.querySelector('.slack-sync-card')) {
               // Slack card: no edit mode, do nothing on click
+            } else if(draggingEntry.querySelector('.page-card')) {
+              // Page card: title is inline-editable, no editor mode
             } else if(draggingEntry.querySelector('.deadline-table')) {
               const alreadyEditing = editingEntryId === draggingEntry.id;
               if (!alreadyEditing) {

@@ -702,9 +702,38 @@ function showJoinBanner() {
   document.body.appendChild(banner);
 }
 
+// ——— Per-level view mode persistence ———
+// Maps navigation depth to the view mode that was active at that level
+const viewModeStack = new Map(); // depth → 'canvas' | 'article'
+
+function saveCurrentViewMode() {
+  const depth = navigationStack.length;
+  viewModeStack.set(depth, window.PAGE_VIEW_MODE || 'canvas');
+}
+
+function restoreViewMode(depth) {
+  const savedMode = viewModeStack.get(depth) || 'canvas';
+  // Clean up deeper entries
+  for (const [d] of viewModeStack) {
+    if (d > depth) viewModeStack.delete(d);
+  }
+  if (savedMode !== window.PAGE_VIEW_MODE) {
+    window.PAGE_VIEW_MODE = savedMode;
+    if (savedMode === 'article') {
+      activateArticleMode();
+    } else {
+      deactivateArticleMode();
+    }
+    const label = document.getElementById('view-mode-label');
+    if (label) label.textContent = savedMode === 'article' ? 'Page View' : 'Canvas View';
+  }
+}
+
 // ——— Navigation patches (always installed so they work after runtime toggle) ———
 const _origNavigateToEntry = navigateToEntry;
 navigateToEntry = function(entryId) {
+  // Save view mode for current level before navigating deeper
+  saveCurrentViewMode();
   _origNavigateToEntry(entryId);
   if (shouldUseArticleMode()) setTimeout(() => {
     articleCurrentPageId = null;
@@ -717,22 +746,30 @@ navigateToEntry = function(entryId) {
 const _origNavigateBack = navigateBack;
 navigateBack = function(level) {
   _origNavigateBack(level);
-  if (shouldUseArticleMode()) setTimeout(() => {
-    articleCurrentPageId = null;
-    const pages = getArticlePages();
-    if (pages.length > 0) articleCurrentPageId = pages[0].id;
-    renderArticleView();
+  // Restore view mode for the level we're returning to
+  const depth = navigationStack.length;
+  setTimeout(() => {
+    restoreViewMode(depth);
+    if (shouldUseArticleMode()) {
+      articleCurrentPageId = null;
+      const pages = getArticlePages();
+      if (pages.length > 0) articleCurrentPageId = pages[0].id;
+      renderArticleView();
+    }
   }, 300);
 };
 
 const _origNavigateToRoot = navigateToRoot;
 navigateToRoot = function() {
   _origNavigateToRoot();
-  if (shouldUseArticleMode()) setTimeout(() => {
-    articleCurrentPageId = null;
-    const pages = getArticlePages();
-    if (pages.length > 0) articleCurrentPageId = pages[0].id;
-    renderArticleView();
+  setTimeout(() => {
+    restoreViewMode(0);
+    if (shouldUseArticleMode()) {
+      articleCurrentPageId = null;
+      const pages = getArticlePages();
+      if (pages.length > 0) articleCurrentPageId = pages[0].id;
+      renderArticleView();
+    }
   }, 300);
 };
 
