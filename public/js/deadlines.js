@@ -103,20 +103,17 @@ async function insertPageTemplate() {
   const parentEntryId = currentViewEntryId || null;
   const pageOwnerId = window.PAGE_OWNER_ID;
 
-  // Position: near existing entries at current level, or default
+  // Position: right edge of the entry cluster at the median Y
   let position;
   const siblings = Array.from(entries.values()).filter(e =>
-    e.id !== 'anchor' && (e.parentEntryId ?? null) === parentEntryId && e.element && e.element.style.display !== 'none'
+    e.id !== 'anchor' && (e.parentEntryId ?? null) === parentEntryId && e.element && e.element.style.display !== 'none' && e.position
   );
   if (siblings.length > 0) {
-    let maxY = -Infinity;
-    let atX = 100;
-    siblings.forEach(e => {
-      const ey = e.position ? e.position.y : 0;
-      const eh = e.element ? (e.element.offsetHeight || 40) : 40;
-      if (ey + eh > maxY) { maxY = ey + eh; atX = e.position ? e.position.x : 100; }
-    });
-    position = { x: atX, y: maxY + 30 };
+    const xs = siblings.map(e => e.position.x + (e.element.offsetWidth || 200));
+    const ys = siblings.map(e => e.position.y).sort((a, b) => a - b);
+    const medianY = ys[Math.floor(ys.length / 2)];
+    const maxRight = Math.max(...xs);
+    position = { x: maxRight + 40, y: medianY };
   } else {
     position = { x: 100, y: 100 };
   }
