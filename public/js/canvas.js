@@ -930,12 +930,6 @@ viewport.addEventListener('dblclick', (e) => {
       if (typeof activateArticleMode === 'function') activateArticleMode();
       const label = document.getElementById('view-mode-label');
       if (label) label.textContent = 'Page View';
-      fetch('/api/user/view-mode', {
-        method: 'PUT',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ viewMode: 'article' })
-      }).catch(() => {});
     }, 300);
     return;
   }

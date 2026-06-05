@@ -154,13 +154,6 @@ async function insertPageTemplate() {
       activateArticleMode();
       const label = document.getElementById('view-mode-label');
       if (label) label.textContent = 'Page View';
-      // Persist preference
-      fetch('/api/user/view-mode', {
-        method: 'PUT',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ viewMode: 'article' })
-      }).catch(() => {});
     }, 300);
   } catch (err) {
     console.error('Failed to create page:', err);
