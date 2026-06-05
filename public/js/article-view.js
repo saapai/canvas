@@ -64,13 +64,18 @@ function getPageTitle(ed) {
 // ——— Format bar visibility ———
 function articleFormatBarToggle() {
   if (!formatBar) return;
-  // Small delay so focusout fires before focusin on the new target
+  // Longer delay to survive focus shifts during delete/backspace
   setTimeout(() => {
     const active = document.activeElement;
-    const inArticle = active &&
-      (active.classList.contains('article-body') || active.classList.contains('article-header-title'));
+    const inArticle = active && (
+      active.classList.contains('article-body') ||
+      active.classList.contains('article-header-title') ||
+      active.classList.contains('article-sidebar-page-title') ||
+      active.closest('.article-body') ||
+      active.closest('.article-header')
+    );
     formatBar.classList.toggle('hidden', !inArticle);
-  }, 0);
+  }, 50);
 }
 
 // ——— Activate ———
