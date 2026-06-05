@@ -142,6 +142,8 @@ function renderSidebar() {
         if (cardEl) cardEl.textContent = newTitle;
         parentEntry.textHtml = parentEntry.element ? parentEntry.element.querySelector('.page-card').outerHTML : parentEntry.textHtml.replace(/<div class="page-card-title"[^>]*>.*?<\/div>/, `<div class="page-card-title" contenteditable="true">${escapeHtml(newTitle)}</div>`);
         updateEntryOnServer(parentEntry);
+        // Sync breadcrumb with new title
+        if (typeof updateBreadcrumb === 'function') updateBreadcrumb();
       };
       pageTitleEl.addEventListener('input', () => {
         if (pageTitleTimer) clearTimeout(pageTitleTimer);
