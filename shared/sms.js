@@ -265,6 +265,12 @@ export async function handleIncomingSms(phone, message) {
   }
 
   // 8. Apply personality
+  // IMPORTANT: Skip LLM personality for draft_write/draft_send actions.
+  // The LLM personality can alter the displayed draft content, making the user
+  // see a different version than what's actually stored in the database.
+  // This caused a bug where the personality LLM "cleaned up" contaminated content
+  // in the display, but the DB still had the contaminated version that got sent.
+  const isDraftAction = classification.action === 'draft_write' || classification.action === 'draft_send';
   const historyString = history.length > 0
     ? history.map(turn => `${turn.role === 'user' ? 'User' : 'Bot'}: ${turn.content}`).join('\n')
     : undefined;
@@ -273,7 +279,7 @@ export async function handleIncomingSms(phone, message) {
     baseResponse: actionResult.response,
     userMessage: msg,
     userName: member.name,
-    useLLM: true,
+    useLLM: !isDraftAction,
     conversationHistory: historyString
   });
 

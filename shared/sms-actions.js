@@ -78,22 +78,52 @@ async function detectLinkDecline(message) {
 async function resolveDraftContent({ message, draftType, previousContent, recentMessages }) {
   if (!process.env.OPENAI_API_KEY) return extractContent(message, draftType);
 
-  const history = (recentMessages || []).slice(-6).map(m => ({
-    role: m.direction === 'inbound' ? 'User' : 'Bot',
-    text: m.text
-  }));
+  // Build annotated history: label each message with its type so the LLM knows
+  // what was a broadcast vs. a draft interaction vs. a user message
+  const history = (recentMessages || []).slice(-8).map(m => {
+    let label = m.direction === 'inbound' ? 'User' : 'Bot';
+    let text = (m.text || '').substring(0, 300);
+    try {
+      const meta = typeof m.meta === 'string' ? JSON.parse(m.meta) : m.meta;
+      const action = meta?.action;
+      if (action === 'announcement' || action === 'scheduled_announcement') {
+        label = '[PREVIOUSLY SENT ANNOUNCEMENT]';
+      } else if (action === 'poll') {
+        label = '[PREVIOUSLY SENT POLL]';
+      } else if (action === 'draft_write' || action === 'draft_send') {
+        // Keep draft interactions visible so the LLM knows about active edits
+        label = `Bot (draft ${action === 'draft_send' ? 'sent' : 'edit'})`;
+        // Include the draft content from meta if available for better context
+        if (meta?.draftContent) {
+          text = `[draft content: "${meta.draftContent.substring(0, 200)}"] ${text.substring(0, 100)}`;
+        }
+      }
+    } catch {}
+    return { label, text };
+  });
+
+  const historyText = history.length > 0
+    ? history.map(h => `${h.label}: ${h.text}`).join('\n')
+    : '(no history)';
 
   const systemPrompt = `You are extracting the exact message content to send as a ${draftType}.
+
+CONVERSATION CONTEXT:
+Messages labeled [PREVIOUSLY SENT ANNOUNCEMENT] or [PREVIOUSLY SENT POLL] are broadcasts already sent to all members. Do NOT include their content in the new draft unless the user explicitly asks to reuse them.
+Messages labeled "Bot (draft edit)" show previous draft interactions - use these to understand what draft is being worked on.
 
 RULES:
 1. VERBATIM: "send out [type] saying X" -> X is exactly what to send
 2. FOLLOW-UPS: "wait", "no", "actually" = EDITING, extract only new content
 3. NO META LANGUAGE: Never include "Send out an announcement" in output
 4. EDITING: "wait say X" -> "X", "no just say X" -> "X"
+5. REMOVE REQUESTS: If the user asks to remove/delete specific text from the draft, output the draft WITHOUT that text. Do NOT keep removed content.
+6. ONLY include content the user explicitly wants. Do NOT merge content from old announcements or conversation history into the draft.
+7. When the user says "update" an existing announcement, they want to create a NEW corrected announcement, not combine old ones.
+
+${previousContent ? `The current draft is:\n"${previousContent}"\n\nThe user wants to EDIT this draft. Apply their requested changes and return the FULL updated draft.` : ''}
 
 Return ONLY the exact text to send. No quotes, no explanations.`;
-
-  const historyText = history.length > 0 ? history.map(h => `${h.role}: ${h.text}`).join('\n') : '(no history)';
 
   try {
     const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -101,10 +131,10 @@ Return ONLY the exact text to send. No quotes, no explanations.`;
       model: 'gpt-4o-mini',
       messages: [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: `Recent conversation:\n${historyText}\n\nCurrent: "${message}"\n${previousContent ? `Previous draft: "${previousContent}"` : ''}\n\nExtract text to send:` }
+        { role: 'user', content: `Recent conversation:\n${historyText}\n\nCurrent user message: "${message}"\n\nExtract/edit the text to send:` }
       ],
       temperature: 0.1,
-      max_tokens: 120
+      max_tokens: 500
     });
 
     const content = completion.choices[0].message.content?.trim() || '';
