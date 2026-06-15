@@ -214,6 +214,23 @@ export async function initDatabase() {
       console.log('Note: entry bg columns migration:', error.message);
     }
 
+    // Slack user OAuth tokens table (for reading private channels)
+    try {
+      await db.query(`
+        CREATE TABLE IF NOT EXISTS slack_user_tokens (
+          user_id TEXT PRIMARY KEY REFERENCES users(id),
+          access_token TEXT NOT NULL,
+          team_id TEXT,
+          slack_user_id TEXT,
+          scopes TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
+    } catch (error) {
+      console.log('Note: slack_user_tokens table check:', error.message);
+    }
+
     // Google OAuth tokens table
     try {
       await db.query(`
@@ -1244,6 +1261,44 @@ export async function getStats() {
     dailyActiveUsers: dailyActiveUsersRes.rows,
     leaderboard: leaderboardRes.rows
   };
+}
+
+// ——— Slack user OAuth token storage ———
+
+export async function getSlackUserToken(userId) {
+  const db = getPool();
+  const result = await db.query(
+    `SELECT access_token, team_id, slack_user_id, scopes FROM slack_user_tokens WHERE user_id = $1`,
+    [userId]
+  );
+  return result.rows[0] || null;
+}
+
+export async function getAnySlackUserToken() {
+  const db = getPool();
+  const result = await db.query(
+    `SELECT access_token, team_id, slack_user_id, scopes, user_id FROM slack_user_tokens ORDER BY updated_at DESC LIMIT 1`
+  );
+  return result.rows[0] || null;
+}
+
+export async function saveSlackUserToken(userId, { accessToken, teamId, slackUserId, scopes }) {
+  const db = getPool();
+  await db.query(`
+    INSERT INTO slack_user_tokens (user_id, access_token, team_id, slack_user_id, scopes, updated_at)
+    VALUES ($1, $2, $3, $4, $5, NOW())
+    ON CONFLICT (user_id) DO UPDATE SET
+      access_token = EXCLUDED.access_token,
+      team_id = EXCLUDED.team_id,
+      slack_user_id = EXCLUDED.slack_user_id,
+      scopes = EXCLUDED.scopes,
+      updated_at = NOW()
+  `, [userId, accessToken, teamId || null, slackUserId || null, scopes || null]);
+}
+
+export async function deleteSlackUserToken(userId) {
+  const db = getPool();
+  await db.query(`DELETE FROM slack_user_tokens WHERE user_id = $1`, [userId]);
 }
 
 // ——— Google OAuth token storage ———

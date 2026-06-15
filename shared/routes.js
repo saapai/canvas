@@ -3201,9 +3201,121 @@ IMPORTANT:
     }
   });
 
+  // ——— SLACK USER TOKEN OAUTH ———
+  // Allows an admin to authorize the app with their Slack account,
+  // giving it access to all channels they're in (including private).
+
+  const SLACK_CLIENT_ID = process.env.SLACK_CLIENT_ID;
+  const SLACK_CLIENT_SECRET = process.env.SLACK_CLIENT_SECRET;
+  const SLACK_REDIRECT_URI = process.env.SLACK_REDIRECT_URI || 'https://duttapad.com/api/oauth/slack/callback';
+  const SLACK_USER_SCOPES = 'channels:history,channels:read,groups:history,groups:read,users:read';
+
+  // Step 1: Generate Slack OAuth URL
+  router.get('/api/oauth/slack/auth', requireAuth, (req, res) => {
+    if (!SLACK_CLIENT_ID || !SLACK_CLIENT_SECRET) {
+      return res.status(500).json({ error: 'Slack OAuth not configured. Set SLACK_CLIENT_ID and SLACK_CLIENT_SECRET.' });
+    }
+    const state = req.user.id;
+    const url = `https://slack.com/oauth/v2/authorize?client_id=${SLACK_CLIENT_ID}&user_scope=${SLACK_USER_SCOPES}&redirect_uri=${encodeURIComponent(SLACK_REDIRECT_URI)}&state=${state}`;
+    res.json({ url });
+  });
+
+  // Step 2: Handle OAuth callback
+  router.get('/api/oauth/slack/callback', async (req, res) => {
+    try {
+      const { code, state: userId } = req.query;
+      if (!code || !userId) return res.status(400).send('Missing code or state');
+
+      // Exchange code for user token
+      const tokenRes = await fetch('https://slack.com/api/oauth.v2.access', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: SLACK_CLIENT_ID,
+          client_secret: SLACK_CLIENT_SECRET,
+          code,
+          redirect_uri: SLACK_REDIRECT_URI,
+        }),
+      });
+      const tokenData = await tokenRes.json();
+
+      if (!tokenData.ok) {
+        console.error('[Slack OAuth] Token exchange failed:', tokenData.error);
+        return res.status(400).send(`Slack OAuth failed: ${tokenData.error}`);
+      }
+
+      // Save user token (authed_user contains the user-scope token)
+      const authedUser = tokenData.authed_user;
+      if (!authedUser?.access_token) {
+        return res.status(400).send('No user token returned. Make sure user_scope is requested.');
+      }
+
+      const { saveSlackUserToken } = await import('./db.js');
+      await saveSlackUserToken(userId, {
+        accessToken: authedUser.access_token,
+        teamId: tokenData.team?.id,
+        slackUserId: authedUser.id,
+        scopes: authedUser.scope,
+      });
+
+      // Clear cached client so it picks up the new token
+      const { clearSlackUserClient } = await import('./slack.js');
+      clearSlackUserClient();
+
+      console.log(`[Slack OAuth] User token saved for user ${userId} (Slack user: ${authedUser.id})`);
+
+      const { getUserById } = await import('./db.js');
+      const user = await getUserById(userId);
+      const username = user?.username || '';
+      res.redirect(`/${username}?slack=connected`);
+    } catch (error) {
+      console.error('[Slack OAuth] Callback error:', error);
+      res.status(500).send('Failed to connect Slack account. Please try again.');
+    }
+  });
+
+  // Check Slack user token status
+  router.get('/api/oauth/slack/status', requireAuth, async (req, res) => {
+    try {
+      const { getSlackUserToken } = await import('./db.js');
+      const token = await getSlackUserToken(req.user.id);
+      if (!token) return res.json({ connected: false });
+
+      // Verify token is still valid
+      const { WebClient } = await import('@slack/web-api');
+      const client = new WebClient(token.access_token);
+      try {
+        const authTest = await client.auth.test();
+        res.json({ connected: true, slackUser: authTest.user, team: authTest.team });
+      } catch (e) {
+        // Token is dead
+        const { deleteSlackUserToken } = await import('./db.js');
+        await deleteSlackUserToken(req.user.id);
+        const { clearSlackUserClient } = await import('./slack.js');
+        clearSlackUserClient();
+        res.json({ connected: false, reconnectRequired: true });
+      }
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to check status' });
+    }
+  });
+
+  // Disconnect Slack user token
+  router.delete('/api/oauth/slack/disconnect', requireAuth, async (req, res) => {
+    try {
+      const { deleteSlackUserToken } = await import('./db.js');
+      await deleteSlackUserToken(req.user.id);
+      const { clearSlackUserClient } = await import('./slack.js');
+      clearSlackUserClient();
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: 'Failed to disconnect' });
+    }
+  });
+
   // ——— SLACK INTEGRATION ROUTES ———
 
-  // List Slack channels the bot can access
+  // List Slack channels the app can access (uses user token if available)
   router.get('/api/slack/channels', requireAuth, async (req, res) => {
     try {
       console.log('[Slack] Listing channels for user:', req.user.id);

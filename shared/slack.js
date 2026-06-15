@@ -10,6 +10,7 @@ import { sendSms } from './sms.js';
 import { toE164, getOptedInMembers, createAnnouncement, updateAnnouncement, logMessage } from './sms-db.js';
 
 let _slackClient = null;
+let _slackUserClient = null;
 const _userCache = new Map(); // Slack user ID → display name
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -18,6 +19,9 @@ const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 // SLACK API CLIENT
 // ============================================
 
+/**
+ * Get the bot client (xoxb-) for posting/joining channels.
+ */
 export function getSlackClient() {
   if (!_slackClient) {
     const token = process.env.SLACK_BOT_TOKEN;
@@ -25,6 +29,40 @@ export function getSlackClient() {
     _slackClient = new WebClient(token);
   }
   return _slackClient;
+}
+
+/**
+ * Get a user token client (xoxp-) for reading channels.
+ * User tokens can see all channels the authorizing user is in,
+ * including private channels - no bot invite needed.
+ * Falls back to bot client if no user token is available.
+ */
+export async function getSlackReaderClient() {
+  // Check for cached user client
+  if (_slackUserClient) return _slackUserClient;
+
+  // Try to load user token from database
+  try {
+    const { getAnySlackUserToken } = await import('./db.js');
+    const tokenRow = await getAnySlackUserToken();
+    if (tokenRow?.access_token) {
+      _slackUserClient = new WebClient(tokenRow.access_token);
+      console.log('[Slack] Using user token for reading (can see private channels)');
+      return _slackUserClient;
+    }
+  } catch (e) {
+    // DB not ready yet or no tokens - fall through
+  }
+
+  // Fallback to bot client
+  return getSlackClient();
+}
+
+/**
+ * Clear cached user client (call after token update/revoke).
+ */
+export function clearSlackUserClient() {
+  _slackUserClient = null;
 }
 
 /**
@@ -58,7 +96,7 @@ async function resolveUserNames(userIds) {
 }
 
 export async function listAccessibleChannels() {
-  const client = getSlackClient();
+  const client = await getSlackReaderClient();
   if (!client) throw new Error('Slack not configured');
 
   const channels = [];
@@ -164,7 +202,7 @@ export async function handleSlackEvent(event) {
 }
 
 export async function fetchChannelMessages(channelId, oldestTs = null) {
-  const client = getSlackClient();
+  const client = await getSlackReaderClient();
   if (!client) throw new Error('Slack not configured');
 
   const messages = [];
