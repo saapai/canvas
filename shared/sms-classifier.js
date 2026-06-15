@@ -28,29 +28,6 @@ function patternMatch(message, context) {
     }
   }
 
-  // Keyword patterns that clearly indicate draft_write intent
-  const lower = message.toLowerCase();
-
-  // "text everyone", "tell everyone", "send everyone", "message everyone" (with content following)
-  if (/\b(text|tell|send|message)\s+(everyone|everybody|all|the\s+group)\b/i.test(message)) {
-    return { action: 'draft_write', confidence: 0.95, subtype: 'announcement' };
-  }
-
-  // "send an announcement", "make an announcement", "create an announcement"
-  if (/\b(send|make|create|write)\s+(an?\s+)?announcement\b/i.test(message)) {
-    return { action: 'draft_write', confidence: 0.95, subtype: 'announcement' };
-  }
-
-  // "announce ..." (with content following, not "announce?" which is a question)
-  if (/^announce\b/i.test(lower.trim()) && !lower.trim().endsWith('?')) {
-    return { action: 'draft_write', confidence: 0.95, subtype: 'announcement' };
-  }
-
-  // "blast ..." (send a blast / blast everyone)
-  if (/\bblast\b/i.test(message) && !/\bhow\b/i.test(message)) {
-    return { action: 'draft_write', confidence: 0.95, subtype: 'announcement' };
-  }
-
   // Everything else goes to LLM classification
   return null;
 }
@@ -97,7 +74,14 @@ Current message: "${currentMessage}"
 
 Classify this message into ONE of these actions:
 
-1. **draft_write** - Creating or editing announcement/poll content. The message contains ACTUAL CONTENT to announce or poll about (e.g. "announce meeting at 5pm", "poll: are you coming?", "tell everyone party is at 8", "text everyone ...", "send an announcement ...", "blast everyone ...", "send everyone ...").
+1. **draft_write** - User wants to CREATE or EDIT an announcement or poll. They are providing content to send to the group. This includes ANY of these patterns:
+   - Direct commands: "announce X", "text everyone X", "tell everyone X", "send everyone X", "blast X", "message everyone X"
+   - Explicit requests: "send an announcement saying X", "make an announcement about X", "send out an announcement", "text the boys about the party"
+   - Content with intent: "tell the group meeting is at 5pm", "let everyone know X", "notify the team about X"
+   - Editing an existing draft: "change it to X", "wait say X instead", "update the announcement"
+   - Poll creation: "poll: are you coming?", "ask everyone if X", "make a poll about X"
+   - ANY message where the user clearly wants to broadcast something to the group, even if phrased casually like "yo text everyone we got practice at 3"
+   If the user is talking TO the bot about sending a message to others, it's draft_write. If they're just chatting WITH the bot, it's chat.
 2. **draft_send** - Explicitly confirming to SEND a ready draft. User is saying YES, GO, SEND. Must be clearly affirmative with no hesitation.
 3. **poll_response** - Responding to an active poll (yes/no/maybe with optional notes).
 4. **content_query** - Asking about page content, events, deadlines, or following up on something the bot said. Includes vague follow-up questions like "what work?", "submit what?", "what form?", "tell me more", "what do you mean?".
@@ -118,9 +102,13 @@ ${activeDraft ? `There is currently an ACTIVE DRAFT. Pay very careful attention 
 OTHER RULES:
 - "How do I make an announcement" = capability_query (asking for help, no content)
 - "Announce: meeting at 5pm" = draft_write (has actual content)
+- "text everyone 'THE motherfucking jarvis is back'" = draft_write (broadcasting to group)
+- "send an announcement. text everyone 'party at 8'" = draft_write (explicit announcement intent)
+- "yo text the boys about the game tomorrow" = draft_write (casual but clearly wants to broadcast)
 - "tell me about X", "what is X", "when is X" = content_query
 - Short vague follow-up questions ("what work?", "submit what?", "what form?", "huh?", "what do you mean?", "tell me more", "what was that about?") = content_query (user is asking about something the bot just said)
 - Use conversation history to understand context (higher weight = more recent/relevant)
+- IMPORTANT: If the message mentions "text everyone", "tell everyone", "send everyone", "announce", "blast", "let everyone know", etc. — it is ALWAYS draft_write, never chat. The user wants to broadcast to the group.
 
 Respond with JSON only:
 {
