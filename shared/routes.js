@@ -3212,11 +3212,15 @@ IMPORTANT:
 
   // Step 1: Redirect to Slack OAuth
   router.get('/api/oauth/slack/auth', requireAuth, (req, res) => {
-    if (!SLACK_CLIENT_ID || !SLACK_CLIENT_SECRET) {
+    // Read env vars fresh (serverless may not have them at module init)
+    const clientId = process.env.SLACK_CLIENT_ID;
+    const clientSecret = process.env.SLACK_CLIENT_SECRET;
+    const redirectUri = process.env.SLACK_REDIRECT_URI || 'https://duttapad.com/api/oauth/slack/callback';
+    if (!clientId || !clientSecret) {
       return res.status(500).send('Slack OAuth not configured. Set SLACK_CLIENT_ID and SLACK_CLIENT_SECRET.');
     }
     const state = req.user.id;
-    const url = `https://slack.com/oauth/v2/authorize?client_id=${SLACK_CLIENT_ID}&user_scope=${SLACK_USER_SCOPES}&redirect_uri=${encodeURIComponent(SLACK_REDIRECT_URI)}&state=${state}`;
+    const url = `https://slack.com/oauth/v2/authorize?client_id=${clientId}&user_scope=${SLACK_USER_SCOPES}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}`;
     res.redirect(url);
   });
 
@@ -3226,22 +3230,33 @@ IMPORTANT:
       const { code, state: userId } = req.query;
       if (!code || !userId) return res.status(400).send('Missing code or state');
 
+      // Read env vars fresh (they may not be available at module init in serverless)
+      const clientId = process.env.SLACK_CLIENT_ID;
+      const clientSecret = process.env.SLACK_CLIENT_SECRET;
+      const redirectUri = process.env.SLACK_REDIRECT_URI || 'https://duttapad.com/api/oauth/slack/callback';
+
+      console.log(`[Slack OAuth] Exchanging code. client_id=${clientId ? clientId.substring(0, 10) + '...' : 'MISSING'}, secret=${clientSecret ? clientSecret.substring(0, 6) + '...' : 'MISSING'}, redirect=${redirectUri}`);
+
+      if (!clientId || !clientSecret) {
+        return res.status(500).send('Slack OAuth not configured. SLACK_CLIENT_ID or SLACK_CLIENT_SECRET missing from env.');
+      }
+
       // Exchange code for user token
       const tokenRes = await fetch('https://slack.com/api/oauth.v2.access', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
-          client_id: SLACK_CLIENT_ID,
-          client_secret: SLACK_CLIENT_SECRET,
+          client_id: clientId,
+          client_secret: clientSecret,
           code,
-          redirect_uri: SLACK_REDIRECT_URI,
+          redirect_uri: redirectUri,
         }),
       });
       const tokenData = await tokenRes.json();
 
       if (!tokenData.ok) {
-        console.error('[Slack OAuth] Token exchange failed:', tokenData.error);
-        return res.status(400).send(`Slack OAuth failed: ${tokenData.error}`);
+        console.error('[Slack OAuth] Token exchange failed:', tokenData.error, JSON.stringify(tokenData));
+        return res.status(400).send(`Slack OAuth failed: ${tokenData.error}. Check Vercel logs for details.`);
       }
 
       // Save user token (authed_user contains the user-scope token)
