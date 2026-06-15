@@ -3210,14 +3210,14 @@ IMPORTANT:
   const SLACK_REDIRECT_URI = process.env.SLACK_REDIRECT_URI || 'https://duttapad.com/api/oauth/slack/callback';
   const SLACK_USER_SCOPES = 'channels:history,channels:read,groups:history,groups:read,users:read';
 
-  // Step 1: Generate Slack OAuth URL
+  // Step 1: Redirect to Slack OAuth
   router.get('/api/oauth/slack/auth', requireAuth, (req, res) => {
     if (!SLACK_CLIENT_ID || !SLACK_CLIENT_SECRET) {
-      return res.status(500).json({ error: 'Slack OAuth not configured. Set SLACK_CLIENT_ID and SLACK_CLIENT_SECRET.' });
+      return res.status(500).send('Slack OAuth not configured. Set SLACK_CLIENT_ID and SLACK_CLIENT_SECRET.');
     }
     const state = req.user.id;
     const url = `https://slack.com/oauth/v2/authorize?client_id=${SLACK_CLIENT_ID}&user_scope=${SLACK_USER_SCOPES}&redirect_uri=${encodeURIComponent(SLACK_REDIRECT_URI)}&state=${state}`;
-    res.json({ url });
+    res.redirect(url);
   });
 
   // Step 2: Handle OAuth callback
