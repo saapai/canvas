@@ -580,6 +580,50 @@ export async function syncAllChannels() {
     console.error('[Slack:sync] Auto-join failed:', err.message);
   }
 
+  // Auto-discover channels visible via user token and add missing ones to syncs
+  try {
+    const { getAnySlackUserToken } = await import('./db.js');
+    const userToken = await getAnySlackUserToken();
+    if (userToken?.access_token) {
+      const existingSyncs = await slackDb.getAllEnabledSyncs();
+      const allSyncs = await slackDb.getAllSyncs(); // includes disabled - don't re-add intentionally disabled channels
+      const syncedChannelIds = new Set(allSyncs.map(s => s.channel_id));
+
+      // Find all entry_ids and user_ids from existing syncs to know which page to attach to
+      const entryId = existingSyncs[0]?.entry_id;
+      const userId = userToken.user_id;
+
+      if (entryId) {
+        const readerClient = new WebClient(userToken.access_token);
+        let allChannels = [];
+        let cursor;
+        do {
+          const result = await readerClient.conversations.list({
+            types: 'public_channel,private_channel',
+            exclude_archived: true,
+            limit: 200,
+            cursor
+          });
+          allChannels.push(...(result.channels || []));
+          cursor = result.response_metadata?.next_cursor;
+        } while (cursor);
+
+        let added = 0;
+        for (const ch of allChannels) {
+          if (!syncedChannelIds.has(ch.id) && ch.is_member) {
+            await slackDb.createSlackSync(userId, entryId, ch.id, ch.name);
+            added++;
+          }
+        }
+        if (added > 0) {
+          console.log(`[Slack:sync] Auto-discovered and added ${added} new channels via user token`);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[Slack:sync] Auto-discover channels failed:', err.message);
+  }
+
   const syncs = await slackDb.getAllEnabledSyncs();
   const results = [];
 

@@ -73,6 +73,14 @@ export async function getAllEnabledSyncs() {
   return result.rows;
 }
 
+export async function getAllSyncs() {
+  const db = getPool();
+  const result = await db.query(
+    `SELECT * FROM slack_syncs ORDER BY created_at ASC`
+  );
+  return result.rows;
+}
+
 export async function updateSyncTimestamp(syncId, lastSyncTs) {
   const db = getPool();
   await db.query(
