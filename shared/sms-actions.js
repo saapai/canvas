@@ -454,9 +454,16 @@ export async function getContentQueryAnswer(entryId, question, opts = {}) {
 
   // Fetch announcements (sent ones are most relevant)
   const announcements = await smsDb.getAnnouncements(entryId);
-  const announcementsContext = announcements.slice(0, 20).map(a =>
-    `[Announcement ${a.status}${a.sent_at ? ' ' + new Date(a.sent_at).toLocaleDateString() : ''}] ${a.content}`
-  ).join('\n');
+  const dayNames2 = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
+  const announcementsContext = announcements.slice(0, 20).map(a => {
+    const dateSource = a.sent_at || a.created_at;
+    let dateStr = '';
+    if (dateSource) {
+      const d = new Date(dateSource);
+      dateStr = ` sent ${dayNames2[d.getDay()]} ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+    }
+    return `[Announcement ${a.status}${dateStr}] ${a.content}`;
+  }).join('\n');
 
   // Fetch polls with response summaries
   const polls = await smsDb.getPolls(entryId);
@@ -562,7 +569,7 @@ If the answer isn't in the content, say you don't know. Never make things up.
 
 CRITICAL RULES:
 1. Slack messages are the MOST RELIABLE source. ALWAYS prefer Slack details over vague page entries.
-2. "today" in a Slack message means the day it was SENT, not today's date. Resolve relative times using the sent date.
+2. "today", "tomorrow", "tonight" in a Slack message OR announcement means the day it was SENT, not today's date. Resolve relative times using the sent date shown in brackets. For example, if an announcement "sent Wednesday Jun 10" says "today at 3pm", that means Wednesday Jun 10 at 3pm — NOT today.
 3. IMPORTANT — SEPARATE EVENTS: A single Slack message may mention MULTIPLE events (e.g. "No meeting because of PFC" + "pregame at Allie's" + "formal is Thursday"). You MUST carefully distinguish which details belong to which event:
    - "formal" = the formal event (venue, dress code, uber time, formal address)
    - "PFC" / "pregame" / "buses" = Pan-Fraternity Council event (different event, different logistics)

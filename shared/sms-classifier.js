@@ -28,6 +28,29 @@ function patternMatch(message, context) {
     }
   }
 
+  // Keyword patterns that clearly indicate draft_write intent
+  const lower = message.toLowerCase();
+
+  // "text everyone", "tell everyone", "send everyone", "message everyone" (with content following)
+  if (/\b(text|tell|send|message)\s+(everyone|everybody|all|the\s+group)\b/i.test(message)) {
+    return { action: 'draft_write', confidence: 0.95, subtype: 'announcement' };
+  }
+
+  // "send an announcement", "make an announcement", "create an announcement"
+  if (/\b(send|make|create|write)\s+(an?\s+)?announcement\b/i.test(message)) {
+    return { action: 'draft_write', confidence: 0.95, subtype: 'announcement' };
+  }
+
+  // "announce ..." (with content following, not "announce?" which is a question)
+  if (/^announce\b/i.test(lower.trim()) && !lower.trim().endsWith('?')) {
+    return { action: 'draft_write', confidence: 0.95, subtype: 'announcement' };
+  }
+
+  // "blast ..." (send a blast / blast everyone)
+  if (/\bblast\b/i.test(message) && !/\bhow\b/i.test(message)) {
+    return { action: 'draft_write', confidence: 0.95, subtype: 'announcement' };
+  }
+
   // Everything else goes to LLM classification
   return null;
 }
@@ -74,7 +97,7 @@ Current message: "${currentMessage}"
 
 Classify this message into ONE of these actions:
 
-1. **draft_write** - Creating or editing announcement/poll content. The message contains ACTUAL CONTENT to announce or poll about (e.g. "announce meeting at 5pm", "poll: are you coming?", "tell everyone party is at 8").
+1. **draft_write** - Creating or editing announcement/poll content. The message contains ACTUAL CONTENT to announce or poll about (e.g. "announce meeting at 5pm", "poll: are you coming?", "tell everyone party is at 8", "text everyone ...", "send an announcement ...", "blast everyone ...", "send everyone ...").
 2. **draft_send** - Explicitly confirming to SEND a ready draft. User is saying YES, GO, SEND. Must be clearly affirmative with no hesitation.
 3. **poll_response** - Responding to an active poll (yes/no/maybe with optional notes).
 4. **content_query** - Asking about page content, events, deadlines, or following up on something the bot said. Includes vague follow-up questions like "what work?", "submit what?", "what form?", "tell me more", "what do you mean?".
