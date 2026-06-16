@@ -275,9 +275,11 @@ export async function handleIncomingSms(phone, message) {
     ? history.map(turn => `${turn.role === 'user' ? 'User' : 'Bot'}: ${turn.content}`).join('\n')
     : undefined;
 
+  // For draft actions, pass a neutral userMessage to prevent the insult detector
+  // from replacing the entire response with a comeback when the draft content has profanity
   const finalResponse = await applyPersonalityAsync({
     baseResponse: actionResult.response,
-    userMessage: msg,
+    userMessage: isDraftAction ? 'send announcement' : msg,
     userName: member.name,
     useLLM: !isDraftAction,
     conversationHistory: historyString

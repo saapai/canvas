@@ -196,7 +196,7 @@ export async function handleDraftWrite({ phone, message, userName, isAdmin, clas
       await smsDb.createDraft(phone, entryId, draftType, formattedContent, { pendingMandatory: true, requiresExcuse: false });
       return {
         action: 'draft_write',
-        response: applyPersonality({ baseResponse: `here's the poll:\n\n"${formattedContent}"\n\nshould people need to give an excuse if they say no? (yes/no)`, userMessage: message, userName }),
+        response: `here's the poll:\n\n"${formattedContent}"\n\nshould people need to give an excuse if they say no? (yes/no)`,
         newDraft: { type: draftType, content: formattedContent, status: 'drafting', pendingMandatory: true }
       };
     }
@@ -204,7 +204,7 @@ export async function handleDraftWrite({ phone, message, userName, isAdmin, clas
     await smsDb.createDraft(phone, entryId, draftType, formattedContent, { requiresExcuse: false });
     return {
       action: 'draft_write',
-      response: applyPersonality({ baseResponse: TEMPLATES.draftCreated(draftType, formattedContent), userMessage: message, userName }),
+      response: TEMPLATES.draftCreated(draftType, formattedContent),
       newDraft: { type: draftType, content: formattedContent, status: 'ready' }
     };
   }
@@ -221,7 +221,7 @@ export async function handleDraftWrite({ phone, message, userName, isAdmin, clas
     const excuseNote = requiresExcuse ? ' (mandatory - excuses required for "no")' : '';
     return {
       action: 'draft_write',
-      response: applyPersonality({ baseResponse: `got it! here's the poll:\n\n"${existingDraft.content}"${excuseNote}\n\nsay "send" when ready`, userMessage: message, userName }),
+      response: `got it! here's the poll:\n\n"${existingDraft.content}"${excuseNote}\n\nsay "send" when ready`,
       newDraft: { ...existingDraft, status: 'ready', requiresExcuse, pendingMandatory: false }
     };
   }
@@ -236,7 +236,7 @@ export async function handleDraftWrite({ phone, message, userName, isAdmin, clas
       }, entryId);
       return {
         action: 'draft_write',
-        response: applyPersonality({ baseResponse: `got it! here's the ${existingDraft.type}:\n\n"${existingDraft.content}"\n\nsay "send" when ready`, userMessage: message, userName }),
+        response: `got it! here's the ${existingDraft.type}:\n\n"${existingDraft.content}"\n\nsay "send" when ready`,
         newDraft: { ...existingDraft, status: 'ready', pendingLink: false }
       };
     }
@@ -246,7 +246,7 @@ export async function handleDraftWrite({ phone, message, userName, isAdmin, clas
       await smsDb.updateDraftByPhone(phone, { draftText: updatedContent }, entryId);
       return {
         action: 'draft_write',
-        response: applyPersonality({ baseResponse: `perfect! here's the ${existingDraft.type} with the link:\n\n"${updatedContent}"\n\nsay "send" when ready`, userMessage: message, userName }),
+        response: `perfect! here's the ${existingDraft.type} with the link:\n\n"${updatedContent}"\n\nsay "send" when ready`,
         newDraft: { ...existingDraft, content: updatedContent, status: 'ready', pendingLink: false, links: linkAnalysis.links }
       };
     }
@@ -262,7 +262,7 @@ export async function handleDraftWrite({ phone, message, userName, isAdmin, clas
     await smsDb.updateDraftByPhone(phone, { draftText: content }, entryId);
     return {
       action: 'draft_write',
-      response: applyPersonality({ baseResponse: TEMPLATES.draftCreated(existingDraft.type, content), userMessage: message, userName }),
+      response: TEMPLATES.draftCreated(existingDraft.type, content),
       newDraft: { ...existingDraft, content, status: 'ready' }
     };
   }
@@ -273,7 +273,7 @@ export async function handleDraftWrite({ phone, message, userName, isAdmin, clas
     await smsDb.updateDraftByPhone(phone, { draftText: editedContent }, entryId);
     return {
       action: 'draft_write',
-      response: applyPersonality({ baseResponse: TEMPLATES.draftUpdated(editedContent), userMessage: message, userName }),
+      response: TEMPLATES.draftUpdated(editedContent),
       newDraft: { ...existingDraft, content: editedContent }
     };
   }
@@ -316,7 +316,7 @@ export async function handleDraftSend({ phone, message, userName, isAdmin, sendA
     await smsDb.finalizeDraft(phone, entryId);
     return {
       action: 'draft_send',
-      response: applyPersonality({ baseResponse: TEMPLATES.draftSent(sentCount), userMessage: message, userName }),
+      response: TEMPLATES.draftSent(sentCount),
       newDraft: undefined
     };
   } catch (error) {
