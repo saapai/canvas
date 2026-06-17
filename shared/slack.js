@@ -219,6 +219,61 @@ export async function fetchChannelMessages(channelId, oldestTs = null) {
     if (messages.length >= 500) break;
   } while (cursor);
 
+  // Also fetch recently edited messages that we may have already synced.
+  // Edited messages keep their original ts, so they're missed by the oldest filter.
+  // Re-fetch the last 24 hours of messages to catch edits.
+  if (oldestTs) {
+    try {
+      const oneDayAgo = String(Date.now() / 1000 - 86400);
+      // Only re-fetch if our last sync was more than an hour ago
+      if (parseFloat(oldestTs) < parseFloat(oneDayAgo)) {
+        const recentResult = await client.conversations.history({
+          channel: channelId,
+          oldest: oneDayAgo,
+          limit: 50,
+        });
+        const recentFiltered = (recentResult.messages || []).filter(m =>
+          m.type === 'message' && !m.subtype && m.edited
+        );
+        // Add edited messages we haven't already included
+        const existingTs = new Set(messages.map(m => m.ts));
+        for (const m of recentFiltered) {
+          if (!existingTs.has(m.ts)) {
+            messages.push(m);
+          }
+        }
+        if (recentFiltered.length > 0) {
+          console.log(`[Slack:fetch] Found ${recentFiltered.length} edited messages to re-process`);
+        }
+      }
+    } catch (err) {
+      console.error('[Slack:fetch] Error fetching edited messages:', err.message);
+    }
+  }
+
+  // Fetch thread replies for messages that have them
+  const messagesWithReplies = messages.filter(m => m.reply_count > 0);
+  for (const parentMsg of messagesWithReplies.slice(0, 10)) { // Cap at 10 threads per sync
+    try {
+      const threadResult = await client.conversations.replies({
+        channel: channelId,
+        ts: parentMsg.ts,
+        limit: 20,
+      });
+      const replies = (threadResult.messages || [])
+        .filter(m => m.ts !== parentMsg.ts && m.type === 'message' && !m.subtype);
+      if (replies.length > 0) {
+        // Append thread context to parent message text so the fact extractor sees it
+        const replyTexts = replies.map(r => r.text).join('\n');
+        parentMsg.text = `${parentMsg.text}\n\n[Thread replies:]\n${replyTexts}`;
+        parentMsg._hasThreadContext = true;
+      }
+    } catch (err) {
+      // Don't fail the whole sync for thread errors
+      console.error(`[Slack:fetch] Error fetching thread for ${parentMsg.ts}:`, err.message);
+    }
+  }
+
   return messages;
 }
 

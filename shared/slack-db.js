@@ -109,7 +109,7 @@ export async function saveFact({ syncId, entryId, channelId, messageTs, messageD
     `INSERT INTO slack_facts (id, sync_id, entry_id, channel_id, message_ts, message_date, author, raw_text, extracted_fact, fact_type, deadline_date)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
      ON CONFLICT (sync_id, message_ts) DO UPDATE
-       SET extracted_fact = EXCLUDED.extracted_fact, fact_type = EXCLUDED.fact_type, deadline_date = EXCLUDED.deadline_date
+       SET extracted_fact = EXCLUDED.extracted_fact, raw_text = EXCLUDED.raw_text, fact_type = EXCLUDED.fact_type, deadline_date = EXCLUDED.deadline_date
      RETURNING *`,
     [id, syncId, entryId, channelId, messageTs, messageDate || null, author || null, rawText || null, extractedFact, factType || 'info', deadlineDate || null]
   );
