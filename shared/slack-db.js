@@ -116,6 +116,19 @@ export async function saveFact({ syncId, entryId, channelId, messageTs, messageD
   return result.rows[0];
 }
 
+export async function saveAnnouncementAsFact({ entryId, announcementId, content, author, sentAt, factType = 'announcement' }) {
+  const db = getPool();
+  const id = crypto.randomUUID();
+  const result = await db.query(
+    `INSERT INTO slack_facts (id, sync_id, entry_id, channel_id, message_ts, message_date, author, raw_text, extracted_fact, fact_type, source)
+     VALUES ($1, NULL, $2, 'sms', $3, $4, $5, $6, $6, $7, 'sms_announcement')
+     ON CONFLICT DO NOTHING
+     RETURNING *`,
+    [id, entryId, announcementId, sentAt || new Date(), author || null, content, factType]
+  );
+  return result.rows[0] || null;
+}
+
 export async function getFactsByEntry(entryId, { currentOnly = true, limit = 50 } = {}) {
   const db = getPool();
   let query = `SELECT f.*, s.channel_name FROM slack_facts f

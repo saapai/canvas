@@ -511,8 +511,8 @@ export async function getContentQueryAnswer(entryId, question, opts = {}) {
             ? ` [EVENT ALREADY PASSED: ${ed.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}]`
             : ` [EVENT DATE: ${dayNames[ed.getDay()]} ${ed.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}]`;
         }
-        const chName = f.channel_name || 'unknown';
-        let line = `[#${chName} sent ${dateStr}]${eventDateStr} ${f.extracted_fact}`;
+        const chName = f.source === 'sms_announcement' ? 'SMS announcement' : (f.channel_name || 'unknown');
+        let line = `[${chName} sent ${dateStr}]${eventDateStr} ${f.extracted_fact}`;
 
         const msgDate = f.message_date ? new Date(f.message_date) : null;
         if (isPastDeadline || (msgDate && msgDate < twoWeeksAgo)) {

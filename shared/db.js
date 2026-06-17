@@ -520,6 +520,10 @@ export async function initDatabase() {
       await db.query(`CREATE INDEX IF NOT EXISTS idx_slack_facts_current ON slack_facts(is_current)`);
       await db.query(`CREATE INDEX IF NOT EXISTS idx_slack_facts_type ON slack_facts(fact_type)`);
       await db.query(`ALTER TABLE slack_facts ADD COLUMN IF NOT EXISTS digested_at TIMESTAMP`);
+      // Unified fact store: allow non-Slack sources (SMS announcements, polls)
+      await db.query(`ALTER TABLE slack_facts ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'slack'`);
+      await db.query(`ALTER TABLE slack_facts ALTER COLUMN sync_id DROP NOT NULL`);
+      await db.query(`ALTER TABLE slack_facts ALTER COLUMN channel_id DROP NOT NULL`);
     } catch (error) {
       console.log('Note: slack_facts table check:', error.message);
     }

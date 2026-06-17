@@ -424,10 +424,29 @@ async function sendAnnouncementToAll(content, senderPhone, entryId) {
 
   // Also create announcement record
   await smsDb.createAnnouncement(entryId, content, smsDb.normalizePhone(senderPhone));
-  await smsDb.updateAnnouncement(
-    (await smsDb.getAnnouncements(entryId))[0]?.id,
-    { status: 'sent', sent_count: sent, sent_at: new Date() }
-  );
+  const announcementRecord = (await smsDb.getAnnouncements(entryId))[0];
+  if (announcementRecord) {
+    await smsDb.updateAnnouncement(announcementRecord.id, { status: 'sent', sent_count: sent, sent_at: new Date() });
+
+    // Create a fact in the unified knowledge base so content queries find it
+    try {
+      const slackDb = await import('./slack-db.js');
+      const newFact = await slackDb.saveAnnouncementAsFact({
+        entryId,
+        announcementId: announcementRecord.id,
+        content,
+        author: smsDb.normalizePhone(senderPhone),
+        sentAt: new Date(),
+      });
+      // Run recency bias to supersede conflicting old facts
+      if (newFact) {
+        const { handleRecencyBias } = await import('./slack.js');
+        await handleRecencyBias(entryId, [newFact]);
+      }
+    } catch (factErr) {
+      console.error('[Announce] Failed to create fact (non-blocking):', factErr.message);
+    }
+  }
 
   console.log(`[Announce] Complete: sent=${sent}`);
   return sent;
