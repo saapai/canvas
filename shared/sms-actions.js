@@ -485,7 +485,7 @@ export async function getContentQueryAnswer(entryId, question, opts = {}) {
   let slackFactsContext = '';
   try {
     const slackDb = await import('./slack-db.js');
-    const slackFacts = await slackDb.getFactsByEntry(entryId, { currentOnly: true, limit: 50 });
+    const slackFacts = await slackDb.getFactsByEntry(entryId, { currentOnly: true, limit: 200 });
     if (slackFacts.length > 0) {
       // Group facts by channel name for clearer context
       const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
@@ -583,7 +583,7 @@ CRITICAL RULES:
    - Adjacent fact from same channel/date: "If you called an Uber yesterday, get your ride comped" | original: "uber... forms.gle/..."
    → These are RELATED. The "submit" refers to the uber reimbursement form. Your answer should say "submit the uber reimbursement form" with the URL.
    - ALWAYS combine the specific details from related facts. NEVER give a vague answer when specific details exist in adjacent facts.
-8. FOLLOW-UP QUESTIONS — CRITICAL: When the user asks vague questions like "what work?", "submit what?", "what form?", "what do you mean?", "tell me more", they are ALWAYS referring to something the bot recently said. You MUST:
+8. FOLLOW-UP QUESTIONS — CRITICAL: When the user asks short or vague questions like "what work?", "submit what?", "what form?", "what do you mean?", "tell me more", "and where", "and when", "what time", "who said that", they are ALWAYS referring to the previous topic in the conversation. You MUST:
    a. Look at RECENT NOTIFICATIONS and CONVERSATION HISTORY to find what was last said
    b. Find the matching Slack fact/original message for that notification
    c. Connect it to related facts from the same channel (see rule 7)
@@ -607,7 +607,10 @@ ${pollsContext || '(none)'}`;
 
   // For follow-up questions, augment the user message with what was recently said
   let userMessage = question;
-  if (recentNotificationsContext && /\b(what|submit|which|huh|tell me|more|mean|explain)\b/i.test(question)) {
+  const isFollowUp = question.length < 30 && /\b(what|where|when|who|submit|which|huh|tell me|more|mean|explain|and\s|how)\b/i.test(question);
+  if (isFollowUp && conversationContext) {
+    userMessage = `User asks: "${question}"\n\nThis is a SHORT FOLLOW-UP to the previous conversation. Look at the RECENT CONVERSATION above to understand what topic the user is referring to, then answer specifically about THAT topic. For example, if the bot just told them about "active meeting" and they ask "and where", answer WHERE the active meeting is.`;
+  } else if (recentNotificationsContext && isFollowUp) {
     userMessage = `User asks: "${question}"\n\nThis is likely a follow-up about a recent notification. Find the SPECIFIC details (form names, URLs, actions) from the Slack facts that relate to the notification, and include them in your answer. Do NOT say "check the original message" — include the details directly.`;
   }
 
