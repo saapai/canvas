@@ -452,31 +452,21 @@ export async function getContentQueryAnswer(entryId, question, opts = {}) {
     return text;
   }).filter(Boolean).join('\n---\n');
 
-  // Fetch announcements - split into recent (last 14 days) and older
+  // Fetch SMS announcements and fold them into the unified knowledge context
+  // (these are announcements sent via the SMS bot, not from Slack)
   const announcements = await smsDb.getAnnouncements(entryId);
+  const smsAnnouncementLines = [];
   const dayNames2 = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-  const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
-  const recentAnnouncements = [];
-  const olderAnnouncements = [];
-  for (const a of announcements) {
+  for (const a of announcements.slice(0, 20)) {
     const dateSource = a.sent_at || a.created_at;
     const d = dateSource ? new Date(dateSource) : null;
-    const dateStr = d ? ` sent ${dayNames2[d.getDay()]} ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : '';
-    const line = `[Announcement${dateStr}] ${a.content}`;
-    if (d && d >= twoWeeksAgo) {
-      recentAnnouncements.push(line);
-    } else {
-      olderAnnouncements.push(line);
-    }
+    const dateStr = d ? `${dayNames2[d.getDay()]} ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : '';
+    smsAnnouncementLines.push(`[SMS announcement sent ${dateStr}] ${a.content}`);
   }
-  // Recent announcements get full context; older ones get a summary header
-  let announcementsContext = '';
-  if (recentAnnouncements.length > 0) {
-    announcementsContext += 'RECENT (last 2 weeks):\n' + recentAnnouncements.slice(0, 15).join('\n');
-  }
-  if (olderAnnouncements.length > 0) {
-    announcementsContext += '\n\nOLDER (these events have ALREADY HAPPENED — only reference if user asks about past events):\n' + olderAnnouncements.slice(0, 10).join('\n');
-  }
+  // announcementsContext will be merged into the unified knowledge section below
+  const announcementsContext = smsAnnouncementLines.length > 0
+    ? smsAnnouncementLines.join('\n')
+    : '';
 
   // Fetch polls with response summaries
   const polls = await smsDb.getPolls(entryId);
@@ -500,29 +490,45 @@ export async function getContentQueryAnswer(entryId, question, opts = {}) {
     const slackDb = await import('./slack-db.js');
     const slackFacts = await slackDb.getFactsByEntry(entryId, { currentOnly: true, limit: 200 });
     if (slackFacts.length > 0) {
-      // Group facts by channel name for clearer context
       const dayNames = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-      const byChannel = {};
+      const now = new Date();
+      const twoWeeksAgo = new Date(now - 14 * 24 * 60 * 60 * 1000);
+
+      // Split facts into current/relevant vs past/stale
+      const recentFacts = [];
+      const pastFacts = [];
       for (const f of slackFacts) {
-        const chName = f.channel_name || f.channel_id || 'unknown';
-        if (!byChannel[chName]) byChannel[chName] = [];
         let dateStr = '';
         if (f.message_date) {
           const d = new Date(f.message_date);
-          dateStr = `${dayNames[d.getDay()]} ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+          dateStr = `${dayNames[d.getDay()]} ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
         }
         let eventDateStr = '';
+        const isPastDeadline = f.deadline_date && new Date(f.deadline_date) < now;
         if (f.deadline_date) {
           const ed = new Date(f.deadline_date);
-          eventDateStr = ` [EVENT DATE: ${dayNames[ed.getDay()]} ${ed.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}]`;
+          eventDateStr = isPastDeadline
+            ? ` [EVENT ALREADY PASSED: ${ed.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}]`
+            : ` [EVENT DATE: ${dayNames[ed.getDay()]} ${ed.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}]`;
         }
-        let line = `[sent ${dateStr}]${eventDateStr} ${f.extracted_fact}`;
-        if (f.raw_text && f.raw_text !== f.extracted_fact) line += ` | original msg: "${f.raw_text.substring(0, 500)}"`;
-        byChannel[chName].push(line);
+        const chName = f.channel_name || 'unknown';
+        let line = `[#${chName} sent ${dateStr}]${eventDateStr} ${f.extracted_fact}`;
+
+        const msgDate = f.message_date ? new Date(f.message_date) : null;
+        if (isPastDeadline || (msgDate && msgDate < twoWeeksAgo)) {
+          pastFacts.push(line);
+        } else {
+          recentFacts.push(line);
+        }
       }
-      slackFactsContext = Object.entries(byChannel).map(([ch, lines]) =>
-        `#${ch}:\n${lines.join('\n')}`
-      ).join('\n\n');
+
+      slackFactsContext = '';
+      if (recentFacts.length > 0) {
+        slackFactsContext += 'CURRENT/RECENT:\n' + recentFacts.join('\n');
+      }
+      if (pastFacts.length > 0) {
+        slackFactsContext += '\n\nPAST (events already happened, deadlines passed — only reference for historical questions):\n' + pastFacts.slice(0, 30).join('\n');
+      }
     }
     console.log('[ContentQuery] Slack facts loaded:', slackFacts.length, 'for entry', entryId);
     if (slackFactsContext) console.log('[ContentQuery] Slack facts content:\n' + slackFactsContext);
@@ -610,17 +616,15 @@ CRITICAL RULES:
 
 ${recentNotificationsContext ? `RECENT NOTIFICATIONS SENT TO THIS USER (check these FIRST for follow-up questions):\n${recentNotificationsContext}\n` : ''}
 ${conversationContext ? `RECENT CONVERSATION (use to understand what user is referring to):\n${conversationContext}\n` : ''}
-Slack channel messages (MOST IMPORTANT — grouped by channel):
-${slackFactsContext || '(none synced)'}
+=== KNOWLEDGE BASE (unified from all sources) ===
 
-Page entries/content:
-${entriesContext || '(no entries yet)'}
+${slackFactsContext || '(no Slack facts)'}
 
-Announcements:
-${announcementsContext || '(none)'}
+${announcementsContext ? `SMS Announcements (sent by admins via text):\n${announcementsContext}` : ''}
 
-Polls:
-${pollsContext || '(none)'}`;
+${pollsContext ? `Polls:\n${pollsContext}` : ''}
+
+${entriesContext ? `Page content:\n${entriesContext}` : ''}`;
 
   // For follow-up questions, augment the user message with what was recently said
   let userMessage = question;
