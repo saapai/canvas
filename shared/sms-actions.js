@@ -452,18 +452,31 @@ export async function getContentQueryAnswer(entryId, question, opts = {}) {
     return text;
   }).filter(Boolean).join('\n---\n');
 
-  // Fetch announcements (sent ones are most relevant)
+  // Fetch announcements - split into recent (last 14 days) and older
   const announcements = await smsDb.getAnnouncements(entryId);
   const dayNames2 = ['Sunday','Monday','Tuesday','Wednesday','Thursday','Friday','Saturday'];
-  const announcementsContext = announcements.slice(0, 20).map(a => {
+  const twoWeeksAgo = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+  const recentAnnouncements = [];
+  const olderAnnouncements = [];
+  for (const a of announcements) {
     const dateSource = a.sent_at || a.created_at;
-    let dateStr = '';
-    if (dateSource) {
-      const d = new Date(dateSource);
-      dateStr = ` sent ${dayNames2[d.getDay()]} ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+    const d = dateSource ? new Date(dateSource) : null;
+    const dateStr = d ? ` sent ${dayNames2[d.getDay()]} ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}` : '';
+    const line = `[Announcement${dateStr}] ${a.content}`;
+    if (d && d >= twoWeeksAgo) {
+      recentAnnouncements.push(line);
+    } else {
+      olderAnnouncements.push(line);
     }
-    return `[Announcement ${a.status}${dateStr}] ${a.content}`;
-  }).join('\n');
+  }
+  // Recent announcements get full context; older ones get a summary header
+  let announcementsContext = '';
+  if (recentAnnouncements.length > 0) {
+    announcementsContext += 'RECENT (last 2 weeks):\n' + recentAnnouncements.slice(0, 15).join('\n');
+  }
+  if (olderAnnouncements.length > 0) {
+    announcementsContext += '\n\nOLDER (these events have ALREADY HAPPENED — only reference if user asks about past events):\n' + olderAnnouncements.slice(0, 10).join('\n');
+  }
 
   // Fetch polls with response summaries
   const polls = await smsDb.getPolls(entryId);
@@ -569,7 +582,11 @@ If the EXACT answer isn't stated, REASON from what you have. Use older facts, pa
 
 CRITICAL RULES:
 1. Slack messages are the MOST RELIABLE source. ALWAYS prefer Slack details over vague page entries.
-2. "today", "tomorrow", "tonight" in a Slack message OR announcement means the day it was SENT, not today's date. Resolve relative times using the sent date shown in brackets. For example, if an announcement "sent Wednesday Jun 10" says "today at 3pm", that means Wednesday Jun 10 at 3pm — NOT today.
+2. TIME AWARENESS — THIS IS CRITICAL:
+   - "today", "tomorrow", "tonight", "right now", "happening now" in a message means the day it was SENT, not today's date.
+   - Check the sent date in brackets. An announcement "sent Sat May 17, 2026" saying "happening right now" means it happened on May 17 — it is NOT happening today.
+   - If an event's date has ALREADY PASSED (sent date is before today ${todayStr}), say "that was on [date]" or "that already happened on [date]". NEVER say it's happening "now" or "today" if the sent date is in the past.
+   - Announcements marked OLDER have already happened. Only reference them for historical questions ("when WAS creatathon", "where WAS the last meeting").
 3. IMPORTANT — SEPARATE EVENTS: A single Slack message may mention MULTIPLE events (e.g. "No meeting because of PFC" + "pregame at Allie's" + "formal is Thursday"). You MUST carefully distinguish which details belong to which event:
    - "formal" = the formal event (venue, dress code, uber time, formal address)
    - "PFC" / "pregame" / "buses" = Pan-Fraternity Council event (different event, different logistics)
