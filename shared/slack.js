@@ -625,6 +625,20 @@ export async function syncChannel(syncRecord) {
 // ============================================
 
 export async function syncAllChannels() {
+  // Auto-expire facts with past deadlines so they don't pollute current context
+  try {
+    const { getPool } = await import('./db.js');
+    const db = getPool();
+    const expired = await db.query(
+      `UPDATE slack_facts SET is_current = false WHERE deadline_date < NOW() AND is_current = true RETURNING id`
+    );
+    if (expired.rows.length > 0) {
+      console.log(`[Slack:sync] Auto-expired ${expired.rows.length} facts with past deadlines`);
+    }
+  } catch (err) {
+    console.error('[Slack:sync] Auto-expire failed:', err.message);
+  }
+
   // Auto-join any public channels the bot isn't in yet
   try {
     const joinResult = await joinAllPublicChannels();
