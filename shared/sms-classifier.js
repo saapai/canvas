@@ -99,6 +99,11 @@ ${activeDraft ? `There is currently an ACTIVE DRAFT. Pay very careful attention 
 - When in doubt between draft_send and chat, choose chat. A false cancel is easily fixed; a false send goes to all members and CANNOT be undone.
 - draft_write = user is EDITING the draft content (e.g. "wait, say X instead", "change it to Y", "actually make it about Z")
 
+POLL RESPONSE RULES:
+- If there is an active poll and the user's message is a yes/no/maybe answer (even with notes), classify as poll_response — NOT chat.
+- "no" / "nah" / "can't make it" / "nah i got work" / "yes" / "maybe" = poll_response when there IS an active poll.
+- The draft cancel rules (negativity = chat) ONLY apply when there is an active DRAFT. If there is an active POLL but NO active draft, negative messages are poll responses, not cancellations.
+
 OTHER RULES:
 - "How do I make an announcement" = capability_query (asking for help, no content)
 - "Announce: meeting at 5pm" = draft_write (has actual content)
@@ -106,9 +111,13 @@ OTHER RULES:
 - "send an announcement. text everyone 'party at 8'" = draft_write (explicit announcement intent)
 - "yo text the boys about the game tomorrow" = draft_write (casual but clearly wants to broadcast)
 - "tell me about X", "what is X", "when is X" = content_query
-- Short vague follow-up questions ("what work?", "submit what?", "what form?", "huh?", "what do you mean?", "tell me more", "what was that about?") = content_query (user is asking about something the bot just said)
+- Short vague follow-up questions ("what work?", "submit what?", "what form?", "huh?", "what do you mean?", "tell me more", "what was that about?") = content_query
 - Use conversation history to understand context (higher weight = more recent/relevant)
-- IMPORTANT: If the message mentions "text everyone", "tell everyone", "send everyone", "announce", "blast", "let everyone know", etc. — it is ALWAYS draft_write, never chat. The user wants to broadcast to the group.
+
+DRAFT_WRITE REQUIRES EXPLICIT BROADCAST INTENT:
+- draft_write needs a CLEAR signal the user wants to broadcast: "text everyone", "announce", "tell the group", "send an announcement", "blast", "let everyone know".
+- A bare statement like "meeting at 5pm" or "practice tomorrow" WITHOUT any broadcast keyword is content_query or chat — NOT draft_write. The user is asking or stating, not requesting a broadcast.
+- PAST TENSE = NOT draft_write. "I told everyone about the party" and "I let everyone know last night" are chat (describing past actions), not draft_write.
 
 Respond with JSON only:
 {
