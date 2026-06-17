@@ -415,7 +415,7 @@ export async function createAnnouncement(entryId, content, createdBy = null, sou
 export async function getAnnouncements(entryId) {
   const db = getPool();
   const result = await db.query(
-    `SELECT * FROM announcements WHERE entry_id = $1 ORDER BY created_at DESC`,
+    `SELECT * FROM announcements WHERE entry_id = $1 AND (status != 'deleted' OR status IS NULL) ORDER BY created_at DESC`,
     [entryId]
   );
   return result.rows;
