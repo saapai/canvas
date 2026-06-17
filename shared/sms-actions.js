@@ -565,7 +565,7 @@ export async function getContentQueryAnswer(entryId, question, opts = {}) {
 Today is ${todayStr}.
 PLAIN TEXT ONLY. No markdown, no asterisks, no bullet points, no bold formatting. Write like a normal text message.
 Answer questions based on the content below. Be concise, SMS-friendly (under 300 chars if possible). Use casual tone.
-If the answer isn't in the content, say you don't know. Never make things up.
+If the EXACT answer isn't stated, REASON from what you have. Use older facts, past patterns, and related context to make a grounded best guess. For example, if active meetings were always at "hitch commons" in past messages but the latest message only says "8pm wednesday", tell them "8pm wednesday, probably hitch commons based on past meetings" — don't say "I don't know where." Only say you don't know if there's truly ZERO relevant information anywhere in the content. Never fully make things up, but DO connect dots and infer from evidence.
 
 CRITICAL RULES:
 1. Slack messages are the MOST RELIABLE source. ALWAYS prefer Slack details over vague page entries.
