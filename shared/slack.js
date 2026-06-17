@@ -263,9 +263,8 @@ export async function extractFacts(messages, channelName) {
 - Important decisions or policy updates
 - Action items or assignments (include WHAT to submit, WHERE, form names, URLs)
 - Meeting times and locations
-${channelName.includes('overheard') || channelName.includes('quotes') ? `- QUOTES: This is a quotes/overheard channel. Extract ALL quotes with attribution (who said it, who posted it). Format as: '[person] said "[quote]" (posted by [poster])'. These ARE the content of this channel — do NOT skip them.` : ''}
 
-Skip casual chat, reactions, and trivial messages.${channelName.includes('overheard') || channelName.includes('quotes') ? ' Exception: quotes ARE the content of this channel — extract them all.' : ''}
+Skip casual chat, reactions, and trivial messages.
 
 CRITICAL — PRESERVE SPECIFIC DETAILS:
 - "submit uber reimbursement form" NOT "submit your work"
