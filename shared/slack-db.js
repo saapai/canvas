@@ -119,9 +119,11 @@ export async function saveFact({ syncId, entryId, channelId, messageTs, messageD
 export async function saveAnnouncementAsFact({ entryId, announcementId, content, author, sentAt, factType = 'announcement' }) {
   const db = getPool();
   const id = crypto.randomUUID();
+  // Mark as already digested since this content was JUST sent to all members.
+  // Without this, the weekly digest would re-send the same content.
   const result = await db.query(
-    `INSERT INTO slack_facts (id, sync_id, entry_id, channel_id, message_ts, message_date, author, raw_text, extracted_fact, fact_type, source)
-     VALUES ($1, NULL, $2, 'sms', $3, $4, $5, $6, $6, $7, 'sms_announcement')
+    `INSERT INTO slack_facts (id, sync_id, entry_id, channel_id, message_ts, message_date, author, raw_text, extracted_fact, fact_type, source, digested_at)
+     VALUES ($1, NULL, $2, 'sms', $3, $4, $5, $6, $6, $7, 'sms_announcement', CURRENT_TIMESTAMP)
      ON CONFLICT DO NOTHING
      RETURNING *`,
     [id, entryId, announcementId, sentAt || new Date(), author || null, content, factType]
